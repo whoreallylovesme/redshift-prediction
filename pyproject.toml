@@ -1,0 +1,20 @@
+[project]
+name = "astro-redshift"
+version = "0.1.0"
+description = "Redshift prediction from DSAT catalog"
+readme = "README.md"
+requires-python = ">=3.11"
+
+dependencies = [
+    "numpy",
+    "pandas",
+    "matplotlib",
+    "scikit-learn",
+    "catboost",
+    "xgboost",
+]
+
+[tool.uv]
+dev-dependencies = [
+    "ipykernel>=6",
+]
