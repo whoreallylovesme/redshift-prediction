@@ -1,7 +1,10 @@
-FEATURES_SET_1 = [
-    '-2.5lg(Fx)-18', 'ls_X/w1_h', 'ls_Fx/Fg', 'ls_Fx/Fr', 'ls_Fx/Fz',
-    'ls_Fx/Fw1', 'ls_Fx/Fw2', 'ls_Fx/Fw3', 'ls_Fx/Fw4', 'decals8tr_g',
-    'decals8tr_r', 'decals8tr_z',
+import pandas as pd
+
+
+FEATURES_SET1 = [
+    '-2.5lg(Fx)-18', 'ls_X/w1_h',
+    'ls_Fx/Fg','ls_Fx/Fr','ls_Fx/Fz','ls_Fx/Fw1','ls_Fx/Fw2','ls_Fx/Fw3','ls_Fx/Fw4',
+    'decals8tr_g', 'decals8tr_r', 'decals8tr_z',
     'decals8tr_Lw1', 'decals8tr_Lw2', 'decals8tr_Lw3', 'decals8tr_Lw4',
     'decals8tr_g-r', 'decals8tr_g-z', 'decals8tr_g-Lw1', 'decals8tr_g-Lw2', 'decals8tr_g-Lw3', 'decals8tr_g-Lw4',
     'decals8tr_r-z', 'decals8tr_r-Lw1', 'decals8tr_r-Lw2', 'decals8tr_r-Lw3', 'decals8tr_r-Lw4',
@@ -13,7 +16,8 @@ FEATURES_SET_1 = [
     'ls_sersic', 'ls_type_n'
 ]
 
-FEATURES_SET_2 = [
+
+FEATURES_SET2 = [
     'sdssdr16_u_psf', 'sdssdr16_g_psf', 'sdssdr16_r_psf', 'sdssdr16_i_psf', 'sdssdr16_z_psf',
     'sdssdr16_u_cmodel', 'sdssdr16_i_cmodel', 'sdssdr16_u-g_psf', 'sdssdr16_u-r_psf', 'sdssdr16_u-i_psf',
     'sdssdr16_u-z_psf', 'sdssdr16_u_psf-cmodel', 'sdssdr16_g-i_psf', 'sdssdr16_g_psf-cmodel',
@@ -34,3 +38,19 @@ FEATURES_SET_2 = [
     'decals8tr_z-Lw1', 'decals8tr_z-Lw2'
     'ls_fracin_g','ls_fracin_r','ls_fracin_z','ls_sersic'
 ]
+
+
+def check_features(df, features):
+    features = list(features)
+    df_cols = set(df.columns)
+
+    valid_features = [f for f in features if f in df_cols]
+    return valid_features
+
+
+def get_features_set(num):
+    if num == 1:
+        return check_features(df, FEATURES_SET1)
+    if num == 2:
+        return check_features(df, FEATURES_SET2)
+    raise ValueError(f"Unknown feature set: {num}")
