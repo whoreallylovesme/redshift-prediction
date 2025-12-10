@@ -25,7 +25,7 @@ experiments:
       random_state: 42
 
   - name: rf_best
-    model_type: mlp
+    model_type: rf
     scaler:
       type: standard
     params:
@@ -33,5 +33,11 @@ experiments:
       max_features: sqrt
       min_samples_leaf: 1
       min_samples_split: 4
-    
 
+  - name: gam_best
+    model_type: gam
+    scaler:
+      type: standard
+    params:
+      lam: 1.0
+      n_splines: 30
