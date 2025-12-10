@@ -43,7 +43,6 @@ FEATURES_SET2 = [
 def check_features(df, features):
     features = list(features)
     df_cols = set(df.columns)
-
     valid_features = [f for f in features if f in df_cols]
     return valid_features
 
