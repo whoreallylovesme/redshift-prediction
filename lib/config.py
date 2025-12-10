@@ -7,8 +7,10 @@ ModelType = Literal["catboost", "local_linear", "mlp"]
 @dataclass
 class ExperimentConfig:
     name: str
-    model_type: ModelType
-    params: Dict[str, Any] = field(default_factory=dict)
+    model_type: str
+    params: dict = field(default_factory=dict)
+    scaler: dict | None = None
+
 
 def load_experiment_configs(path):
     with open(path, "r") as f:
@@ -21,7 +23,7 @@ def load_experiment_configs(path):
             name=item["name"],
             model_type=item["model_type"],
             params=item.get("params", {}),
+            scaler=item.get("scaler"),
         )
         configs.append(cfg)
     return configs
-    
