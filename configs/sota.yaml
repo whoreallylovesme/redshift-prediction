@@ -1,0 +1,25 @@
+experiments:
+  - name: catboost_best
+    model_type: catboost
+    params:
+      depth: 6
+      learning_rate: 0.03
+      l2_leaf_reg: 3
+      iterations: 1000
+      random_state: 42
+      verbose: false
+
+  - name: mlp_best
+    model_type: mlp
+    scaler:
+      type: standard
+    params:
+      hidden_layer_sizes: [16, 8]
+      activation: relu
+      solver: adam
+      learning_rate: adaptive
+      max_iter: 10000
+      early_stopping: true
+      validation_fraction: 0.1
+      n_iter_no_change: 100
+      random_state: 42
