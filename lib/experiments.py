@@ -21,10 +21,10 @@ def run_experiments(
         pipe.fit(X_train, y_train)
 
         y_val_pred = pipe.predict(X_val)
-        val_metrics = regression_metrics(y_val, y_val_pred)
+        val_metrics = evaluate_regression(y_val, y_val_pred)
 
         y_test_pred = pipe.predict(X_test)
-        test_metrics = regression_metrics(y_test, y_test_pred)
+        test_metrics = evaluate_regression(y_test, y_test_pred)
 
         rows.append({
             "name": cfg.name,

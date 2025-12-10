@@ -4,7 +4,7 @@ from sklearn.model_selection import train_test_split
 
 from .features import get_features_set
 
-TARGET = "DESIDR1_SPECTYPE"
+TARGET = "DESIDR1_Z"
 # TARGET_FALLBACK = "lg(LX2-10)_sp"
 
 
@@ -14,7 +14,7 @@ def preprocess(
     test_size=0.2,
     val_size=0.25
 ):
-    df = df[(df[TARGET] != "b'STAR  '") & (df[TARGET].notna())]
+    df = df[(df["DESIDR1_SPECTYPE"] != "b'STAR  '") & (df[TARGET].notna())]
 
     if "ls_gaia_star_sn4" in df.columns:
         df = df[df["ls_gaia_star_sn4"] == False]
