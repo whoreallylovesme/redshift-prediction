@@ -1,8 +1,8 @@
 import pandas as pd
 
-from config import ExperimentConfig
-from models import make_pipeline
-from metrics import evaluate_regression
+from .config import ExperimentConfig
+from .models import make_pipeline
+from .metrics import evaluate_regression
 
 
 def run_experiments(

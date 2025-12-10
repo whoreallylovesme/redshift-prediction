@@ -2,8 +2,8 @@ from sklearn.pipeline import Pipeline
 from catboost import CatBoostRegressor
 from sklearn.neural_network import MLPRegressor
 
-from config import ExperimentConfig
-from llr import LocalLinearRegression
+from .config import ExperimentConfig
+from .llr import LocalLinearRegression
 
 
 def _make_base_estimator(cfg: ExperimentConfig):

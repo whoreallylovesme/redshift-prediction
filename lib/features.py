@@ -47,7 +47,7 @@ def check_features(df, features):
     return valid_features
 
 
-def get_features_set(num):
+def get_features_set(df, num):
     if num == 1:
         return check_features(df, FEATURES_SET1)
     if num == 2:
