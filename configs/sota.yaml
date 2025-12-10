@@ -2,9 +2,9 @@ experiments:
   - name: catboost_best
     model_type: catboost
     params:
-      depth: 6
+      depth: 8
       learning_rate: 0.03
-      l2_leaf_reg: 3
+      l2_leaf_reg: 1
       iterations: 1000
       random_state: 42
       verbose: false
@@ -23,3 +23,15 @@ experiments:
       validation_fraction: 0.1
       n_iter_no_change: 100
       random_state: 42
+
+  - name: rf_best
+    model_type: mlp
+    scaler:
+      type: standard
+    params:
+      max_depth: 8
+      max_features: sqrt
+      min_samples_leaf: 1
+      min_samples_split: 4
+    
+

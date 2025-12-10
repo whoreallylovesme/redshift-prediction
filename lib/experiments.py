@@ -21,11 +21,9 @@ def run_experiments(
         pipe = make_pipeline(cfg)
         pipe.fit(X_train, y_train)
 
-        # validation
         y_val_pred = pipe.predict(X_val)
         val_metrics = evaluate_regression(y_val, y_val_pred)
 
-        # test
         y_test_pred = pipe.predict(X_test)
         test_metrics = evaluate_regression(y_test, y_test_pred)
 
@@ -51,10 +49,10 @@ def run_grid_search(
     param_grid,
     X_train,
     y_train,
-    scoring: str = "neg_root_mean_squared_error",
-    cv: int = 3,
-    n_jobs: int = -1,
-    verbose: int = 0,
+    scoring="neg_root_mean_squared_error",
+    cv=3,
+    n_jobs=-1,
+    verbose=0,
 ):
     pipe = make_pipeline(base_cfg)
 

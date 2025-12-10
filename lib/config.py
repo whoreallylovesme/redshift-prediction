@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, Literal
 import yaml
 
-ModelType = Literal["catboost", "local_linear", "mlp", "rf"]
+ModelType = Literal["catboost", "local_linear", "mlp", "rf", "gam"]
 
 @dataclass
 class ExperimentConfig:

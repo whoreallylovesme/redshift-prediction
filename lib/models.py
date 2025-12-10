@@ -6,6 +6,7 @@ from sklearn.ensemble import RandomForestRegressor
 
 from .config import ExperimentConfig
 from .llr import LocalLinearRegression
+from .gam import GAMRegressor 
 
 
 def _make_base_estimator(cfg: ExperimentConfig):
@@ -20,6 +21,9 @@ def _make_base_estimator(cfg: ExperimentConfig):
 
     if cfg.model_type == "rf":
         return RandomForestRegressor(**cfg.params)
+
+    if cfg.model_type == "gam":
+        return GAMRegressor(**cfg.params)
 
     raise ValueError(f"Unknown model_type: {cfg.model_type}")
 
