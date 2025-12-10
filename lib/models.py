@@ -2,6 +2,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler, MinMaxScaler, RobustScaler
 from catboost import CatBoostRegressor
 from sklearn.neural_network import MLPRegressor
+from sklearn.ensemble import RandomForestRegressor
 
 from .config import ExperimentConfig
 from .llr import LocalLinearRegression
@@ -17,7 +18,11 @@ def _make_base_estimator(cfg: ExperimentConfig):
     if cfg.model_type == "mlp":
         return MLPRegressor(**cfg.params)
 
+    if cfg.model_type == "rf":
+        return RandomForestRegressor(**cfg.params)
+
     raise ValueError(f"Unknown model_type: {cfg.model_type}")
+
 
 
 def _make_scaler(cfg: ExperimentConfig):

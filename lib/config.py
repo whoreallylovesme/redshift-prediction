@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, Literal
 import yaml
 
-ModelType = Literal["catboost", "local_linear", "mlp"]
+ModelType = Literal["catboost", "local_linear", "mlp", "rf"]
 
 @dataclass
 class ExperimentConfig:
@@ -27,3 +27,4 @@ def load_experiment_configs(path):
         )
         configs.append(cfg)
     return configs
+    
