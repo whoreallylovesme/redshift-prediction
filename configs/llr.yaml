@@ -13,7 +13,7 @@ estimator: |
   estimator = Pipeline([
     ("imputer", SimpleImputer(strategy="median")),
     ("scaler", StandardScaler()),
-    ("model", LocalLinearRegression(k=50))
+    ("model", LocalLinearRegression(k=5))
   ])
 
 estimator_params: {}
@@ -26,4 +26,4 @@ hyperopt:
   verbose: 1
 
 param_grid:
-  "model__k": [20, 50, 100]
+  "model__k": [1, 2]

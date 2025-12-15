@@ -6,7 +6,9 @@ python prepare_dataset.py --input dsat.csv --features features/features.yaml --o
 
 echo ">> prepare_dataset done"
 
-for cfg in gam; do
+rm -rf runs
+
+for cfg in catboost gam llr mlp rf; do
   echo ">> training->"${cfg} && \
   python train.py \
     --dataset prepared/data.parquet \
