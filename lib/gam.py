@@ -9,13 +9,14 @@ class GAMRegressor(BaseEstimator, RegressorMixin):
         self.max_iter = max_iter
 
     def fit(self, X, y):
-        self._gam = LinearGAM(
+        self.gam_ = LinearGAM(
             n_splines=self.n_splines,
             lam=self.lam,
             max_iter=self.max_iter,
-        )
-        self._gam.fit(X, y)
+        ).fit(X, y)
+
+        self.n_features_in_ = X.shape[1]
         return self
 
     def predict(self, X):
-        return self._gam.predict(X)
+        return self.gam_.predict(X)
