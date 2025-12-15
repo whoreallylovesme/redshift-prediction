@@ -30,7 +30,7 @@ def main(dataset, config_path, features_path, feature_set, outdir):
     features = fcfg["feature_sets"][feature_set]
 
     df = read_dataset(dataset)
-    df = clean_dataset(df, target, cfg["preprocess"])
+    df = clean_dataset(df, target)
 
     selected, missing = feature_selection(df, features)
     print(f"feature_set={feature_set} total={len(features)} found={len(selected)} missing={len(missing)}")

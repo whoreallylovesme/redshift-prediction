@@ -4,11 +4,6 @@ split:
   shuffle: true
   random_seed: 42
 
-preprocess:
-  drop_star_spectype: true
-  drop_gaia_stars: true
-  drop_unnamed: true
-
 estimator: |
   from sklearn.pipeline import Pipeline
   from catboost import CatBoostRegressor

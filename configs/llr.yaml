@@ -1,0 +1,29 @@
+split:
+  test_size: 0.2
+  val_size: 0.25
+  shuffle: true
+  random_seed: 42
+
+estimator: |
+  from sklearn.pipeline import Pipeline
+  from sklearn.impute import SimpleImputer
+  from sklearn.preprocessing import StandardScaler
+  from lib.llr import LocalLinearRegression
+
+  estimator = Pipeline([
+    ("imputer", SimpleImputer(strategy="median")),
+    ("scaler", StandardScaler()),
+    ("model", LocalLinearRegression(k=50))
+  ])
+
+estimator_params: {}
+
+hyperopt:
+  enabled: true
+  cv: 3
+  scoring: "neg_root_mean_squared_error"
+  n_jobs: 1
+  verbose: 1
+
+param_grid:
+  "model__k": [20, 50, 100]
