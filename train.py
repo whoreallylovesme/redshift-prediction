@@ -34,8 +34,6 @@ def main(dataset, config_path, features_path, feature_set, outdir):
 
     selected, missing = feature_selection(df, features)
     print(f"feature_set={feature_set} total={len(features)} found={len(selected)} missing={len(missing)}")
-    if missing:
-        print("missing (first 30):", missing[:30])
 
     X_train, X_val, X_test, y_train, y_val, y_test, X_train_full, y_train_full = split_data(
         df, selected, target, cfg["split"]
