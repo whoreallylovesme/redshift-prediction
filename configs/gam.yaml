@@ -26,6 +26,6 @@ hyperopt:
   verbose: 1
 
 param_grid:
-  "model__n_splines": [10, 20]
-  "model__lam": [0.6, 1.0]
-  "model__max_iter": [100, 500]
+  "model__n_splines": [10, 20, 40]
+  "model__lam": [0.3, 0.6, 1.0]
+  "model__max_iter": [100, 300, 500]

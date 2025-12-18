@@ -7,10 +7,13 @@ import click
 from lib.dataset import read_dataset, clean_dataset
 from lib.estimator_loader import load_estimator
 from lib.training import feature_selection, split_data, hyperparameter_optimization, train_model, evaluate
+from lib.plots import redshift_scatter
+
 
 def load_yaml(path):
     with open(path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
+
 
 @click.command()
 @click.option("--dataset", required=True, type=click.Path(exists=True))
@@ -58,8 +61,23 @@ def main(dataset, config_path, features_path, feature_set, outdir):
     joblib.dump(model, outdir / "model.pkl")
     (outdir / "report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
 
+    redshift_scatter(y_train_full, model.predict(X_train_full), outdir / "scatter_train.png")
+    redshift_scatter(y_val, model.predict(X_val), outdir / "scatter_val.png")
+    redshift_scatter(y_test, model.predict(X_test), outdir / "scatter_test.png")
+    
+    report["plots"] = {
+        "train": "scatter_train.png",
+        "val": "scatter_val.png",
+        "test": "scatter_test.png",
+    }
+    (outdir / "report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+    
+    print("Saved:", outdir / "scatter_train.png")
+    print("Saved:", outdir / "scatter_val.png")
+    print("Saved:", outdir / "scatter_test.png")
     print("Saved:", outdir / "model.pkl")
     print("Saved:", outdir / "report.json")
+
 
 if __name__ == "__main__":
     main()

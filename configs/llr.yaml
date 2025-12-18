@@ -26,4 +26,4 @@ hyperopt:
   verbose: 1
 
 param_grid:
-  "model__k": [1, 2]
+  "model__k": [1, 5, 10, 100]

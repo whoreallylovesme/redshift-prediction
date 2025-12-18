@@ -1,0 +1,34 @@
+split:
+  test_size: 0.2
+  val_size: 0.25
+  shuffle: true
+  random_seed: 42
+
+estimator: |
+  from sklearn.pipeline import Pipeline
+  from catboost import CatBoostRegressor
+
+  estimator = Pipeline([
+    ("model", CatBoostRegressor(
+      loss_function="RMSE",
+      random_seed=42,
+      verbose=False,
+      allow_writing_files=False,
+      thread_count=-1
+    ))
+  ])
+
+estimator_params: {}
+
+hyperopt:
+  enabled: false
+  cv: 3
+  scoring: "neg_root_mean_squared_error"
+  n_jobs: 1
+  verbose: 1
+
+param_grid:
+  "model__iterations": [100, 300, 500]
+  "model__depth": [6, 8, 10]
+  "model__learning_rate": [0.01, 0.03, 0.05]
+  "model__l2_leaf_reg": [1, 3, 5]
