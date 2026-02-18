@@ -5,6 +5,7 @@ from typing import Any
 import click
 import joblib
 import yaml
+from sklearn.model_selection import train_test_split
 
 from lib.dataset import clean_dataset, read_dataset
 from lib.estimator_loader import load_estimator
@@ -24,76 +25,65 @@ def load_yaml(path: str) -> Any:
 
 
 @click.command()
-@click.option("--dataset", required=True, type=click.Path(exists=True))
-@click.option("--config", "config_path", required=True, type=click.Path(exists=True))
-@click.option("--features", "features_path", required=True, type=click.Path(exists=True))
-@click.option("--feature-set", "feature_set", default=None)
-@click.option("--outdir", default="runs/last")
+@click.option("--train", required=True, type=click.Path(exists=True, dir_okay=False))
+@click.option("--config", required=True, type=click.Path(exists=True, dir_okay=False))
+@click.option("--features", required=True, type=click.Path(exists=True, dir_okay=False))
+@click.option("--feature-set", required=True)
+@click.option("--outdir", required=True, type=click.Path(file_okay=False))
 def main(
-    dataset: str,
-    config_path: str,
-    features_path: str,
-    feature_set: str | None,
-    outdir: Path
+    train: str,
+    config: str,
+    features: str,
+    feature_set: str,
+    outdir: str
 ) -> None:
-    cfg = load_yaml(config_path)
-    fcfg = load_yaml(features_path)
+    cfg = load_yaml(config)
+    fcfg = load_yaml(features)
 
     target = fcfg["target"]
+    feature_list = fcfg["feature_sets"][feature_set]
 
-    if feature_set is None:
-        feature_set = fcfg["default_set"]
+    split = cfg["split"]
+    val_size = float(split["val_size"])
+    shuffle = bool(split["shuffle"])
+    random_seed = int(split["random_seed"])
 
-    features = fcfg["feature_sets"][feature_set]
+    df = read_dataset(train)
 
-    df = read_dataset(dataset)
-    df = clean_dataset(df, target)
+    selected, missing = feature_selection(df, feature_list)
 
-    selected, missing = feature_selection(df, features)
-    print(
-        f"feature_set={feature_set} total={len(features)}",
-        f"found={len(selected)} missing={len(missing)}"
-    )
+    X = df[selected]
+    y = df[target]
 
-    X_train, X_val, X_test, y_train, y_val, y_test, X_train_full, y_train_full = split_data(
-        df, selected, target, cfg["split"]
+    X_train, X_val, y_train, y_val = train_test_split(
+        X,
+        y,
+        test_size=val_size,
+        random_state=random_seed,
+        shuffle=shuffle,
     )
 
     estimator = load_estimator(cfg)
 
     best_params = hyperparameter_optimization(estimator, X_train, y_train, cfg)
-    model = train_model(estimator, X_train_full, y_train_full, best_params)
+    model = train_model(estimator, X_train, y_train, best_params)
+
+    out = Path(outdir)
+    out.mkdir(parents=True, exist_ok=True)
+
+    joblib.dump(model, out / "model.pkl")
 
     report = {
         "feature_set": feature_set,
         "selected_features": selected,
         "missing_features": missing,
         "best_params": best_params,
-        "val": evaluate(model, X_val, y_val),
-        "test": evaluate(model, X_test, y_test),
+        "val_metrics": evaluate(model, X_val, y_val),
     }
 
-    outdir = Path(outdir)
-    outdir.mkdir(parents=True, exist_ok=True)
-    joblib.dump(model, outdir / "model.pkl")
-    (outdir / "report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+    (out / "report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
 
-    redshift_scatter(y_train_full, model.predict(X_train_full), outdir / "scatter_train.png")
-    redshift_scatter(y_val, model.predict(X_val), outdir / "scatter_val.png")
-    redshift_scatter(y_test, model.predict(X_test), outdir / "scatter_test.png")
-    
-    report["plots"] = {
-        "train": "scatter_train.png",
-        "val": "scatter_val.png",
-        "test": "scatter_test.png",
-    }
-    (outdir / "report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
-    
-    print("Saved:", outdir / "scatter_train.png")
-    print("Saved:", outdir / "scatter_val.png")
-    print("Saved:", outdir / "scatter_test.png")
-    print("Saved:", outdir / "model.pkl")
-    print("Saved:", outdir / "report.json")
+    print(f"Saved to {out.resolve()}")
 
 
 if __name__ == "__main__":

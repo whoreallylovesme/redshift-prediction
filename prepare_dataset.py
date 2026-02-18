@@ -24,7 +24,6 @@ def main(input: str, data_config: str, features: str, outdir: str) -> None:
     split = dcfg["split"]
 
     test_size = float(split["test_size"])
-    val_size = float(split["val_size"])
     shuffle = bool(split["shuffle"])
     random_seed = int(split["random_seed"])
 
@@ -55,7 +54,6 @@ def main(input: str, data_config: str, features: str, outdir: str) -> None:
             "rows_test": [len(test_df)],
             "cols": [df.shape[1]],
             "split_test_size": [test_size],
-            "split_val_size": [val_size],
             "split_shuffle": [shuffle],
             "split_random_seed": [random_seed],
     })
