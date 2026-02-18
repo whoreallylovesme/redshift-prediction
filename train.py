@@ -7,14 +7,12 @@ import joblib
 import yaml
 from sklearn.model_selection import train_test_split
 
-from lib.dataset import clean_dataset, read_dataset
+from lib.dataset import read_dataset
 from lib.estimator_loader import load_estimator
-from lib.plots import redshift_scatter
 from lib.training import (
     evaluate,
     feature_selection,
     hyperparameter_optimization,
-    split_data,
     train_model,
 )
 

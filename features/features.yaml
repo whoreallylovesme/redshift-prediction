@@ -39,7 +39,6 @@ feature_sets:
     - "decals8tr_Lw2-Lw3"
     - "decals8tr_Lw2-Lw4"
     - "decals8tr_Lw3-Lw4"
-    - "separation_sig"
     - "ls_star_gw1_gz_score"
     - "ls_star_zw1_rz_score"
     - "ls_star_zw2_rz_score"
