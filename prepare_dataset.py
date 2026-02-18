@@ -4,6 +4,7 @@ from typing import Any
 import click
 import pandas as pd
 import yaml
+from sklearn.model_selection import train_test_split
 
 from lib.dataset import clean_dataset
 
@@ -14,30 +15,53 @@ def load_yaml(path: str) -> Any:
 
 
 @click.command()
-@click.option("--input", "input_path", required=True, type=click.Path(exists=True))
-@click.option("--features", "features_path", required=True, type=click.Path(exists=True))
-@click.option("--outdir", default="prepared")
-def main(input_path: str, features_path: str, outdir: Path) -> None:
-    fcfg = load_yaml(features_path)
+@click.option("--input", required=True, type=click.Path(exists=True, dir_okay=False))
+@click.option("--data-config", required=True, type=click.Path(exists=True, dir_okay=False))
+@click.option("--features", required=True, type=click.Path(exists=True, dir_okay=False))
+@click.option("--outdir", required=True, type=click.Path(file_okay=False))
+def main(input: str, data_config: str, features: str, outdir: str) -> None:
+    dcfg = load_yaml(data_config)
+    split = dcfg["split"]
 
-    df = pd.read_csv(input_path, low_memory=False)
+    test_size = float(split["test_size"])
+    val_size = float(split["val_size"])
+    shuffle = bool(split["shuffle"])
+    random_seed = int(split["random_seed"])
 
-    df = clean_dataset(df, fcfg["target"])
-    df = df.select_dtypes(include=["number", "bool"])
+    target = load_yaml(features)["target"]
 
-    outdir = Path(outdir)
-    outdir.mkdir(parents=True, exist_ok=True)
+    df = pd.read_csv(input, low_memory=False)
+    df = clean_dataset(df, target)
+    df = df.select_dtypes(include=["number", "bool"]).reset_index(drop=True)
 
-    df.to_parquet(outdir / "data.parquet", index=False, engine="pyarrow")
+    train_df, test_df = train_test_split(
+        df,
+        test_size=test_size,
+        random_state=random_seed,
+        shuffle=shuffle,
+    )
 
-    meta = pd.DataFrame([{
-        "rows": int(df.shape[0]),
-        "cols": int(df.shape[1]),
-    }])
-    meta.to_parquet(outdir / "meta.parquet", index=False, engine="pyarrow")
+    out = Path(outdir)
+    out.mkdir(parents=True, exist_ok=True)
 
-    print("Saved:", outdir / "data.parquet")
-    print("Saved:", outdir / "meta.parquet")
+    train_df.to_parquet(out / "train.parquet", index=False, engine="pyarrow")
+    test_df.to_parquet(out / "test.parquet", index=False, engine="pyarrow")
+
+    meta = pd.DataFrame({
+            "input": [str(Path(input).resolve())],
+            "target": [target],
+            "rows_total": [len(df)],
+            "rows_train": [len(train_df)],
+            "rows_test": [len(test_df)],
+            "cols": [df.shape[1]],
+            "split_test_size": [test_size],
+            "split_val_size": [val_size],
+            "split_shuffle": [shuffle],
+            "split_random_seed": [random_seed],
+    })
+    meta.to_parquet(out / "meta.parquet", index=False, engine="pyarrow")
+
+    print(f"Saved to {out.resolve()}")
 
 
 if __name__ == "__main__":
