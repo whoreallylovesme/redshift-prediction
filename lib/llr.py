@@ -1,15 +1,22 @@
+from typing import Self
+
 import numpy as np
+from numpy.typing import NDArray
 from sklearn.base import BaseEstimator, RegressorMixin
-from sklearn.neighbors import NearestNeighbors
 from sklearn.linear_model import LinearRegression
+from sklearn.neighbors import NearestNeighbors
 from sklearn.utils.validation import check_array, check_is_fitted
 
 
 class LocalLinearRegression(BaseEstimator, RegressorMixin):
-    def __init__(self, k=50):
+    def __init__(self, k: int = 50) -> None:
         self.k = k
 
-    def fit(self, X, y):
+    def fit(
+        self,
+        X: NDArray[np.float64],
+        y: NDArray[np.float64],
+    ) -> Self:
         X = check_array(X)
         y = np.asarray(y).ravel()
 
@@ -21,7 +28,10 @@ class LocalLinearRegression(BaseEstimator, RegressorMixin):
 
         return self
 
-    def predict(self, X):
+    def predict(
+        self,
+        X: NDArray[np.float64],
+    ) -> NDArray[np.float64]:
         check_is_fitted(self, ["X_train_", "y_train_"])
         X = check_array(X)
 

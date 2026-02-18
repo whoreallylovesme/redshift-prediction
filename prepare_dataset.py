@@ -1,13 +1,15 @@
 from pathlib import Path
-import yaml
-import pandas as pd
+from typing import Any
+
 import click
+import pandas as pd
+import yaml
 
 from lib.dataset import clean_dataset
 
 
-def load_yaml(path):
-    with open(path, "r", encoding="utf-8") as f:
+def load_yaml(path: str) -> Any:
+    with open(path, encoding="utf-8") as f:
         return yaml.safe_load(f)
 
 
@@ -15,7 +17,7 @@ def load_yaml(path):
 @click.option("--input", "input_path", required=True, type=click.Path(exists=True))
 @click.option("--features", "features_path", required=True, type=click.Path(exists=True))
 @click.option("--outdir", default="prepared")
-def main(input_path, features_path, outdir):
+def main(input_path: str, features_path: str, outdir: Path) -> None:
     fcfg = load_yaml(features_path)
 
     df = pd.read_csv(input_path, low_memory=False)

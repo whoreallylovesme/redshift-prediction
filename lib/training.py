@@ -1,8 +1,12 @@
-from sklearn.model_selection import train_test_split, GridSearchCV
+from typing import Any
+
+import pandas as pd
+from sklearn.model_selection import GridSearchCV, train_test_split
+
 from .metrics import evaluate_regression
 
 
-def feature_selection(df, features):
+def feature_selection(df: pd.DataFrame, features: list[str]) -> tuple[list[str], list[str]]:
     cols = set(df.columns)
     selected = []
     missing = []
@@ -14,8 +18,21 @@ def feature_selection(df, features):
 
     return selected, missing
 
-
-def split_data(df, features, target, split_cfg):
+def split_data(
+    df: pd.DataFrame,
+    features: list[str],
+    target: str,
+    split_cfg: dict[str, Any]
+) -> tuple[
+    pd.DataFrame,
+    pd.DataFrame,
+    pd.DataFrame,
+    pd.Series,
+    pd.Series,
+    pd.Series,
+    pd.DataFrame,
+    pd.Series
+]:
     X = df[features]
     y = df[target]
 
@@ -38,8 +55,13 @@ def split_data(df, features, target, split_cfg):
     return X_train, X_val, X_test, y_train, y_val, y_test, X_train_full, y_train_full
 
 
-def hyperparameter_optimization(estimator, X_train, y_train, cfg):
-    if cfg["hyperopt"]["enabled"] == False:
+def hyperparameter_optimization(
+    estimator: Any,
+    X_train: pd.DataFrame,
+    y_train: pd.Series,
+    cfg: dict[str, Any],
+) -> Any:
+    if not cfg["hyperopt"]["enabled"]:
         return {}
 
     gs = GridSearchCV(
@@ -55,7 +77,12 @@ def hyperparameter_optimization(estimator, X_train, y_train, cfg):
     return gs.best_params_
 
 
-def train_model(estimator, X_train_full, y_train_full, best_params):
+def train_model(
+    estimator: Any,
+    X_train_full: pd.DataFrame,
+    y_train_full: pd.Series,
+    best_params: dict[str, Any],
+) -> Any:
     if best_params:
         estimator.set_params(**best_params)
     estimator.fit(X_train_full, y_train_full)
@@ -63,7 +90,11 @@ def train_model(estimator, X_train_full, y_train_full, best_params):
     return estimator
 
 
-def evaluate(model, X, y):
+def evaluate(
+    model: Any,
+    X: pd.DataFrame,
+    y: pd.Series,
+) -> dict[str, float]:
     pred = model.predict(X)
 
     return evaluate_regression(y, pred)

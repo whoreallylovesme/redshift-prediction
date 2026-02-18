@@ -1,17 +1,25 @@
 import json
 from pathlib import Path
-import yaml
-import joblib
+from typing import Any
+
 import click
+import joblib
+import yaml
 
-from lib.dataset import read_dataset, clean_dataset
+from lib.dataset import clean_dataset, read_dataset
 from lib.estimator_loader import load_estimator
-from lib.training import feature_selection, split_data, hyperparameter_optimization, train_model, evaluate
 from lib.plots import redshift_scatter
+from lib.training import (
+    evaluate,
+    feature_selection,
+    hyperparameter_optimization,
+    split_data,
+    train_model,
+)
 
 
-def load_yaml(path):
-    with open(path, "r", encoding="utf-8") as f:
+def load_yaml(path: str) -> Any:
+    with open(path, encoding="utf-8") as f:
         return yaml.safe_load(f)
 
 
@@ -21,7 +29,13 @@ def load_yaml(path):
 @click.option("--features", "features_path", required=True, type=click.Path(exists=True))
 @click.option("--feature-set", "feature_set", default=None)
 @click.option("--outdir", default="runs/last")
-def main(dataset, config_path, features_path, feature_set, outdir):
+def main(
+    dataset: str,
+    config_path: str,
+    features_path: str,
+    feature_set: str | None,
+    outdir: Path
+) -> None:
     cfg = load_yaml(config_path)
     fcfg = load_yaml(features_path)
 
@@ -36,7 +50,10 @@ def main(dataset, config_path, features_path, feature_set, outdir):
     df = clean_dataset(df, target)
 
     selected, missing = feature_selection(df, features)
-    print(f"feature_set={feature_set} total={len(features)} found={len(selected)} missing={len(missing)}")
+    print(
+        f"feature_set={feature_set} total={len(features)}",
+        f"found={len(selected)} missing={len(missing)}"
+    )
 
     X_train, X_val, X_test, y_train, y_val, y_test, X_train_full, y_train_full = split_data(
         df, selected, target, cfg["split"]

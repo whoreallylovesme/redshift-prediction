@@ -1,21 +1,40 @@
 [project]
-name = "astro-redshift"
+name = "astro"
 version = "0.1.0"
-description = "Redshift prediction from DSAT catalog"
-readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.13"
 
-dependencies = [
-    "numpy",
-    "pandas",
-    "matplotlib",
-    "scikit-learn",
-    "catboost",
-    "pyarrow",
-    "pygam"
+[dependency-groups]
+dev = [
+    "ruff",
+    "mypy",
+    "pre-commit",
+    "types-pyyaml>=6.0.12.20250915", # для mypy
 ]
 
-[tool.uv]
-dev-dependencies = [
-    "ipykernel>=6",
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+extend-exclude = ["runs", "prepared"]
+
+[tool.ruff.lint]
+select = [
+    "E",  # pycodestyle
+    "F",  # неиспользуемые переменные, ошибки импорта
+    "I",  # сортировка импортов
+    "B",  # ловит потенциальные баги
+    "UP", # обновляет старый синтаксис до современного
 ]
+
+[tool.mypy]
+python_version = "3.13"
+pretty = true # Красивый вывод ошибок
+show_error_codes = true # Показывать коды ошибок
+check_untyped_defs = true # Проверять функции без аннотаций типов
+disallow_incomplete_defs = true # Запрещать частично аннотированные функции
+no_implicit_optional = true # Запрещает неявный Optional
+warn_return_any = true # Предупреждать если функция возвращает Any
+warn_unused_ignores = true # Предупреждать если игнор типов не нужен
+ignore_missing_imports = true # Игнорировать отсутствующие типы у сторонних библиотек
+disallow_untyped_defs = true # Запрещать функции без аннотаций
+
+exclude = "^(runs|prepared)/"

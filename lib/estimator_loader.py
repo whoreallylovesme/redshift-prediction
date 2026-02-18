@@ -1,9 +1,15 @@
-from sklearn.base import clone
+from typing import Any
 
-def load_estimator(cfg):
-    scope = {}
+from sklearn.base import BaseEstimator
+
+
+def load_estimator(cfg: dict[str, Any]) -> BaseEstimator:
+    scope: dict[str, Any] = {}
     exec(cfg["estimator"], scope)
-    est = clone(scope["estimator"])
-    est.set_params(**cfg["estimator_params"])
+
+    est = scope["estimator"]
+
+    if not isinstance(est, BaseEstimator):
+        raise TypeError("Loaded object is not a BaseEstimator")
 
     return est

@@ -1,15 +1,23 @@
-import numpy as np
+from pathlib import Path
+
 import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+from numpy.typing import NDArray
 
 
-def redshift_scatter(y_true, y_pred, path):
-    y_true = np.asarray(y_true).ravel()
-    y_pred = np.asarray(y_pred).ravel()
+def redshift_scatter(
+    y_true: pd.Series,
+    y_pred: NDArray[np.float64],
+    path: str | Path,
+) -> None:
+    y_true_arr = np.asarray(y_true).ravel()
+    y_pred_arr = np.asarray(y_pred).ravel()
 
     fig, ax = plt.subplots(figsize=(6, 6))
 
-    vmin = np.min([y_true.min(), y_pred.min()])
-    vmax = np.max([y_true.max(), y_pred.max()])
+    vmin = np.min([y_true_arr.min(), y_pred_arr.min()])
+    vmax = np.max([y_true_arr.max(), y_pred_arr.max()])
 
     ax.plot([vmin, vmax], [vmin, vmax], linestyle="--", linewidth=1)
     ax.scatter(y_true, y_pred, s=8, alpha=0.35)
