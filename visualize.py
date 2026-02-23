@@ -44,6 +44,9 @@ code {{ background: #f6f6f6; padding: 2px 6px; border-radius: 6px; }}
 <p><b>RMSE:</b> <code>{metrics["rmse"]:.6g}</code></p>
 <p><b>MAE:</b> <code>{metrics["mae"]:.6g}</code></p>
 <p><b>R2:</b> <code>{metrics["r2"]:.6g}</code></p>
+<p><b>f_outlier_percent:</b> <code>{metrics["f_outlier_percent"]:.6g}</code></p>
+<p><b>bias:</b> <code>{metrics["bias"]:.6g}</code></p>
+<p><b>sigma_nmad:</b> <code>{metrics["sigma_nmad"]:.6g}</code></p>
 
 <h2>Scatter</h2>
 <img src="plots/scatter.png">
