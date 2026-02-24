@@ -50,7 +50,7 @@ for cfg in catboost gam llr mlp rf; do
     --feature-set set2 \
     --outdir runs/${cfg}_set2
 
-  python infer.py \
+  python inference.py \
     --model runs/${cfg}_set2/model.pkl \
     --test prepared/test.parquet \
     --features features/features.yaml \
