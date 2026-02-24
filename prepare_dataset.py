@@ -15,7 +15,7 @@ def load_yaml(path: str) -> Any:
 
 
 @click.command()
-@click.option("--input", required=True, type=click.Path(exists=True, dir_okay=False))
+@click.option("--input", required=True, type=str)
 @click.option("--data-config", required=True, type=click.Path(exists=True, dir_okay=False))
 @click.option("--features", required=True, type=click.Path(exists=True, dir_okay=False))
 @click.option("--outdir", required=True, type=click.Path(file_okay=False))

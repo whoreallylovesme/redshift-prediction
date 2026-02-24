@@ -8,7 +8,7 @@ rm -rf runs
 echo ">> prepare_dataset"
 
 python prepare_dataset.py \
-  --input dsat.csv \
+  --input "s3://cosmos/datasets/dsat.csv" \
   --data-config configs/dataset.yaml \
   --features features/features.yaml \
   --outdir prepared

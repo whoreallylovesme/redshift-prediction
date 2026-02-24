@@ -10,7 +10,8 @@ def photoz_dz(
 ) -> NDArray[np.float64]:
     y_true_arr = y_true.to_numpy(dtype=np.float64)
     y_pred_arr = y_pred.astype(np.float64)
-    return (y_pred_arr - y_true_arr) / (1.0 + y_true_arr)
+    out: NDArray[np.float64] = (y_pred_arr - y_true_arr) / (1.0 + y_true_arr)
+    return out
 
 
 def photoz_bias(
