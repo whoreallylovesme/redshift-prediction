@@ -23,7 +23,7 @@ dev = [
 [tool.ruff]
 target-version = "py313"
 line-length = 100
-extend-exclude = ["runs", "prepared"]
+extend-exclude = ["runs", "prepared", "useful_info"]
 
 [tool.ruff.lint]
 select = [
@@ -46,4 +46,4 @@ warn_unused_ignores = true # Предупреждать если игнор ти
 ignore_missing_imports = true # Игнорировать отсутствующие типы у сторонних библиотек
 disallow_untyped_defs = true # Запрещать функции без аннотаций
 
-exclude = "^(runs|prepared)/"
+exclude = "^(runs|prepared|useful_info)/"
