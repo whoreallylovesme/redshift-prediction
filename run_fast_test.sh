@@ -36,7 +36,8 @@ for cfg in catboost_fast_test; do
 
   python visualize.py \
     --preds runs/${cfg}_set1/preds.parquet \
-    --outdir runs/${cfg}_set1
+    --outdir runs/${cfg}_set1 \
+    --model-name ${cfg}
 done
 
 echo ">> fast test done"

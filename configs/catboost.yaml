@@ -28,7 +28,7 @@ hyperopt:
   verbose: 1
 
 param_grid:
-  "model__iterations": [300, 500]
-  "model__depth": [6, 8, 10]
-  "model__learning_rate": [0.01, 0.03]
-  "model__l2_leaf_reg": [1, 3]
+  "model__iterations": [500]
+  "model__depth": [10]
+  "model__learning_rate": [0.03]
+  "model__l2_leaf_reg": [1]

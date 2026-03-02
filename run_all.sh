@@ -35,7 +35,8 @@ for cfg in catboost gam llr mlp rf; do
 
   python visualize.py \
     --preds runs/${cfg}_set1/preds.parquet \
-    --outdir runs/${cfg}_set1
+    --outdir runs/${cfg}_set1 \
+    --model-name ${cfg}
 done
 
 echo ">> train set1 done"

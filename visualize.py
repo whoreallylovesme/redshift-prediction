@@ -10,7 +10,8 @@ from lib.plots import redshift_scatter
 @click.command()
 @click.option("--preds", required=True, type=click.Path(exists=True, dir_okay=False))
 @click.option("--outdir", required=True, type=click.Path(file_okay=False))
-def main(preds: str, outdir: str) -> None:
+@click.option("--model-name", "model_name", required=True)
+def main(preds: str, outdir: str, model_name: str) -> None:
     out = Path(outdir)
     out.mkdir(parents=True, exist_ok=True)
 
@@ -24,7 +25,7 @@ def main(preds: str, outdir: str) -> None:
 
     metrics = evaluate_regression(y_true, y_pred)
 
-    redshift_scatter(y_true, y_pred, plots / "scatter.png")
+    redshift_scatter(y_true, y_pred, plots / "scatter.png", model_name, 0, 3)
 
     (out / "report.html").write_text(
         f"""<!doctype html>
