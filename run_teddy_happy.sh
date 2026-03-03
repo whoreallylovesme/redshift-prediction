@@ -1,54 +1,79 @@
+#!/usr/bin/env bash
 set -euo pipefail
 
-echo ">> Teddy pipeline run"
+echo ">> Teddy + Happy pipeline run"
 
-rm -rf runs_B runs_C runs_D
+DATASETS=("teddy" "happy")
+SPLITS=("B" "C" "D")
+MODELS=("catboost" "llr" "mlp" "rf")
 
-echo "===TEDDY==="
+for ds in "${DATASETS[@]}"; do
 
-for cfg in catboost llr mlp rf; do
-  echo ">> model training start (${cfg})"
+  if [ "$ds" = "teddy" ]; then
+    base="TeddyResult"
+    parquet_dir="TeddyParquet"
+  else
+    base="HappyResult"
+    parquet_dir="HappyParquet"
+  fi
 
-  tmp_train_dir="tmp_${cfg}"
-  rm -rf "$tmp_train_dir"
+  echo "=== DATASET: ${ds} -> ${base} (parquet: ${parquet_dir}) ==="
 
-  python train.py \
-    --train TeddyParquet/teddy_A.parquet \
-    --config "configs/${cfg}.yaml" \
-    --features features/features_teddy_happy.yaml \
-    --feature-set set3 \
-    --outdir "$tmp_train_dir"
+  rm -rf "${base}/runs_B" "${base}/runs_C" "${base}/runs_D"
+  mkdir -p "${base}"
 
-  echo ">> model inference start (${cfg})"
+  for cfg in "${MODELS[@]}"; do
+    echo ">> model training start (${cfg}, ${ds})"
 
-  for suf in B C D; do
-    dsat="teddy_${suf}"
-    run_dir="runs_${suf}/${cfg}"
-    mkdir -p "$run_dir"
+    tmp_train_dir="tmp_${ds}_${cfg}"
+    rm -rf "$tmp_train_dir"
 
-    preds="${run_dir}/preds.parquet"
-
-    python inference.py \
-      --model "${tmp_train_dir}/model.pkl" \
-      --test "TeddyParquet/${dsat}.parquet" \
+    python train.py \
+      --train "${parquet_dir}/${ds}_A.parquet" \
+      --config "configs/${cfg}.yaml" \
       --features features/features_teddy_happy.yaml \
       --feature-set set3 \
-      --out "$preds"
+      --outdir "$tmp_train_dir"
 
-    python visualize.py \
-      --preds "$preds" \
-      --outdir "$run_dir" \
-      --model-name "${cfg}_${dsat}"
+    echo ">> model inference start (${cfg}, ${ds})"
+
+    for suf in "${SPLITS[@]}"; do
+      dsat="${ds}_${suf}"
+      run_dir="${base}/runs_${suf}/${cfg}"
+      mkdir -p "$run_dir"
+
+      preds="${run_dir}/preds.parquet"
+
+      python inference.py \
+        --model "${tmp_train_dir}/model.pkl" \
+        --test "${parquet_dir}/${dsat}.parquet" \
+        --features features/features_teddy_happy.yaml \
+        --feature-set set3 \
+        --out "$preds"
+
+      python visualize.py \
+        --preds "$preds" \
+        --outdir "$run_dir" \
+        --model-name "${cfg}_${dsat}"
+    done
+
+    rm -rf "$tmp_train_dir"
   done
 
-  rm -rf "$tmp_train_dir"
-done
+  for suf in "${SPLITS[@]}"; do
+    x="${base}/runs_${suf}"
 
-for x in runs_B runs_C runs_D; do
     python table.py \
-        --runs-dir ${x} \
-        --out ${x}/summary.html \
-        --title ${x}
+      --runs-dir "${x}" \
+      --out "${x}/summary_table.html" \
+      --title "runs_${suf}"
+
+    python plots_html.py \
+      --runs-dir "${x}" \
+      --out "${x}/summary_plots.html" \
+      --title "runs_${suf}"
+  done
+
 done
 
 echo ">> done"

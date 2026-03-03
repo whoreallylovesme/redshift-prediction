@@ -79,7 +79,7 @@ def main(
         "val_metrics": evaluate(model, X_val, y_val),
     }
 
-    (out / "report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+    (out / "train_report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
 
     print(f"Saved to {out.resolve()}")
 
