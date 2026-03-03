@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import click
@@ -25,7 +26,10 @@ def main(preds: str, outdir: str, model_name: str) -> None:
 
     metrics = evaluate_regression(y_true, y_pred)
 
-    redshift_scatter(y_true, y_pred, plots / "scatter.png", model_name, 0, 3)
+    if model_name == "llr":
+        redshift_scatter(y_true, y_pred, plots / "scatter.png", model_name, 0, 4)
+    else:
+        redshift_scatter(y_true, y_pred, plots / "scatter.png", model_name)
 
     (out / "report.html").write_text(
         f"""<!doctype html>
@@ -58,6 +62,14 @@ code {{ background: #f6f6f6; padding: 2px 6px; border-radius: 6px; }}
         encoding="utf-8",
     )
 
+    report = {
+    "model_name": model_name,
+    "test_metrics": metrics,
+    }
+    (out / "report.json").write_text(
+        json.dumps(report, ensure_ascii=False, indent=2),
+        encoding="utf-8"
+    )
 
 if __name__ == "__main__":
     main()

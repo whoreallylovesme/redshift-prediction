@@ -1,1 +1,0 @@
-ID,u,g,r,i,z,uErr,gErr,rErr,iErr,zErr,redshift,redshiftErr

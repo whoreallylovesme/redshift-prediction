@@ -52,14 +52,10 @@ def evaluate_regression(
     y_true: pd.Series,
     y_pred: NDArray[np.float64],
 ) -> dict[str, float]:
-    rmse = float(np.sqrt(mean_squared_error(y_true, y_pred)))
-    mae = float(mean_absolute_error(y_true, y_pred))
-    r2 = float(r2_score(y_true, y_pred))
-
     return {
-        "rmse": rmse,
-        "mae": mae,
-        "r2": r2,
+        "rmse": float(np.sqrt(mean_squared_error(y_true, y_pred))),
+        "mae": float(mean_absolute_error(y_true, y_pred)),
+        "r2": float(r2_score(y_true, y_pred)),
         "f_outlier_percent": photoz_outlier_percent(y_true, y_pred),
         "bias": photoz_bias(y_true, y_pred),
         "sigma_nmad": photoz_nmad(y_true, y_pred)
