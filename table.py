@@ -13,6 +13,9 @@ import click
 LOWER_IS_BETTER: set[str] = {"rmse", "sigma_nmad", "f_outlier_percent"}
 CLOSER_TO_ZERO_IS_BETTER: set[str] = {"bias"}
 
+DISPLAY_SCALE: dict[str, float] = {"bias": 1e2}
+DISPLAY_SUFFIX: dict[str, str] = {"bias": "10^-2"}
+
 
 @dataclass(frozen=True)
 class Row:
@@ -111,8 +114,13 @@ def render_table(rows: list[Row], metrics: list[str], best: dict[str, float], ti
 
     parts.append("<tr>")
     parts.append("<th>algo</th>")
+
     for m in metrics:
-        parts.append(f"<th>{html.escape(m)}</th>")
+        label = m
+        if m in DISPLAY_SUFFIX:
+            label = f"{m} ({DISPLAY_SUFFIX[m]})"
+        parts.append(f"<th>{html.escape(label)}</th>")
+
     parts.append("</tr>")
     parts.append("</thead><tbody>")
 
@@ -126,13 +134,14 @@ def render_table(rows: list[Row], metrics: list[str], best: dict[str, float], ti
                 continue
 
             v = r.test[m]
+            v_disp = v * DISPLAY_SCALE.get(m, 1.0)
             cls = "num"
 
             bv = best.get(m)
             if bv is not None and is_best(v, bv, m):
                 cls += " best"
 
-            parts.append(f"<td class='{cls}'>{html.escape(fmt(v))}</td>")
+            parts.append(f"<td class='{cls}'>{html.escape(fmt(v_disp))}</td>")
 
         parts.append("</tr>")
 
