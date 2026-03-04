@@ -14,10 +14,10 @@ estimator: |
     ("imputer", SimpleImputer(strategy="median")),
     ("scaler", StandardScaler()),
     ("model", MLPRegressor(
-      hidden_layer_sizes=(16, 8),
+      hidden_layer_sizes=(32, 16, 8),
       activation="relu",
       solver="adam",
-      alpha=1e-4,
+      alpha=1e-3,
       learning_rate_init=1e-3,
       max_iter=5000,
       early_stopping=True,
@@ -30,7 +30,7 @@ estimator: |
 estimator_params: {}
 
 hyperopt:
-  enabled: true
+  enabled: false
   cv: 3
   scoring: "neg_root_mean_squared_error"
   n_jobs: 1
