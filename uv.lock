@@ -139,6 +139,7 @@ dependencies = [
     { name = "pygam" },
     { name = "s3fs" },
     { name = "scikit-learn" },
+    { name = "scipy" },
 ]
 
 [package.dev-dependencies]
@@ -159,6 +160,7 @@ requires-dist = [
     { name = "pygam", specifier = ">=0.12.0" },
     { name = "s3fs", specifier = ">=2026.2.0" },
     { name = "scikit-learn", specifier = ">=1.8.0" },
+    { name = "scipy", specifier = ">=1.16.3" },
 ]
 
 [package.metadata.requires-dev]
