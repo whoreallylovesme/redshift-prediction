@@ -25,11 +25,35 @@ def redshift_scatter(
     if vmax is None:
         vmax = np.max([y_true_arr.max(), y_pred_arr.max()])
 
-    ax.plot([vmin, vmax], [vmin, vmax], linestyle="--", linewidth=1)
-    ax.scatter(y_true, y_pred, s=8, alpha=0.35)
+    hb = ax.hexbin(
+        y_true_arr,
+        y_pred_arr,
+        gridsize=120,
+        cmap="plasma",
+        mincnt=1
+    )
 
-    ax.set_xlabel("z_true")
-    ax.set_ylabel("z_pred")
+    ax.plot([vmin, vmax], [vmin, vmax], linestyle="--", linewidth=1)
+
+    ax.plot(
+        [vmin, vmax],
+        [vmin + 0.15, vmax + 0.15],
+        linestyle=":",
+        linewidth=1
+    )
+
+    ax.plot(
+        [vmin, vmax],
+        [vmin - 0.15, vmax - 0.15],
+        linestyle=":",
+        linewidth=1
+    )
+
+    cb = fig.colorbar(hb, ax=ax)
+    cb.set_label("Galaxies per pixel")
+
+    ax.set_xlabel("z_spec")
+    ax.set_ylabel("z_phot")
     ax.set_title(model_name if model_name is not None else "unknown")
     ax.set_xlim(vmin, vmax)
     ax.set_ylim(vmin, vmax)
