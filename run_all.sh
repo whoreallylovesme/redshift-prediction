@@ -39,4 +39,14 @@ for cfg in catboost llr mlp rf; do
     --model-name ${cfg}
 done
 
+python table.py \
+  --runs-dir runs \
+  --out "runs/summary_table.html" \
+  --title "main"
+
+python plots_html.py \
+  --runs-dir runs \
+  --out "runs/summary_plots.html" \
+  --title "main"
+
 echo ">> train set2 done"

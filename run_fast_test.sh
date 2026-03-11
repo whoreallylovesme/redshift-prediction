@@ -40,4 +40,14 @@ for cfg in catboost_fast_test; do
     --model-name ${cfg}
 done
 
+python table.py \
+  --runs-dir runs \
+  --out "runs/summary_table.html" \
+  --title "main"
+
+python plots_html.py \
+  --runs-dir runs \
+  --out "runs/summary_plots.html" \
+  --title "main"
+
 echo ">> fast test done"
