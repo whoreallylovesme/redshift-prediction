@@ -1,0 +1,11 @@
+target: "z_spec"
+
+feature_sets:
+  set3:
+    - "feat1"
+    - "feat2"
+    - "feat3"
+    - "feat4"
+    - "feat5"
+
+default_set: "set1"
