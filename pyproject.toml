@@ -17,6 +17,7 @@ dependencies = [
     "s3fs>=2026.2.0",
     "scikit-learn>=1.8.0",
     "scipy>=1.16.3",
+    "h5py>=3.16.0",
 ]
 
 [dependency-groups]
