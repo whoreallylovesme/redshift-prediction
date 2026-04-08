@@ -14,12 +14,7 @@ def load_yaml(path: str) -> Any:
         return yaml.safe_load(f)
 
 
-@click.command()
-@click.option("--input", required=True, type=str)
-@click.option("--data-config", required=True, type=click.Path(exists=True, dir_okay=False))
-@click.option("--features", required=True, type=click.Path(exists=True, dir_okay=False))
-@click.option("--outdir", required=True, type=click.Path(file_okay=False))
-def main(input: str, data_config: str, features: str, outdir: str) -> None:
+def prepare(input_csv: str, data_config: str, features: str, outdir: str) -> None:
     dcfg = load_yaml(data_config)
     split = dcfg["split"]
 
@@ -29,7 +24,7 @@ def main(input: str, data_config: str, features: str, outdir: str) -> None:
 
     target = load_yaml(features)["target"]
 
-    df = pd.read_csv(input, low_memory=False)
+    df = pd.read_csv(input_csv, low_memory=False)
     df = clean_dataset(df, target)
     df = df.select_dtypes(include=["number", "bool"]).reset_index(drop=True)
 
@@ -47,7 +42,7 @@ def main(input: str, data_config: str, features: str, outdir: str) -> None:
     test_df.to_parquet(out / "test.parquet", index=False, engine="pyarrow")
 
     meta = pd.DataFrame({
-            "input": [str(Path(input).resolve())],
+            "input": [str(Path(input_csv).resolve())],
             "target": [target],
             "rows_total": [len(df)],
             "rows_train": [len(train_df)],
@@ -60,6 +55,15 @@ def main(input: str, data_config: str, features: str, outdir: str) -> None:
     meta.to_parquet(out / "meta.parquet", index=False, engine="pyarrow")
 
     print(f"Saved to {out.resolve()}")
+
+
+@click.command()
+@click.option("--input", "input_csv", required=True, type=str)
+@click.option("--data-config", required=True, type=click.Path(exists=True, dir_okay=False))
+@click.option("--features", required=True, type=click.Path(exists=True, dir_okay=False))
+@click.option("--outdir", required=True, type=click.Path(file_okay=False))
+def main(input_csv: str, data_config: str, features: str, outdir: str) -> None:
+    prepare(input_csv, data_config, features, outdir)
 
 
 if __name__ == "__main__":
