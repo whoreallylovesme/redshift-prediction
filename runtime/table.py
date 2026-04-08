@@ -186,36 +186,27 @@ th {{ background: #fafafa; }}
 """
 
 
-@click.command()
-@click.option(
-    "--runs-dir",
-    type=click.Path(path_type=Path, exists=True, file_okay=False),
-    default=Path("runs"),
-    show_default=True,
-)
-@click.option(
-    "--out",
-    type=click.Path(path_type=Path),
-    default=Path("runs/summary.html"),
-    show_default=True,
-)
-@click.option(
-    "--title",
-    type=str,
-    default="main",
-    show_default=True,
-)
-def main(runs_dir: Path, out: Path, title: str) -> None:
-    rows = load_rows(runs_dir)
+def summary_table(runs_dir: str, out: str, title: str = "main") -> None:
+    runs_path = Path(runs_dir)
+    out_path = Path(out)
+
+    rows = load_rows(runs_path)
     if not rows:
-        print(f"No report.json found in {runs_dir}")
+        print(f"No report.json found in {runs_path}")
         return
 
     html_text = render_html(rows, title)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(html_text, encoding="utf-8")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(html_text, encoding="utf-8")
+    print(f"Saved summary to {out_path}")
 
-    print(f"Saved summary to {out}")
+
+@click.command()
+@click.option("--runs-dir", type=str, default="runs", show_default=True)
+@click.option("--out", type=str, default="runs/summary.html", show_default=True)
+@click.option("--title", type=str, default="main", show_default=True)
+def main(runs_dir: str, out: str, title: str) -> None:
+    summary_table(runs_dir, out, title)
 
 
 if __name__ == "__main__":

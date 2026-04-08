@@ -1,5 +1,7 @@
 set -euo pipefail
 
+cd "$(dirname "$0")/.."
+
 echo ">> running repos files through ruff and mypy"
 
 echo ">> ruff"

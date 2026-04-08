@@ -3,12 +3,16 @@ from __future__ import annotations
 
 import base64
 import html
+import json
 import mimetypes
 import re
 from dataclasses import dataclass
 from pathlib import Path
 
 import click
+
+from lib.dataset import read_dataset
+from lib.plots import redshift_scatter
 
 
 @dataclass(frozen=True)
@@ -119,31 +123,53 @@ img {{
 """
 
 
-@click.command()
-@click.option(
-    "--runs-dir",
-    type=click.Path(path_type=Path, exists=True, file_okay=False),
-    default=Path("runs"),
-    show_default=True,
-)
-@click.option(
-    "--out",
-    type=click.Path(path_type=Path),
-    default=Path("runs/plots_gallery.html"),
-    show_default=True,
-)
-@click.option("--title", type=str, default="main", show_default=True)
-def main(runs_dir: Path, out: Path, title: str) -> None:
-    tiles = load_tiles(runs_dir)
+def generate_scatter_plots(runs_dir: str) -> None:
+    runs_path = Path(runs_dir)
+    for run_dir in sorted(p for p in runs_path.iterdir() if p.is_dir()):
+        preds_path = run_dir / "preds.parquet"
+        report_path = run_dir / "report.json"
+        if not preds_path.exists() or not report_path.exists():
+            continue
 
+        plots_dir = run_dir / "plots"
+        plots_dir.mkdir(exist_ok=True)
+
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        model_name = report.get("model_name", run_dir.name)
+
+        df = read_dataset(str(preds_path))
+        y_true = df["y_true"]
+        y_pred = df["y_pred"].to_numpy()
+
+        if model_name == "llr":
+            redshift_scatter(y_true, y_pred, plots_dir / "scatter.png", model_name, 0, 4)
+        else:
+            redshift_scatter(y_true, y_pred, plots_dir / "scatter.png", model_name)
+
+
+def summary_plots(runs_dir: str, out: str, title: str = "main") -> None:
+    generate_scatter_plots(runs_dir)
+
+    runs_path = Path(runs_dir)
+    out_path = Path(out)
+
+    tiles = load_tiles(runs_path)
     if not tiles:
-        print(f"No runs/*/plots/*.png found in {runs_dir}")
+        print(f"No runs/*/plots/*.png found in {runs_path}")
         return
 
     html_text = render_html(tiles, title)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(html_text, encoding="utf-8")
-    print(f"Saved plots gallery to {out}")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(html_text, encoding="utf-8")
+    print(f"Saved plots gallery to {out_path}")
+
+
+@click.command()
+@click.option("--runs-dir", type=str, default="runs", show_default=True)
+@click.option("--out", type=str, default="runs/plots_gallery.html", show_default=True)
+@click.option("--title", type=str, default="main", show_default=True)
+def main(runs_dir: str, out: str, title: str) -> None:
+    summary_plots(runs_dir, out, title)
 
 
 if __name__ == "__main__":
