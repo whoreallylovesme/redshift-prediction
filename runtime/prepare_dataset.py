@@ -54,7 +54,6 @@ def prepare(input_csv: str, data_config: str, features: str, outdir: str) -> Non
     })
     meta.to_parquet(out / "meta.parquet", index=False, engine="pyarrow")
 
-    print(f"Saved to {out.resolve()}")
 
 
 @click.command()

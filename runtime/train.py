@@ -1,5 +1,4 @@
 import json
-import time
 from pathlib import Path
 from typing import Any
 
@@ -36,7 +35,6 @@ def _train_pytorch(cfg: dict[str, Any], outdir: str) -> None:
     from lib.nn.dataloader_photoz import get_photoz_dataloaders
     from lib.nn.train_utils import WeightedHuberLoss, unfreeze_backbone
 
-    # Load model from estimator code
     scope: dict[str, Any] = {}
     exec(cfg["estimator"], scope)
     model: nn.Module = scope["estimator"]
@@ -60,8 +58,6 @@ def _train_pytorch(cfg: dict[str, Any], outdir: str) -> None:
         else "mps" if torch.backends.mps.is_available()
         else "cpu"
     )
-    print(f"Device: {device}")
-
     max_samples = tcfg.get("max_samples")
     if max_samples is not None:
         max_samples = int(max_samples)
@@ -75,10 +71,6 @@ def _train_pytorch(cfg: dict[str, Any], outdir: str) -> None:
     )
 
     model = model.to(device)
-    trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    total = sum(p.numel() for p in model.parameters())
-    print(f"Parameters: {total:,} total, {trainable:,} trainable")
-
     if z_weight_alpha > 0:
         criterion: nn.Module = WeightedHuberLoss(delta=0.1, alpha=z_weight_alpha)
     else:
@@ -93,11 +85,8 @@ def _train_pytorch(cfg: dict[str, Any], outdir: str) -> None:
     best_nmad = float("inf")
 
     for ep in range(1, epochs + 1):
-        t_ep = time.time()
-
         if ep == freeze_epochs + 1 and freeze_epochs > 0:
             unfreeze_backbone(model)
-            print("\n>>> Backbone unfrozen!")
             optimizer = AdamW([
                 {"params": [p for n, p in model.named_parameters()
                             if n.startswith(head_prefix)], "lr": lr},
@@ -121,10 +110,8 @@ def _train_pytorch(cfg: dict[str, Any], outdir: str) -> None:
             total_loss += loss.item()
             pbar.set_postfix(loss=f"{loss.item():.4f}")
 
-        train_loss = total_loss / len(train_loader)
         scheduler.step()
 
-        # Eval
         model.eval()
         all_pred: list[np.ndarray] = []
         all_true: list[np.ndarray] = []
@@ -138,21 +125,9 @@ def _train_pytorch(cfg: dict[str, Any], outdir: str) -> None:
         y_true = pd.Series(np.concatenate(all_true))
         metrics = evaluate_regression(y_true, y_pred)
 
-        ep_time = time.time() - t_ep
-        marker = ""
         if metrics["sigma_nmad"] < best_nmad:
             best_nmad = metrics["sigma_nmad"]
             torch.save(model.state_dict(), out / "best_model.pt")
-            marker = " *best*"
-
-        print(
-            f"Epoch {ep}/{epochs}  "
-            f"loss={train_loss:.5f}  "
-            f"nmad={metrics['sigma_nmad']:.5f}  "
-            f"bias={metrics['bias']:.5f}  "
-            f"outlier%={metrics['f_outlier_percent']:.2f}  "
-            f"[{ep_time:.0f}s/ep]{marker}"
-        )
 
     torch.save(model.state_dict(), out / "last_model.pt")
 
@@ -163,8 +138,6 @@ def _train_pytorch(cfg: dict[str, Any], outdir: str) -> None:
         "config": {k: v for k, v in cfg.items() if k != "estimator"},
     }
     (out / "train_report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
-    print(f"\nDone! Best nmad: {best_nmad:.5f}")
-    print(f"Saved to {out.resolve()}")
 
 
 def _train_sklearn(
@@ -206,7 +179,6 @@ def _train_sklearn(
         "val_metrics": evaluate(model, X_val, y_val),
     }
     (out / "train_report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
-    print(f"Saved to {out.resolve()}")
 
 
 def train(

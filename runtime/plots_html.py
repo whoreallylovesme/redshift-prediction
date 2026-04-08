@@ -155,13 +155,11 @@ def summary_plots(runs_dir: str, out: str, title: str = "main") -> None:
 
     tiles = load_tiles(runs_path)
     if not tiles:
-        print(f"No runs/*/plots/*.png found in {runs_path}")
         return
 
     html_text = render_html(tiles, title)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(html_text, encoding="utf-8")
-    print(f"Saved plots gallery to {out_path}")
 
 
 @click.command()

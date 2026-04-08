@@ -192,13 +192,11 @@ def summary_table(runs_dir: str, out: str, title: str = "main") -> None:
 
     rows = load_rows(runs_path)
     if not rows:
-        print(f"No report.json found in {runs_path}")
         return
 
     html_text = render_html(rows, title)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(html_text, encoding="utf-8")
-    print(f"Saved summary to {out_path}")
 
 
 @click.command()
