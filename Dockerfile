@@ -15,4 +15,4 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 COPY . .
 
-CMD ["uv", "run", "bash", "run_fast_test.sh"]
+CMD ["uv", "run", "bash", "sh/run_fast_test.sh"]

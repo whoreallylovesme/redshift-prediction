@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+cd "$(dirname "$0")/.."
+export PYTHONPATH="$(pwd):${PYTHONPATH:-}"
+
 echo ">> Teddy + Happy pipeline run"
 
 DATASETS=("teddy" "happy")
@@ -28,7 +31,7 @@ for ds in "${DATASETS[@]}"; do
     tmp_train_dir="tmp_${ds}_${cfg}"
     rm -rf "$tmp_train_dir"
 
-    python train.py \
+    uv run python runtime/train.py \
       --train "${parquet_dir}/${ds}_A.parquet" \
       --config "configs/${cfg}.yaml" \
       --features features/features_teddy_happy.yaml \
@@ -44,14 +47,14 @@ for ds in "${DATASETS[@]}"; do
 
       preds="${run_dir}/preds.parquet"
 
-      python inference.py \
+      uv run python runtime/inference.py \
         --model "${tmp_train_dir}/model.pkl" \
         --test "${parquet_dir}/${dsat}.parquet" \
         --features features/features_teddy_happy.yaml \
         --feature-set set3 \
         --out "$preds"
 
-      python visualize.py \
+      uv run python runtime/calc_metrics.py \
         --preds "$preds" \
         --outdir "$run_dir" \
         --model-name "${cfg}_${dsat}"
@@ -63,12 +66,12 @@ for ds in "${DATASETS[@]}"; do
   for suf in "${SPLITS[@]}"; do
     x="${base}/runs_${suf}"
 
-    python table.py \
+    uv run python runtime/table.py \
       --runs-dir "${x}" \
       --out "${x}/summary_table.html" \
       --title "runs_${suf}"
 
-    python plots_html.py \
+    uv run python runtime/plots_html.py \
       --runs-dir "${x}" \
       --out "${x}/summary_plots.html" \
       --title "runs_${suf}"
