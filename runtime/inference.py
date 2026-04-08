@@ -3,7 +3,6 @@ from typing import Any
 
 import click
 import joblib
-import numpy as np
 import pandas as pd
 import yaml
 
@@ -23,7 +22,6 @@ def _inference_pytorch(
     from lib.nn.dataloader_photoz import compute_stats, parse_catalog
     from lib.nn.nn_inference_photoz import load_npz
 
-    # Load model from estimator code
     scope: dict[str, Any] = {}
     exec(cfg["estimator"], scope)
     model: torch.nn.Module = scope["estimator"]
@@ -36,9 +34,7 @@ def _inference_pytorch(
     model.load_state_dict(torch.load(model_path, map_location=device, weights_only=True))
     model.to(device)
     model.eval()
-    print(f"Device: {device}")
 
-    # Unfreeze for inference (no-op functionally, but needed for correct model structure)
     for p in model.parameters():
         p.requires_grad = False
 
@@ -48,7 +44,6 @@ def _inference_pytorch(
 
     norm_dir = Path(cfg.get("norm_from", data_dir))
     norm_paths = sorted(norm_dir.glob("*.npz"))
-    print(f"Computing normalization stats from {norm_dir} ({len(norm_paths)} files)...")
     mean, std = compute_stats(norm_paths)
 
     z_true_map: dict[str, float] = {}
@@ -79,13 +74,6 @@ def _inference_pytorch(
 
     df = pd.DataFrame(results)
     df.to_parquet(out, index=False)
-    print(f"Saved {len(df)} predictions to {out}")
-
-    if "y_true" in df.columns:
-        from lib.metrics import evaluate_regression
-        metrics = evaluate_regression(df["y_true"], df["y_pred"].to_numpy(dtype=np.float64))
-        for k, v in metrics.items():
-            print(f"  {k}: {v:.5f}")
 
 
 def _inference_sklearn(

@@ -118,8 +118,6 @@ def get_photoz_dataloaders(
         files = [files[i] for i in idx]
         labels = [labels[i] for i in idx]
 
-    print(f"Matched {len(files)} images with z_spec labels")
-
     train_idx, val_idx = train_test_split(
         list(range(len(files))), train_size=train_ratio, random_state=seed
     )
@@ -129,9 +127,7 @@ def get_photoz_dataloaders(
     val_files = [files[i] for i in val_idx]
     val_labels = [labels[i] for i in val_idx]
 
-    print("Computing normalization stats...")
     mean, std = compute_stats(train_files)
-    print(f"  mean={mean}, std={std}")
 
     train_ds = PhotozDataset(train_files, train_labels, mean, std, augment=True)
     val_ds = PhotozDataset(val_files, val_labels, mean, std, augment=False)
@@ -146,7 +142,6 @@ def get_photoz_dataloaders(
             replacement=True,
         )
         shuffle = False
-        print("  Weighted sampling enabled (inverse bin frequency)")
 
     train_loader: DataLoader[tuple[torch.Tensor, torch.Tensor]] = DataLoader(
         train_ds,
