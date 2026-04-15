@@ -21,6 +21,10 @@ def parse_catalog(catalog_path: str | Path) -> dict[str, float]:
     return mapping
 
 
+def _resolve_w1w2_path(griz_path: Path, w1w2_dir: Path) -> Path:
+    return w1w2_dir / f"{griz_path.stem}_wise.npz"
+
+
 class PhotozDataset(Dataset[tuple[torch.Tensor, torch.Tensor]]):
     def __init__(
         self,
@@ -29,19 +33,27 @@ class PhotozDataset(Dataset[tuple[torch.Tensor, torch.Tensor]]):
         mean: npt.NDArray[np.floating] | None = None,
         std: npt.NDArray[np.floating] | None = None,
         augment: bool = False,
+        w1w2_dir: Path | None = None,
+        in_channels: int = 4,
     ) -> None:
         self.files = files
         self.labels = labels
-        self.mean = mean if mean is not None else np.zeros(4, dtype=np.float32)
-        self.std = std if std is not None else np.ones(4, dtype=np.float32)
+        self.w1w2_dir = w1w2_dir
+        self.in_channels = in_channels
+        self.mean = mean if mean is not None else np.zeros(in_channels, dtype=np.float32)
+        self.std = std if std is not None else np.ones(in_channels, dtype=np.float32)
         self.augment = augment
 
     def __len__(self) -> int:
         return len(self.files)
 
     def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor]:
-        img = np.load(self.files[idx])["image"].astype(np.float32)
-        img = img[:, :, :4]
+        img = np.load(self.files[idx])["image"].astype(np.float32)[:, :, : self.in_channels]
+
+        if self.w1w2_dir is not None:
+            w1w2_path = _resolve_w1w2_path(self.files[idx], self.w1w2_dir)
+            w1w2 = np.load(w1w2_path)["image"].astype(np.float32)[:, :, :2]
+            img = np.concatenate([img, w1w2], axis=2)
 
         img = (img - self.mean) / (self.std + 1e-8)
 
@@ -60,13 +72,20 @@ class PhotozDataset(Dataset[tuple[torch.Tensor, torch.Tensor]]):
 
 
 def compute_stats(
-    files: list[Path], n_samples: int = 2000
+    files: list[Path],
+    n_samples: int = 2000,
+    w1w2_dir: Path | None = None,
+    in_channels: int = 4,
 ) -> tuple[npt.NDArray[np.floating], npt.NDArray[np.floating]]:
     rng = np.random.default_rng(42)
     subset = rng.choice(len(files), size=min(n_samples, len(files)), replace=False)
     acc = []
     for i in subset:
-        img = np.load(files[i])["image"].astype(np.float32)[:, :, :4]
+        img = np.load(files[i])["image"].astype(np.float32)[:, :, :in_channels]
+        if w1w2_dir is not None:
+            w1w2_path = _resolve_w1w2_path(files[i], w1w2_dir)
+            w1w2 = np.load(w1w2_path)["image"].astype(np.float32)[:, :, :2]
+            img = np.concatenate([img, w1w2], axis=2)
         acc.append(img.reshape(-1, img.shape[-1]))
     all_pixels: npt.NDArray[np.floating] = np.concatenate(acc, axis=0)
     return all_pixels.mean(axis=0).astype(np.float32), all_pixels.std(axis=0).astype(np.float32)
@@ -93,20 +112,26 @@ def get_photoz_dataloaders(
     seed: int = 42,
     max_samples: int | None = None,
     weighted_sampling: bool = False,
+    w1w2_dir: str | Path | None = None,
+    in_channels: int = 4,
 ) -> tuple[
     DataLoader[tuple[torch.Tensor, torch.Tensor]],
     DataLoader[tuple[torch.Tensor, torch.Tensor]],
 ]:
     data_dir = Path(data_dir)
+    _w1w2_dir = Path(w1w2_dir) if w1w2_dir is not None else None
     catalog = parse_catalog(catalog_path)
 
     files: list[Path] = []
     labels: list[float] = []
     for p in sorted(data_dir.glob("*.npz")):
         objid = p.stem
-        if objid in catalog:
-            files.append(p)
-            labels.append(catalog[objid])
+        if objid not in catalog:
+            continue
+        if _w1w2_dir is not None and not _resolve_w1w2_path(p, _w1w2_dir).exists():
+            continue
+        files.append(p)
+        labels.append(catalog[objid])
 
     if len(files) == 0:
         raise ValueError(f"No matching images found in {data_dir}")
@@ -127,10 +152,16 @@ def get_photoz_dataloaders(
     val_files = [files[i] for i in val_idx]
     val_labels = [labels[i] for i in val_idx]
 
-    mean, std = compute_stats(train_files)
+    mean, std = compute_stats(train_files, w1w2_dir=_w1w2_dir, in_channels=in_channels)
 
-    train_ds = PhotozDataset(train_files, train_labels, mean, std, augment=True)
-    val_ds = PhotozDataset(val_files, val_labels, mean, std, augment=False)
+    train_ds = PhotozDataset(
+        train_files, train_labels, mean, std,
+        augment=True, w1w2_dir=_w1w2_dir, in_channels=in_channels,
+    )
+    val_ds = PhotozDataset(
+        val_files, val_labels, mean, std,
+        augment=False, w1w2_dir=_w1w2_dir, in_channels=in_channels,
+    )
 
     sampler = None
     shuffle = True

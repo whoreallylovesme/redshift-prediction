@@ -14,7 +14,7 @@ estimator: |
   estimator = model
 
 data_dir: teddyA_imgs
-catalog: useful_info/teddy_happy/Teddy/teddy_A
+catalog: datasets/teddy_happy_orig/Teddy/teddy_A
 norm_from: teddyA_imgs
 
 train:
