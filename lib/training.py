@@ -3,6 +3,7 @@ from typing import Any
 import pandas as pd
 from sklearn.model_selection import GridSearchCV, train_test_split
 
+from .config_models import SklearnTrainConfig
 from .metrics import evaluate_regression
 
 
@@ -22,7 +23,10 @@ def split_data(
     df: pd.DataFrame,
     features: list[str],
     target: str,
-    split_cfg: dict[str, Any]
+    test_size: float,
+    val_size: float,
+    shuffle: bool,
+    random_seed: int,
 ) -> tuple[
     pd.DataFrame,
     pd.DataFrame,
@@ -39,17 +43,17 @@ def split_data(
     X_train_full, X_test, y_train_full, y_test = train_test_split(
         X,
         y,
-        test_size=split_cfg["test_size"],
-        random_state=split_cfg["random_seed"],
-        shuffle=split_cfg["shuffle"],
+        test_size=test_size,
+        random_state=random_seed,
+        shuffle=shuffle,
     )
 
     X_train, X_val, y_train, y_val = train_test_split(
         X_train_full,
         y_train_full,
-        test_size=split_cfg["val_size"],
-        random_state=split_cfg["random_seed"],
-        shuffle=split_cfg["shuffle"],
+        test_size=val_size,
+        random_state=random_seed,
+        shuffle=shuffle,
     )
 
     return X_train, X_val, X_test, y_train, y_val, y_test, X_train_full, y_train_full
@@ -59,18 +63,18 @@ def hyperparameter_optimization(
     estimator: Any,
     X_train: pd.DataFrame,
     y_train: pd.Series,
-    cfg: dict[str, Any],
+    cfg: SklearnTrainConfig,
 ) -> Any:
-    if not cfg["hyperopt"]["enabled"]:
+    if not cfg.hyperopt_enabled:
         return {}
 
     gs = GridSearchCV(
         estimator=estimator,
-        param_grid=cfg["param_grid"],
-        cv=cfg["hyperopt"]["cv"],
-        scoring=cfg["hyperopt"]["scoring"],
-        n_jobs=cfg["hyperopt"]["n_jobs"],
-        verbose=cfg["hyperopt"]["verbose"],
+        param_grid=cfg.param_grid,
+        cv=cfg.hyperopt_cv,
+        scoring=cfg.hyperopt_scoring,
+        n_jobs=cfg.hyperopt_n_jobs,
+        verbose=cfg.hyperopt_verbose,
     )
     gs.fit(X_train, y_train)
 

@@ -25,5 +25,5 @@ uv run python flows/pipeline.py
 ## CLI (без Prefect)
 
 ```bash
-bash sh/run_fast_test.sh
+uv run python flows/pipeline.py --config configs/flows/fast_test.yaml
 ```

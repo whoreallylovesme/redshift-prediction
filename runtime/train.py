@@ -1,14 +1,14 @@
 import json
 import time
 from pathlib import Path
-from typing import Any
+from typing import cast
 
 import click
 import joblib
 import numpy as np
-import yaml
 from sklearn.model_selection import train_test_split
 
+from lib.config_models import FeaturesConfig, PytorchTrainConfig, SklearnTrainConfig
 from lib.dataset import read_dataset
 from lib.estimator_loader import load_estimator
 from lib.training import (
@@ -17,14 +17,10 @@ from lib.training import (
     hyperparameter_optimization,
     train_model,
 )
+from lib.utils import load_yaml, load_yaml_as
 
 
-def load_yaml(path: str) -> Any:
-    with open(path, encoding="utf-8") as f:
-        return yaml.safe_load(f)
-
-
-def _train_pytorch(cfg: dict[str, Any], outdir: str) -> None:
+def _train_pytorch(cfg: PytorchTrainConfig, outdir: str) -> None:
     import pandas as pd
     import torch
     import torch.nn as nn
@@ -37,22 +33,24 @@ def _train_pytorch(cfg: dict[str, Any], outdir: str) -> None:
     from lib.nn.train_utils import WeightedHuberLoss, unfreeze_backbone
 
     # Load model from estimator code
-    scope: dict[str, Any] = {}
-    exec(cfg["estimator"], scope)
-    model: nn.Module = scope["estimator"]
+    scope: dict[str, object] = {}
+    exec(cfg.estimator, scope)
+    estimator = scope["estimator"]
+    if not isinstance(estimator, nn.Module):
+        raise TypeError("Loaded object is not a torch.nn.Module")
+    model = estimator
 
-    tcfg = cfg["train"]
-    epochs = int(tcfg["epochs"])
-    batch_size = int(tcfg["batch_size"])
-    lr = float(tcfg["lr"])
-    weight_decay = float(tcfg["weight_decay"])
-    freeze_epochs = int(tcfg["freeze_epochs"])
-    seed = int(tcfg.get("seed", 42))
-    num_workers = int(tcfg.get("num_workers", 4))
-    weighted_sampling = bool(tcfg.get("weighted_sampling", False))
-    z_weight_alpha = float(tcfg.get("z_weight_alpha", 0.0))
-    label_noise = float(tcfg.get("label_noise", 0.0))
-    head_prefix = str(tcfg.get("head_prefix", "classifier"))
+    epochs = cfg.epochs
+    batch_size = cfg.batch_size
+    lr = cfg.lr
+    weight_decay = cfg.weight_decay
+    freeze_epochs = cfg.freeze_epochs
+    seed = cfg.seed
+    num_workers = cfg.num_workers
+    weighted_sampling = cfg.weighted_sampling
+    z_weight_alpha = cfg.z_weight_alpha
+    label_noise = cfg.label_noise
+    head_prefix = cfg.head_prefix
 
     torch.manual_seed(seed)
     device = torch.device(
@@ -62,16 +60,18 @@ def _train_pytorch(cfg: dict[str, Any], outdir: str) -> None:
     )
     print(f"Device: {device}")
 
-    max_samples = tcfg.get("max_samples")
-    if max_samples is not None:
-        max_samples = int(max_samples)
+    max_samples = cfg.max_samples
+    crop_size = cfg.crop_size
+    physics_augment = cfg.physics_augment
 
     train_loader, val_loader = get_photoz_dataloaders(
-        cfg["data_dir"], cfg["catalog"],
+        cfg.data_dir, cfg.catalog,
         batch_size=batch_size, num_workers=num_workers,
-        train_ratio=float(tcfg.get("train_ratio", 0.8)), seed=seed,
+        train_ratio=cfg.train_ratio, seed=seed,
         weighted_sampling=weighted_sampling,
         max_samples=max_samples,
+        crop_size=crop_size,
+        physics_augment=physics_augment,
     )
 
     model = model.to(device)
@@ -160,7 +160,7 @@ def _train_pytorch(cfg: dict[str, Any], outdir: str) -> None:
         "model_type": "pytorch",
         "best_nmad": best_nmad,
         "val_metrics": metrics,
-        "config": {k: v for k, v in cfg.items() if k != "estimator"},
+        "config": cfg.model_dump(exclude={"estimator"}),
     }
     (out / "train_report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(f"\nDone! Best nmad: {best_nmad:.5f}")
@@ -170,15 +170,10 @@ def _train_pytorch(cfg: dict[str, Any], outdir: str) -> None:
 def _train_sklearn(
     train_path: str, config_path: str, features_path: str, feature_set: str, outdir: str,
 ) -> None:
-    cfg = load_yaml(config_path)
-    fcfg = load_yaml(features_path)
-    target = fcfg["target"]
-    feature_list = fcfg["feature_sets"][feature_set]
-
-    split = cfg["split"]
-    val_size = float(split["val_size"])
-    shuffle = bool(split["shuffle"])
-    random_seed = int(split["random_seed"])
+    cfg = load_yaml_as(config_path, SklearnTrainConfig)
+    fcfg = load_yaml_as(features_path, FeaturesConfig)
+    target = fcfg.target
+    feature_list = fcfg.feature_sets[feature_set]
 
     df = read_dataset(train_path)
     selected, missing = feature_selection(df, feature_list)
@@ -187,10 +182,14 @@ def _train_sklearn(
     y = df[target]
 
     X_train, X_val, y_train, y_val = train_test_split(
-        X, y, test_size=val_size, random_state=random_seed, shuffle=shuffle,
+        X,
+        y,
+        test_size=cfg.val_size,
+        random_state=cfg.random_seed,
+        shuffle=cfg.shuffle,
     )
 
-    estimator = load_estimator(cfg)
+    estimator = load_estimator(cfg.estimator)
     best_params = hyperparameter_optimization(estimator, X_train, y_train, cfg)
     model = train_model(estimator, X_train, y_train, best_params)
 
@@ -216,14 +215,17 @@ def train(
     features_path: str | None = None,
     feature_set: str | None = None,
 ) -> None:
-    cfg = load_yaml(config_path)
-    if cfg.get("model_type") == "pytorch":
-        _train_pytorch(cfg, outdir)
+    raw_cfg = load_yaml(config_path)
+    if isinstance(raw_cfg, dict) and raw_cfg.get("model_type") == "pytorch":
+        _train_pytorch(PytorchTrainConfig.model_validate(raw_cfg), outdir)
     else:
-        assert train_path is not None, "--train is required for sklearn models"
-        assert features_path is not None, "--features is required for sklearn models"
-        assert feature_set is not None, "--feature-set is required for sklearn models"
-        _train_sklearn(train_path, config_path, features_path, feature_set, outdir)
+        _train_sklearn(
+            cast(str, train_path),
+            config_path,
+            cast(str, features_path),
+            cast(str, feature_set),
+            outdir,
+        )
 
 
 @click.command()

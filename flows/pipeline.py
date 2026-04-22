@@ -1,8 +1,11 @@
 import shutil
+from typing import cast
 
 import click
 from prefect import flow, task
 
+from lib.config_models import FlowConfig
+from lib.utils import load_yaml_as
 from runtime.calc_metrics import calc_metrics
 from runtime.inference import inference
 from runtime.plots_html import summary_plots
@@ -51,109 +54,106 @@ def summary_plots_task(runs_dir: str, out: str, title: str) -> None:
     summary_plots(runs_dir, out, title)
 
 
-@flow(name="fast-test")
-def fast_test() -> None:
-    shutil.rmtree("prepared", ignore_errors=True)
-    shutil.rmtree("runs", ignore_errors=True)
+def run_tabular_pipeline(config: FlowConfig) -> None:
+    runs_root = config.runs_root
+    prepared_root = cast(str, config.prepared_root)
+    dataset = cast(dict[str, str], config.dataset)
+    models = config.models
+    summaries = config.summaries
+
+    shutil.rmtree(prepared_root, ignore_errors=True)
+    shutil.rmtree(runs_root, ignore_errors=True)
 
     prepare_dataset_task(
-        "datasets/dsat.csv", "configs/dataset.yaml", "features/features.yaml", "prepared",
+        dataset["input_csv"],
+        dataset["data_config"],
+        dataset["features"],
+        prepared_root,
     )
 
-    for cfg in ["catboost_fast_test"]:
-        outdir = f"runs/{cfg}_set1"
+    for model in models:
+        config_path = model["config"]
+        model_name = model.get("name", config_path.removeprefix("configs/").removesuffix(".yaml"))
+        feature_set = model["feature_set"]
+        outdir = model.get("outdir", f"{runs_root}/{model_name}_{feature_set}")
+
         train_task(
-            f"configs/{cfg}.yaml", outdir,
-            train_path="prepared/train.parquet",
-            features="features/features.yaml",
-            feature_set="set1",
+            config_path,
+            outdir,
+            train_path=f"{prepared_root}/train.parquet",
+            features=dataset["features"],
+            feature_set=feature_set,
         )
         inference_task(
-            f"{outdir}/model.pkl", f"{outdir}/preds.parquet",
-            test_path="prepared/test.parquet",
-            features="features/features.yaml",
-            feature_set="set1",
+            f"{outdir}/model.pkl",
+            f"{outdir}/preds.parquet",
+            test_path=f"{prepared_root}/test.parquet",
+            features=dataset["features"],
+            feature_set=feature_set,
         )
-        calc_metrics_task(f"{outdir}/preds.parquet", outdir, cfg)
+        calc_metrics_task(f"{outdir}/preds.parquet", outdir, model_name)
 
-    summary_table_task("runs", "runs/summary_table.html", "main")
-    summary_plots_task("runs", "runs/summary_plots.html", "main")
-
-
-@flow(name="run-all")
-def run_all() -> None:
-    shutil.rmtree("prepared", ignore_errors=True)
-    shutil.rmtree("runs", ignore_errors=True)
-
-    prepare_dataset_task(
-        "datasets/dsat.csv", "configs/dataset.yaml", "features/features.yaml", "prepared",
-    )
-
-    for cfg in ["catboost", "llr", "mlp", "rf"]:
-        outdir = f"runs/{cfg}_set2"
-        train_task(
-            f"configs/{cfg}.yaml", outdir,
-            train_path="prepared/train.parquet",
-            features="features/features.yaml",
-            feature_set="set2",
-        )
-        inference_task(
-            f"{outdir}/model.pkl", f"{outdir}/preds.parquet",
-            test_path="prepared/test.parquet",
-            features="features/features.yaml",
-            feature_set="set2",
-        )
-        calc_metrics_task(f"{outdir}/preds.parquet", outdir, cfg)
-
-    summary_table_task("runs", "runs/summary_table.html", "main")
-    summary_plots_task("runs", "runs/summary_plots.html", "main")
+    if summaries.get("enabled", True):
+        title = str(summaries.get("title", "main"))
+        summary_table_task(runs_root, f"{runs_root}/summary_table.html", title)
+        summary_plots_task(runs_root, f"{runs_root}/summary_plots.html", title)
 
 
-@flow(name="train-nn")
-def train_nn() -> None:
-    splits = ["B", "C", "D"]
-    models = ["efficientnet_b0", "vit_tiny"]
-    runs_root = "nn_runs"
+def run_nn_pipeline(config: FlowConfig) -> None:
+    runs_root = config.runs_root
+    models = config.models
+    splits = config.splits
+    summaries = config.summaries
 
     shutil.rmtree(runs_root, ignore_errors=True)
 
-    for model_name in models:
-        config_path = f"configs/{model_name}.yaml"
-        model_dir = f"{runs_root}/{model_name}"
+    for model in models:
+        model_name = model["name"]
+        config_path = model["config"]
+        model_dir = model.get("train_outdir", f"{runs_root}/{model_name}")
 
         train_task(config_path, model_dir)
 
         for split in splits:
-            data_dir = f"teddy{split}_imgs"
-            catalog = f"datasets/teddy_happy_orig/Teddy/teddy_{split}"
-            split_dir = f"{runs_root}/runs_{split}/{model_name}"
+            split_name = split["name"]
+            split_dir = split.get("outdir", f"{runs_root}/runs_{split_name}/{model_name}")
             preds_path = f"{split_dir}/preds.parquet"
 
             inference_task(
-                f"{model_dir}/best_model.pt", preds_path,
+                f"{model_dir}/best_model.pt",
+                preds_path,
                 config=config_path,
-                data_dir=data_dir,
-                catalog=catalog,
+                data_dir=split["data_dir"],
+                catalog=split["catalog"],
             )
-            calc_metrics_task(preds_path, split_dir, f"{model_name}_teddy{split}")
+            metric_suffix = split.get("metric_suffix", split_name)
+            calc_metrics_task(preds_path, split_dir, f"{model_name}_{metric_suffix}")
 
-    for split in splits:
-        split_runs = f"{runs_root}/runs_{split}"
-        summary_table_task(split_runs, f"{split_runs}/summary_table.html", f"nn_runs_{split}")
-        summary_plots_task(split_runs, f"{split_runs}/summary_plots.html", f"nn_runs_{split}")
+    if summaries.get("enabled", False):
+        for split in splits:
+            split_name = split["name"]
+            split_runs = split.get("summary_runs_dir", f"{runs_root}/runs_{split_name}")
+            title = split.get("summary_title", f"nn_runs_{split_name}")
+            summary_table_task(split_runs, f"{split_runs}/summary_table.html", title)
+            summary_plots_task(split_runs, f"{split_runs}/summary_plots.html", title)
 
 
-FLOWS = {
-    "fast-test": fast_test,
-    "run-all": run_all,
-    "train-nn": train_nn,
-}
+@flow(name="pipeline")
+def pipeline(config_path: str) -> None:
+    config = load_yaml_as(config_path, FlowConfig)
+    pipeline_type = config.pipeline
+    if pipeline_type == "tabular":
+        run_tabular_pipeline(config)
+    elif pipeline_type == "nn":
+        run_nn_pipeline(config)
+    else:
+        raise ValueError(f"Unsupported pipeline type: {pipeline_type}")
 
 
 @click.command()
-@click.argument("flow_name", type=click.Choice(list(FLOWS.keys())))
-def main(flow_name: str) -> None:
-    FLOWS[flow_name]()
+@click.option("--config", "config_path", default="configs/flows/run_all.yaml", type=str)
+def main(config_path: str) -> None:
+    pipeline(config_path)
 
 
 if __name__ == "__main__":

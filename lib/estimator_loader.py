@@ -1,11 +1,9 @@
-from typing import Any
-
 from sklearn.base import BaseEstimator
 
 
-def load_estimator(cfg: dict[str, Any]) -> BaseEstimator:
-    scope: dict[str, Any] = {}
-    exec(cfg["estimator"], scope)
+def load_estimator(estimator_code: str) -> BaseEstimator:
+    scope: dict[str, object] = {}
+    exec(estimator_code, scope)
 
     est = scope["estimator"]
 

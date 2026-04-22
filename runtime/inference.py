@@ -1,30 +1,29 @@
 from pathlib import Path
-from typing import Any
+from typing import cast
 
 import click
 import joblib
 import pandas as pd
-import yaml
 
+from lib.config_models import FeaturesConfig, PytorchTrainConfig
 from lib.dataset import read_dataset
-
-
-def load_yaml(path: str) -> Any:
-    with open(path, encoding="utf-8") as f:
-        return yaml.safe_load(f)
+from lib.utils import load_yaml, load_yaml_as
 
 
 def _inference_pytorch(
-    model_path: str, cfg: dict[str, Any], data_dir: str, catalog: str | None, out: str,
+    model_path: str, cfg: PytorchTrainConfig, data_dir: str, catalog: str | None, out: str,
 ) -> None:
     import torch
 
     from lib.nn.dataloader_photoz import compute_stats, parse_catalog
     from lib.nn.nn_inference_photoz import load_npz
 
-    scope: dict[str, Any] = {}
-    exec(cfg["estimator"], scope)
-    model: torch.nn.Module = scope["estimator"]
+    scope: dict[str, object] = {}
+    exec(cfg.estimator, scope)
+    estimator = scope["estimator"]
+    if not isinstance(estimator, torch.nn.Module):
+        raise TypeError("Loaded object is not a torch.nn.Module")
+    model = estimator
 
     device = torch.device(
         "cuda" if torch.cuda.is_available()
@@ -42,7 +41,7 @@ def _inference_pytorch(
     if not paths:
         raise ValueError(f"No .npz files in {data_dir}")
 
-    norm_dir = Path(cfg.get("norm_from", data_dir))
+    norm_dir = Path(cfg.norm_from or data_dir)
     norm_paths = sorted(norm_dir.glob("*.npz"))
     mean, std = compute_stats(norm_paths)
 
@@ -52,36 +51,52 @@ def _inference_pytorch(
 
     from tqdm import tqdm
 
-    batch_size = int(cfg.get("train", {}).get("batch_size", 32))
+    crop_size = cfg.crop_size
+    batch_size = cfg.batch_size
     results: list[dict[str, object]] = []
+    skipped_files: list[tuple[str, str]] = []
     n_batches = (len(paths) + batch_size - 1) // batch_size
 
     for i in tqdm(range(0, len(paths), batch_size), total=n_batches, desc="Inference"):
         batch_paths = paths[i : i + batch_size]
-        batch = torch.cat(
-            [load_npz(fp, mean, std) for fp in batch_paths], dim=0
-        ).to(device)
+        loaded_paths: list[Path] = []
+        batch_tensors = []
+        for fp in batch_paths:
+            try:
+                batch_tensors.append(load_npz(fp, mean, std, crop_size=crop_size))
+                loaded_paths.append(fp)
+            except Exception as exc:
+                skipped_files.append((fp.name, f"{type(exc).__name__}: {exc}"))
+        if not batch_tensors:
+            continue
+
+        batch = torch.cat(batch_tensors, dim=0).to(device)
         with torch.no_grad():
             preds = model(batch).squeeze(-1).cpu().numpy()
         if preds.ndim == 0:
             preds = preds.reshape(1)
 
-        for fp, pred in zip(batch_paths, preds, strict=True):
+        for fp, pred in zip(loaded_paths, preds, strict=True):
             row: dict[str, object] = {"y_pred": float(pred)}
             if fp.stem in z_true_map:
                 row["y_true"] = z_true_map[fp.stem]
             results.append(row)
 
     df = pd.DataFrame(results)
+    Path(out).parent.mkdir(parents=True, exist_ok=True)
     df.to_parquet(out, index=False)
+    if skipped_files:
+        print(f"Skipped {len(skipped_files)} corrupted files during inference.")
+        for filename, reason in skipped_files[:10]:
+            print(f"  {filename}: {reason}")
 
 
 def _inference_sklearn(
     model_path: str, test_path: str, features_path: str, feature_set: str, out: str,
 ) -> None:
-    fcfg = load_yaml(features_path)
-    target = fcfg["target"]
-    feature_list = fcfg["feature_sets"][feature_set]
+    fcfg = load_yaml_as(features_path, FeaturesConfig)
+    target = fcfg.target
+    feature_list = fcfg.feature_sets[feature_set]
 
     df = read_dataset(test_path)
     X = df[feature_list]
@@ -108,16 +123,19 @@ def inference(
     catalog: str | None = None,
 ) -> None:
     if config_path is not None:
-        cfg = load_yaml(config_path)
-        if cfg.get("model_type") == "pytorch":
-            assert data_dir is not None, "data_dir is required for pytorch models"
-            _inference_pytorch(model_path, cfg, data_dir, catalog, out)
+        raw_cfg = load_yaml(config_path)
+        if isinstance(raw_cfg, dict) and raw_cfg.get("model_type") == "pytorch":
+            cfg = PytorchTrainConfig.model_validate(raw_cfg)
+            _inference_pytorch(model_path, cfg, cast(str, data_dir), catalog, out)
             return
 
-    assert test_path is not None, "test_path is required for sklearn models"
-    assert features_path is not None, "features_path is required for sklearn models"
-    assert feature_set is not None, "feature_set is required for sklearn models"
-    _inference_sklearn(model_path, test_path, features_path, feature_set, out)
+    _inference_sklearn(
+        model_path,
+        cast(str, test_path),
+        cast(str, features_path),
+        cast(str, feature_set),
+        out,
+    )
 
 
 @click.command()

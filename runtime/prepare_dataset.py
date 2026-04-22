@@ -1,28 +1,18 @@
 from pathlib import Path
-from typing import Any
 
 import click
 import pandas as pd
-import yaml
 from sklearn.model_selection import train_test_split
 
+from lib.config_models import DatasetConfig, FeaturesConfig
 from lib.dataset import clean_dataset
-
-
-def load_yaml(path: str) -> Any:
-    with open(path, encoding="utf-8") as f:
-        return yaml.safe_load(f)
+from lib.utils import load_yaml_as
 
 
 def prepare(input_csv: str, data_config: str, features: str, outdir: str) -> None:
-    dcfg = load_yaml(data_config)
-    split = dcfg["split"]
-
-    test_size = float(split["test_size"])
-    shuffle = bool(split["shuffle"])
-    random_seed = int(split["random_seed"])
-
-    target = load_yaml(features)["target"]
+    dcfg = load_yaml_as(data_config, DatasetConfig)
+    fcfg = load_yaml_as(features, FeaturesConfig)
+    target = fcfg.target
 
     df = pd.read_csv(input_csv, low_memory=False)
     df = clean_dataset(df, target)
@@ -30,9 +20,9 @@ def prepare(input_csv: str, data_config: str, features: str, outdir: str) -> Non
 
     train_df, test_df = train_test_split(
         df,
-        test_size=test_size,
-        random_state=random_seed,
-        shuffle=shuffle,
+        test_size=dcfg.test_size,
+        random_state=dcfg.random_seed,
+        shuffle=dcfg.shuffle,
     )
 
     out = Path(outdir)
@@ -48,13 +38,11 @@ def prepare(input_csv: str, data_config: str, features: str, outdir: str) -> Non
             "rows_train": [len(train_df)],
             "rows_test": [len(test_df)],
             "cols": [df.shape[1]],
-            "split_test_size": [test_size],
-            "split_shuffle": [shuffle],
-            "split_random_seed": [random_seed],
+            "split_test_size": [dcfg.test_size],
+            "split_shuffle": [dcfg.shuffle],
+            "split_random_seed": [dcfg.random_seed],
     })
     meta.to_parquet(out / "meta.parquet", index=False, engine="pyarrow")
-
-
 
 @click.command()
 @click.option("--input", "input_csv", required=True, type=str)

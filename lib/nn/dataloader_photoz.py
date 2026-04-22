@@ -3,8 +3,21 @@ from pathlib import Path
 import numpy as np
 import numpy.typing as npt
 import torch
+import torch.nn.functional as F
 from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader, Dataset, WeightedRandomSampler
+
+
+def _center_crop_resize(img: np.ndarray, crop_size: int, out_size: int = 224) -> np.ndarray:
+    h, w = img.shape[:2]
+    top = (h - crop_size) // 2
+    left = (w - crop_size) // 2
+    img = img[top : top + crop_size, left : left + crop_size]
+    if crop_size != out_size:
+        t = torch.from_numpy(img.transpose(2, 0, 1)).unsqueeze(0).float()
+        t = F.interpolate(t, size=(out_size, out_size), mode="bilinear", align_corners=False)
+        img = t.squeeze(0).permute(1, 2, 0).numpy()
+    return img
 
 
 def parse_catalog(catalog_path: str | Path) -> dict[str, float]:
@@ -35,6 +48,8 @@ class PhotozDataset(Dataset[tuple[torch.Tensor, torch.Tensor]]):
         augment: bool = False,
         w1w2_dir: Path | None = None,
         in_channels: int = 4,
+        crop_size: int | None = None,
+        physics_augment: bool = False,
     ) -> None:
         self.files = files
         self.labels = labels
@@ -43,6 +58,8 @@ class PhotozDataset(Dataset[tuple[torch.Tensor, torch.Tensor]]):
         self.mean = mean if mean is not None else np.zeros(in_channels, dtype=np.float32)
         self.std = std if std is not None else np.ones(in_channels, dtype=np.float32)
         self.augment = augment
+        self.crop_size = crop_size
+        self.physics_augment = physics_augment
 
     def __len__(self) -> int:
         return len(self.files)
@@ -54,6 +71,20 @@ class PhotozDataset(Dataset[tuple[torch.Tensor, torch.Tensor]]):
             w1w2_path = _resolve_w1w2_path(self.files[idx], self.w1w2_dir)
             w1w2 = np.load(w1w2_path)["image"].astype(np.float32)[:, :, :2]
             img = np.concatenate([img, w1w2], axis=2)
+
+        label_val = self.labels[idx]
+
+        # Physics augmentation on raw flux: simulate higher-z galaxy
+        if self.augment and self.physics_augment and np.random.rand() < 0.4:
+            delta_z = float(np.random.uniform(0.0, 0.5))
+            z_aug = label_val + delta_z
+            flux_factor = float(((1.0 + label_val) / (1.0 + z_aug)) ** 4)
+            img = img * flux_factor
+            label_val = z_aug
+
+        # Center crop + resize to 224
+        if self.crop_size is not None and self.crop_size < img.shape[0]:
+            img = _center_crop_resize(img, self.crop_size, out_size=224)
 
         img = (img - self.mean) / (self.std + 1e-8)
 
@@ -67,7 +98,7 @@ class PhotozDataset(Dataset[tuple[torch.Tensor, torch.Tensor]]):
                 img = np.rot90(img, k).copy()
 
         tensor = torch.from_numpy(img).permute(2, 0, 1)
-        label = torch.tensor(self.labels[idx], dtype=torch.float32)
+        label = torch.tensor(label_val, dtype=torch.float32)
         return tensor, label
 
 
@@ -114,6 +145,8 @@ def get_photoz_dataloaders(
     weighted_sampling: bool = False,
     w1w2_dir: str | Path | None = None,
     in_channels: int = 4,
+    crop_size: int | None = None,
+    physics_augment: bool = False,
 ) -> tuple[
     DataLoader[tuple[torch.Tensor, torch.Tensor]],
     DataLoader[tuple[torch.Tensor, torch.Tensor]],
@@ -157,10 +190,12 @@ def get_photoz_dataloaders(
     train_ds = PhotozDataset(
         train_files, train_labels, mean, std,
         augment=True, w1w2_dir=_w1w2_dir, in_channels=in_channels,
+        crop_size=crop_size, physics_augment=physics_augment,
     )
     val_ds = PhotozDataset(
         val_files, val_labels, mean, std,
         augment=False, w1w2_dir=_w1w2_dir, in_channels=in_channels,
+        crop_size=crop_size,
     )
 
     sampler = None
