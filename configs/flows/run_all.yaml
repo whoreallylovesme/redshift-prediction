@@ -1,0 +1,23 @@
+pipeline: tabular
+runs_root: runs
+prepared_root: prepared
+dataset:
+  input_csv: datasets/dsat.csv
+  data_config: configs/data/dataset.yaml
+  features: features/features.yaml
+models:
+  - name: catboost
+    config: configs/tabular/catboost.yaml
+    feature_set: set2
+  - name: llr
+    config: configs/tabular/llr.yaml
+    feature_set: set2
+  - name: mlp
+    config: configs/tabular/mlp.yaml
+    feature_set: set2
+  - name: rf
+    config: configs/tabular/rf.yaml
+    feature_set: set2
+summaries:
+  enabled: true
+  title: main

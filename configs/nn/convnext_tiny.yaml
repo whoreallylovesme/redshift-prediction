@@ -1,0 +1,35 @@
+model_type: pytorch
+
+estimator: |
+  import timm
+
+  model = timm.create_model(
+      "convnext_tiny", pretrained=True, in_chans=4, num_classes=1, drop_rate=0.2,
+  )
+
+  for name, param in model.named_parameters():
+      if not name.startswith("head"):
+          param.requires_grad = False
+
+  estimator = model
+
+data_dir: teddyA_imgs
+catalog: datasets/teddy_happy_orig/Teddy/teddy_A
+norm_from: teddyA_imgs
+
+crop_size: 112
+physics_augment: true
+
+train:
+  epochs: 15
+  batch_size: 64
+  lr: 0.001
+  weight_decay: 0.01
+  freeze_epochs: 3
+  train_ratio: 0.8
+  seed: 42
+  num_workers: 4
+  weighted_sampling: true
+  z_weight_alpha: 5.0
+  label_noise: 0.0
+  head_prefix: head

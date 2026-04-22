@@ -1,0 +1,20 @@
+pipeline: nn
+runs_root: nn_photoz_runs
+models:
+  - name: convnext_tiny
+    config: configs/nn/convnext_tiny.yaml
+splits:
+  - name: B
+    data_dir: teddyB_imgs
+    catalog: datasets/teddy_happy_orig/Teddy/teddy_B
+    metric_suffix: teddyB
+  - name: C
+    data_dir: teddyC_imgs
+    catalog: datasets/teddy_happy_orig/Teddy/teddy_C
+    metric_suffix: teddyC
+  - name: D
+    data_dir: teddyD_imgs
+    catalog: datasets/teddy_happy_orig/Teddy/teddy_D
+    metric_suffix: teddyD
+summaries:
+  enabled: false
