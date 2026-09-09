@@ -33,7 +33,7 @@ def _train_pytorch(cfg: PytorchTrainConfig, outdir: str) -> None:
     from tqdm import tqdm
 
     from lib.metrics import evaluate_regression
-    from lib.nn.dataloader_photoz import get_photoz_dataloaders
+    from lib.nn.npz import get_npz_dataloaders
     from lib.nn.train_utils import WeightedHuberLoss, unfreeze_backbone
 
     # Load model from estimator code
@@ -68,7 +68,7 @@ def _train_pytorch(cfg: PytorchTrainConfig, outdir: str) -> None:
     crop_size = cfg.crop_size
     physics_augment = cfg.physics_augment
 
-    train_loader, val_loader = get_photoz_dataloaders(
+    train_loader, val_loader = get_npz_dataloaders(
         cfg.data_dir, cfg.catalog,
         batch_size=batch_size, num_workers=num_workers,
         train_ratio=cfg.train_ratio, seed=seed,
@@ -221,14 +221,14 @@ def train(
 ) -> None:
     raw_cfg = load_yaml(config_path)
     if isinstance(raw_cfg, dict) and raw_cfg.get("model_type") == "pytorch":
-        _train_pytorch(PytorchTrainConfig.model_validate(raw_cfg), outdir)
+        _train_pytorch(PytorchTrainConfig.model_validate(raw_cfg), cast(str, outdir))
     else:
         _train_sklearn(
             cast(str, train_path),
             config_path,
             cast(str, features_path),
             cast(str, feature_set),
-            outdir,
+            cast(str, outdir),
         )
 
 

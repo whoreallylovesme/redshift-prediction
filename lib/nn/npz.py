@@ -134,7 +134,7 @@ def _compute_sample_weights(labels: list[float], n_bins: int = 20) -> npt.NDArra
     return sample_weights
 
 
-def get_photoz_dataloaders(
+def get_npz_dataloaders(
     data_dir: str | Path,
     catalog_path: str | Path,
     batch_size: int = 32,
@@ -225,3 +225,22 @@ def get_photoz_dataloaders(
         pin_memory=True,
     )
     return train_loader, val_loader
+
+
+def load_npz(
+    path: Path,
+    mean: npt.NDArray[np.floating],
+    std: npt.NDArray[np.floating],
+    w1w2_path: Path | None = None,
+    in_channels: int = 4,
+    crop_size: int | None = None,
+    out_size: int = 224,
+) -> torch.Tensor:
+    img = np.load(path)["image"].astype(np.float32)[:, :, :in_channels]
+    if w1w2_path is not None:
+        w1w2 = np.load(w1w2_path)["image"].astype(np.float32)[:, :, :2]
+        img = np.concatenate([img, w1w2], axis=2)
+    if crop_size is not None and crop_size < img.shape[0]:
+        img = _center_crop_resize(img, crop_size, out_size=out_size)
+    img = (img - mean) / (std + 1e-8)
+    return torch.from_numpy(img).permute(2, 0, 1).unsqueeze(0)
