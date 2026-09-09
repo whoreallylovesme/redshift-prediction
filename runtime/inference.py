@@ -5,9 +5,13 @@ import click
 import joblib
 import pandas as pd
 
-from lib.config_models import FeaturesConfig, PytorchTrainConfig
+from lib.config_models import FeaturesConfig, PytorchTrainConfig, SklearnTrainConfig
 from lib.dataset import read_dataset
+from lib.log import get_logger
 from lib.utils import load_yaml, load_yaml_as
+
+logger = get_logger()
+
 
 
 def _inference_pytorch(
@@ -86,9 +90,9 @@ def _inference_pytorch(
     Path(out).parent.mkdir(parents=True, exist_ok=True)
     df.to_parquet(out, index=False)
     if skipped_files:
-        print(f"Skipped {len(skipped_files)} corrupted files during inference.")
+        logger.info(f"Skipped {len(skipped_files)} corrupted files during inference.")
         for filename, reason in skipped_files[:10]:
-            print(f"  {filename}: {reason}")
+            logger.info(f"  {filename}: {reason}")
 
 
 def _inference_sklearn(
@@ -113,8 +117,8 @@ def _inference_sklearn(
 
 
 def inference(
-    model_path: str,
-    out: str,
+    model_path: str | None = None,
+    out: str | None = None,
     config_path: str | None = None,
     test_path: str | None = None,
     features_path: str | None = None,
@@ -126,32 +130,38 @@ def inference(
         raw_cfg = load_yaml(config_path)
         if isinstance(raw_cfg, dict) and raw_cfg.get("model_type") == "pytorch":
             cfg = PytorchTrainConfig.model_validate(raw_cfg)
-            _inference_pytorch(model_path, cfg, cast(str, data_dir), catalog, out)
+            out_dir = cfg.out_dir or f"nn_runs/{Path(config_path).stem}"
+            model_path = model_path or f"{out_dir}/best_model.pt"
+            out = out or f"{out_dir}/preds.parquet"
+            data_dir = data_dir or cfg.data_dir
+            catalog = catalog if catalog is not None else cfg.catalog
+            _inference_pytorch(
+                cast(str, model_path), cfg, cast(str, data_dir), catalog, cast(str, out),
+            )
             return
+        scfg = load_yaml_as(config_path, SklearnTrainConfig)
+        out_dir = scfg.out_dir or f"runs/{Path(config_path).stem}"
+        model_path = model_path or f"{out_dir}/model.pkl"
+        out = out or f"{out_dir}/preds.parquet"
+        test_path = test_path or scfg.test_path
+        features_path = features_path or scfg.features_path
+        feature_set = feature_set or scfg.feature_set
 
     _inference_sklearn(
-        model_path,
+        cast(str, model_path),
         cast(str, test_path),
         cast(str, features_path),
         cast(str, feature_set),
-        out,
+        cast(str, out),
     )
 
 
 @click.command()
-@click.option("--model", required=True, type=click.Path(exists=True, dir_okay=False))
-@click.option("--test", default=None, type=click.Path(exists=True, dir_okay=False))
-@click.option("--features", default=None, type=click.Path(exists=True, dir_okay=False))
-@click.option("--feature-set", "feature_set", default=None)
-@click.option("--config", default=None, type=click.Path(exists=True, dir_okay=False))
-@click.option("--data-dir", default=None, type=click.Path(exists=True, file_okay=False))
-@click.option("--catalog", default=None, type=click.Path(exists=True, dir_okay=False))
-@click.option("--out", required=True, type=click.Path(dir_okay=False))
-def main(
-    model: str, test: str | None, features: str | None, feature_set: str | None,
-    config: str | None, data_dir: str | None, catalog: str | None, out: str,
-) -> None:
-    inference(model, out, config, test, features, feature_set, data_dir, catalog)
+@click.option(
+    "--config", "config_path", required=True, type=click.Path(exists=True, dir_okay=False),
+)
+def main(config_path: str) -> None:
+    inference(config_path=config_path)
 
 
 if __name__ == "__main__":
