@@ -19,8 +19,7 @@ def _inference_pytorch(
 ) -> None:
     import torch
 
-    from lib.nn.dataloader_photoz import compute_stats, parse_catalog
-    from lib.nn.nn_inference_photoz import load_npz
+    from lib.nn.npz import compute_stats, load_npz, parse_catalog
 
     scope: dict[str, object] = {}
     exec(cfg.estimator, scope)
