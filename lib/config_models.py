@@ -28,6 +28,11 @@ class SklearnTrainConfig(BaseModel):
     hyperopt_scoring: str = Field(validation_alias=AliasPath("hyperopt", "scoring"))
     hyperopt_n_jobs: int = Field(validation_alias=AliasPath("hyperopt", "n_jobs"))
     hyperopt_verbose: int = Field(validation_alias=AliasPath("hyperopt", "verbose"))
+    out_dir: str | None = None
+    train_path: str | None = None
+    test_path: str | None = None
+    features_path: str | None = None
+    feature_set: str | None = None
 
 
 class PytorchTrainConfig(BaseModel):
@@ -35,6 +40,7 @@ class PytorchTrainConfig(BaseModel):
     estimator: str
     data_dir: str
     catalog: str
+    out_dir: str | None = None
     norm_from: str | None = None
     crop_size: int | None = None
     physics_augment: bool = False
