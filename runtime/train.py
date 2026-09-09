@@ -11,6 +11,7 @@ from sklearn.model_selection import train_test_split
 from lib.config_models import FeaturesConfig, PytorchTrainConfig, SklearnTrainConfig
 from lib.dataset import read_dataset
 from lib.estimator_loader import load_estimator
+from lib.log import get_logger
 from lib.training import (
     evaluate,
     feature_selection,
@@ -18,6 +19,9 @@ from lib.training import (
     train_model,
 )
 from lib.utils import load_yaml, load_yaml_as
+
+logger = get_logger()
+
 
 
 def _train_pytorch(cfg: PytorchTrainConfig, outdir: str) -> None:
@@ -58,7 +62,7 @@ def _train_pytorch(cfg: PytorchTrainConfig, outdir: str) -> None:
         else "mps" if torch.backends.mps.is_available()
         else "cpu"
     )
-    print(f"Device: {device}")
+    logger.info(f"Device: {device}")
 
     max_samples = cfg.max_samples
     crop_size = cfg.crop_size
@@ -77,7 +81,7 @@ def _train_pytorch(cfg: PytorchTrainConfig, outdir: str) -> None:
     model = model.to(device)
     trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
     total = sum(p.numel() for p in model.parameters())
-    print(f"Parameters: {total:,} total, {trainable:,} trainable")
+    logger.info(f"Parameters: {total:,} total, {trainable:,} trainable")
 
     if z_weight_alpha > 0:
         criterion: nn.Module = WeightedHuberLoss(delta=0.1, alpha=z_weight_alpha)
@@ -97,7 +101,7 @@ def _train_pytorch(cfg: PytorchTrainConfig, outdir: str) -> None:
 
         if ep == freeze_epochs + 1 and freeze_epochs > 0:
             unfreeze_backbone(model)
-            print("\n>>> Backbone unfrozen!")
+            logger.info("\n>>> Backbone unfrozen!")
             optimizer = AdamW([
                 {"params": [p for n, p in model.named_parameters()
                             if n.startswith(head_prefix)], "lr": lr},
@@ -145,13 +149,13 @@ def _train_pytorch(cfg: PytorchTrainConfig, outdir: str) -> None:
             torch.save(model.state_dict(), out / "best_model.pt")
             marker = " *best*"
 
-        print(
+        logger.info(
             f"Epoch {ep}/{epochs}  "
             f"loss={train_loss:.5f}  "
             f"nmad={metrics['sigma_nmad']:.5f}  "
             f"bias={metrics['bias']:.5f}  "
             f"outlier%={metrics['f_outlier_percent']:.2f}  "
-            f"[{ep_time:.0f}s/ep]{marker}"
+            f"[{ep_time:.0f}s/ep]{marker}",
         )
 
     torch.save(model.state_dict(), out / "last_model.pt")
@@ -163,8 +167,8 @@ def _train_pytorch(cfg: PytorchTrainConfig, outdir: str) -> None:
         "config": cfg.model_dump(exclude={"estimator"}),
     }
     (out / "train_report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
-    print(f"\nDone! Best nmad: {best_nmad:.5f}")
-    print(f"Saved to {out.resolve()}")
+    logger.info(f"\nDone! Best nmad: {best_nmad:.5f}")
+    logger.info(f"Saved to {out.resolve()}")
 
 
 def _train_sklearn(
@@ -205,12 +209,12 @@ def _train_sklearn(
         "val_metrics": evaluate(model, X_val, y_val),
     }
     (out / "train_report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
-    print(f"Saved to {out.resolve()}")
+    logger.info(f"Saved to {out.resolve()}")
 
 
 def train(
     config_path: str,
-    outdir: str,
+    outdir: str | None = None,
     train_path: str | None = None,
     features_path: str | None = None,
     feature_set: str | None = None,
@@ -229,16 +233,9 @@ def train(
 
 
 @click.command()
-@click.option("--train", "train_path", default=None, type=click.Path(exists=True, dir_okay=False))
 @click.option("--config", required=True, type=click.Path(exists=True, dir_okay=False))
-@click.option("--features", default=None, type=click.Path(exists=True, dir_okay=False))
-@click.option("--feature-set", default=None)
-@click.option("--outdir", required=True, type=click.Path(file_okay=False))
-def main(
-    train_path: str | None, config: str, features: str | None,
-    feature_set: str | None, outdir: str,
-) -> None:
-    train(config, outdir, train_path, features, feature_set)
+def main(config: str) -> None:
+    train(config)
 
 
 if __name__ == "__main__":
