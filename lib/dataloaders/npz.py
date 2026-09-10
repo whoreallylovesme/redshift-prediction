@@ -7,7 +7,7 @@ import torch.nn.functional as F
 from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader, Dataset, WeightedRandomSampler
 
-from lib.nn.dataloaders.common import subsample_indices
+from lib.dataloaders.common import subsample_indices
 
 
 def _center_crop_resize(img: np.ndarray, crop_size: int, out_size: int = 224) -> np.ndarray:

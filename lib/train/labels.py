@@ -15,10 +15,10 @@ from torch.optim import Adam
 from torch.optim.lr_scheduler import ExponentialLR
 from torch.utils.data import DataLoader
 
-from lib.log import get_logger
-from lib.nn.dataloaders.hdf5 import HDF5Dataset
-from lib.nn.models.capsnet import CapsNet, margin_loss
-from lib.utils import pick_device
+from lib.dataloaders.hdf5 import HDF5Dataset
+from lib.models.capsnet import CapsNet, margin_loss
+from lib.utils.log import get_logger
+from lib.utils.utils import pick_device
 
 logger = get_logger()
 

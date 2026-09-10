@@ -7,9 +7,9 @@ import pandas as pd
 import yaml
 from prefect import flow, task
 
-from lib.config_models import FlowConfig
+from lib.config import FlowConfig
 from lib.inference import inference
-from lib.utils import load_yaml_as
+from lib.utils.utils import load_yaml_as
 from runtime.evaluate import calc_metrics
 from runtime.render_plots import summary_plots
 from runtime.render_table import summary_table

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import torch
 
-from lib.nn.models.capsnet import CapsNet, logistic_to_z
+from lib.models.capsnet import CapsNet, logistic_to_z
 
 
 class CapsNetPredictor:

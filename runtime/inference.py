@@ -1,8 +1,8 @@
 from hydra import main as hydra_main
 from omegaconf import DictConfig
 
-from lib.hydra_utils import hydra_to_yaml
 from lib.inference import inference
+from lib.utils.hydra_utils import hydra_to_yaml
 
 
 @hydra_main(config_path="../configs", config_name="hydra", version_base="1.3")

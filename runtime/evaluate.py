@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from lib.dataset import read_dataset
+from lib.dataloaders.dataset import read_dataset
 from lib.metrics import evaluate_regression
 
 

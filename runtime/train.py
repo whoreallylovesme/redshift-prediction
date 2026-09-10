@@ -8,12 +8,12 @@ from hydra import main as hydra_main
 from omegaconf import DictConfig
 from sklearn.model_selection import train_test_split
 
-from lib.config_models import FeaturesConfig, PytorchTrainConfig, SklearnTrainConfig
-from lib.dataset import read_dataset
-from lib.hydra_utils import hydra_to_yaml
-from lib.log import get_logger
-from lib.registry import TORCH_TRAINERS, register_torch_trainer
-from lib.utils import load_yaml, load_yaml_as, pick_device
+from lib.config import FeaturesConfig, PytorchTrainConfig, SklearnTrainConfig
+from lib.dataloaders.dataset import read_dataset
+from lib.utils.hydra_utils import hydra_to_yaml
+from lib.utils.log import get_logger
+from lib.utils.registry import TORCH_TRAINERS, register_torch_trainer
+from lib.utils.utils import load_yaml, load_yaml_as, pick_device
 
 logger = get_logger()
 
@@ -23,13 +23,13 @@ _ = shutil, Path, np, train_test_split, FeaturesConfig, pick_device
 def _train_sklearn(
     train_path: str, config_path: str, features_path: str, feature_set: str, outdir: str,
 ) -> None:
-    from lib.estimator_loader import load_estimator
-    from lib.training import (
+    from lib.train.sklearn import (
         evaluate,
         feature_selection,
         hyperparameter_optimization,
         train_model,
     )
+    from lib.utils.estimator_loader import load_estimator
 
     cfg = load_yaml_as(config_path, SklearnTrainConfig)
     fcfg = load_yaml_as(features_path, FeaturesConfig)
@@ -73,7 +73,7 @@ def _train_sklearn(
     logger.info(f"Saved to {out.resolve()}")
 
 def _train_capsnet(config_path: str, **_: object) -> None:
-    from lib.nn.train.capsnet import run_train
+    from lib.train.capsnet import run_train
 
     run_train(Path(config_path))
 
@@ -82,9 +82,9 @@ def _train_lightning_default(
 ) -> None:
     import torch.nn as nn
 
-    from lib.estimator_loader import load_estimator
-    from lib.nn.dataloaders.npz import get_npz_dataloaders
-    from lib.nn.train.regression_lightning import run_regression
+    from lib.dataloaders.npz import get_npz_dataloaders
+    from lib.train.regression_lightning import run_regression
+    from lib.utils.estimator_loader import load_estimator
 
     cfg = PytorchTrainConfig.model_validate(load_yaml(config_path))
     loaded = load_estimator(cfg.estimator, expected_type=nn.Module)

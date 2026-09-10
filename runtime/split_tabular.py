@@ -3,9 +3,9 @@ from pathlib import Path
 import pandas as pd
 from sklearn.model_selection import train_test_split
 
-from lib.config_models import DatasetConfig, FeaturesConfig
-from lib.dataset import clean_dataset
-from lib.utils import load_yaml_as
+from lib.config import DatasetConfig, FeaturesConfig
+from lib.dataloaders.dataset import clean_dataset
+from lib.utils.utils import load_yaml_as
 
 
 def prepare(input_csv: str, data_config: str, features: str, outdir: str) -> None:
