@@ -4,7 +4,7 @@ prepared_root: prepared
 dataset:
   input_csv: datasets/dsat.csv
   data_config: configs/data/dataset.yaml
-  features: features/features.yaml
+  features: configs/features/features.yaml
 models:
   - name: catboost_fast_test
     config: configs/tabular/catboost_fast_test.yaml
