@@ -11,8 +11,11 @@ from sklearn.model_selection import train_test_split
 from lib.config_models import FeaturesConfig, PytorchTrainConfig, SklearnTrainConfig
 from lib.dataset import read_dataset
 from lib.hydra_utils import hydra_to_yaml
+from lib.log import get_logger
 from lib.registry import TORCH_TRAINERS, register_torch_trainer
 from lib.utils import load_yaml, load_yaml_as, pick_device
+
+logger = get_logger()
 
 _ = shutil, Path, np, train_test_split, FeaturesConfig, pick_device
 
@@ -67,7 +70,7 @@ def _train_sklearn(
         "val_metrics": evaluate(model, X_val, y_val),
     }
     (out / "train_report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
-    print(f"Saved to {out.resolve()}")
+    logger.info(f"Saved to {out.resolve()}")
 
 def _train_capsnet(config_path: str, **_: object) -> None:
     from lib.nn.train.capsnet import run_train
@@ -141,7 +144,7 @@ def train(
     )
 
 
-@hydra_main(config_path="../conf", config_name="config", version_base="1.3")
+@hydra_main(config_path="../configs", config_name="hydra", version_base="1.3")
 def main(cfg: DictConfig) -> None:
     config_path = hydra_to_yaml(cfg)
     train(str(config_path))
