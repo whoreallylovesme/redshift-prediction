@@ -36,7 +36,7 @@ class SklearnTrainConfig(BaseModel):
 
 
 class PytorchTrainConfig(BaseModel):
-    model_type: Literal["pytorch"]
+    model_type: Literal["lightning"]
     estimator: str
     data_dir: str
     catalog: str

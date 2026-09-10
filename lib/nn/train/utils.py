@@ -15,7 +15,6 @@ class WeightedHuberLoss(nn.Module):
         result: torch.Tensor = (loss * weights).mean()
         return result
 
-
 def unfreeze_backbone(model: nn.Module) -> None:
 
     for param in model.parameters():
