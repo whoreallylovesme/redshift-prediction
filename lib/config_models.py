@@ -43,6 +43,7 @@ class PytorchTrainConfig(BaseModel):
     out_dir: str | None = None
     norm_from: str | None = None
     crop_size: int | None = None
+    out_size: int = 224
     physics_augment: bool = False
     epochs: int = Field(validation_alias=AliasPath("train", "epochs"))
     batch_size: int = Field(validation_alias=AliasPath("train", "batch_size"))
