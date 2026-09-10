@@ -12,15 +12,15 @@ import yaml
 from scipy.stats import pearsonr, spearmanr
 from torch.utils.data import DataLoader
 
-from lib.config_models import FeaturesConfig, PytorchTrainConfig, SklearnTrainConfig
-from lib.dataset import read_dataset
-from lib.log import get_logger
+from lib.config import FeaturesConfig, PytorchTrainConfig, SklearnTrainConfig
+from lib.dataloaders.common import subsample_indices
+from lib.dataloaders.dataset import read_dataset
+from lib.dataloaders.hdf5 import HDF5Dataset
+from lib.dataloaders.teddy_capsnet import TeddyCapsnetDataset, _scan
 from lib.metrics import evaluate_regression
-from lib.nn.dataloaders.common import subsample_indices
-from lib.nn.dataloaders.hdf5 import HDF5Dataset
-from lib.nn.dataloaders.teddy_capsnet import TeddyCapsnetDataset, _scan
-from lib.registry import TORCH_PREDICTORS, register_torch_predictor
-from lib.utils import load_yaml, load_yaml_as, pick_device
+from lib.utils.log import get_logger
+from lib.utils.registry import TORCH_PREDICTORS, register_torch_predictor
+from lib.utils.utils import load_yaml, load_yaml_as, pick_device
 
 logger = get_logger()
 
@@ -29,7 +29,7 @@ logger = get_logger()
 
 
 def build_predictor(raw: dict[str, Any], weights: Path) -> Any:
-    from lib.nn.models.predictors import CapsNetPredictor
+    from lib.models.predictors import CapsNetPredictor
 
     device = pick_device(str(raw.get("device", "auto")))
     return CapsNetPredictor(
@@ -164,7 +164,7 @@ def _inference_pytorch(
 ) -> None:
     import torch
 
-    from lib.nn.dataloaders.npz import compute_stats, load_npz, parse_catalog
+    from lib.dataloaders.npz import compute_stats, load_npz, parse_catalog
 
     scope: dict[str, object] = {}
     exec(cfg.estimator, scope)

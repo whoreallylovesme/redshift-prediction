@@ -6,10 +6,10 @@ from typing import Any
 import yaml
 from torch.utils.data import DataLoader
 
-from lib.log import get_logger
-from lib.nn.dataloaders.hdf5 import get_hdf5_dataloaders
-from lib.nn.dataloaders.teddy_capsnet import get_teddy_capsnet_dataloaders
-from lib.nn.train.capsnet_lightning import CapsNetModule, TrainConfig, run_staged
+from lib.dataloaders.hdf5 import get_hdf5_dataloaders
+from lib.dataloaders.teddy_capsnet import get_teddy_capsnet_dataloaders
+from lib.train.capsnet_lightning import CapsNetModule, TrainConfig, run_staged
+from lib.utils.log import get_logger
 
 logger = get_logger()
 
@@ -21,7 +21,7 @@ def run_train(config_path: Path) -> None:
         raw = yaml.safe_load(f)
 
     if isinstance(raw.get("labels"), dict) and raw["labels"].get("enabled"):
-        from lib.nn.train.labels import run_generate
+        from lib.train.labels import run_generate
 
         run_generate(config_path)
 
