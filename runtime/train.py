@@ -26,7 +26,7 @@ def _train_lightning(config_path: str, outdir: str | None) -> None:
     import torch.nn as nn
 
     from lib.estimator_loader import load_estimator
-    from lib.nn.npz import get_npz_dataloaders
+    from lib.nn.dataloaders.npz import get_npz_dataloaders
     from lib.nn.train.regression_lightning import run_regression
 
     cfg = PytorchTrainConfig.model_validate(load_yaml(config_path))
