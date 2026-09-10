@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <title>{{ title }}</title>
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
 <style>
 body {
   font-family: system-ui;
@@ -16,15 +17,8 @@ h1 {
 
 .grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(auto-fill, minmax(620px, 1fr));
   gap: 14px;
-}
-
-@media (max-width: 1100px) {
-  .grid { grid-template-columns: repeat(2, 1fr); }
-}
-@media (max-width: 700px) {
-  .grid { grid-template-columns: 1fr; }
 }
 
 .card {
@@ -33,28 +27,21 @@ h1 {
   padding: 10px;
 }
 
-img {
-  width: 100%;
-  height: auto;
-  border-radius: 10px;
-  border: 1px solid #eee;
-}
-
-.cap {
-  margin-top: 8px;
+.card h2 {
   font-size: 13px;
   font-weight: 700;
   text-align: center;
+  margin: 0 0 6px 0;
 }
 </style>
 </head>
 <body>
 <h1>{{ title }}</h1>
 <div class="grid">
-{% for t in tiles %}
+{% for t in charts %}
 <div class="card">
-  <img src="{{ t.uri }}" alt="{{ t.algo }}"/>
-  <div class="cap">{{ t.algo }}</div>
+  <h2>{{ t.algo }}</h2>
+  {{ t.div | safe }}
 </div>
 {% endfor %}
 </div>
