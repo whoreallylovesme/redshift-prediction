@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import html
 import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import click
+from jinja2 import Environment, FileSystemLoader, select_autoescape
+
+TEMPLATES_DIR = Path(__file__).parent / "templates"
 
 LOWER_IS_BETTER: set[str] = {"rmse", "sigma_nmad", "f_outlier_percent"}
 CLOSER_TO_ZERO_IS_BETTER: set[str] = {"bias"}
@@ -101,89 +102,22 @@ def fmt(x: Any) -> str:
     return str(x)
 
 
-def render_table(rows: list[Row], metrics: list[str], best: dict[str, float], title: str) -> str:
-    parts: list[str] = []
-    col_count = 1 + len(metrics)
-
-    parts.append("<div class='table-wrap'><table>")
-
-    parts.append("<thead>")
-    parts.append(
-        f"<tr><th class='table-title' colspan='{col_count}'>{html.escape(title)}</th></tr>"
-    )
-
-    parts.append("<tr>")
-    parts.append("<th>algo</th>")
-
+def _build_cells(
+    r: Row, metrics: list[str], best: dict[str, float],
+) -> list[dict[str, str]]:
+    cells: list[dict[str, str]] = []
     for m in metrics:
-        label = m
-        if m in DISPLAY_SUFFIX:
-            label = f"{m} ({DISPLAY_SUFFIX[m]})"
-        parts.append(f"<th>{html.escape(label)}</th>")
-
-    parts.append("</tr>")
-    parts.append("</thead><tbody>")
-
-    for r in rows:
-        parts.append("<tr>")
-        parts.append(f"<td>{html.escape(r.algo)}</td>")
-
-        for m in metrics:
-            if m not in r.test:
-                parts.append("<td class='num muted'>—</td>")
-                continue
-
-            v = r.test[m]
-            v_disp = v * DISPLAY_SCALE.get(m, 1.0)
-            cls = "num"
-
-            bv = best.get(m)
-            if bv is not None and is_best(v, bv, m):
-                cls += " best"
-
-            parts.append(f"<td class='{cls}'>{html.escape(fmt(v_disp))}</td>")
-
-        parts.append("</tr>")
-
-    parts.append("</tbody></table></div>")
-    return "\n".join(parts)
-
-
-def render_html(rows: list[Row], title: str) -> str:
-    metrics = all_metrics(rows)
-    best = best_map(rows, metrics)
-    content = render_table(rows, metrics, best, title)
-
-    return f"""<!doctype html>
-<html>
-<head>
-<meta charset="utf-8"/>
-<title>{html.escape(title)}</title>
-<style>
-body {{ font-family: system-ui; margin: 24px; }}
-
-table {{ border-collapse: collapse; width: 100%; }}
-th, td {{ border: 1px solid #eee; padding: 6px 10px; }}
-th {{ background: #fafafa; }}
-
-.table-title {{
-  font-size: 18px;
-  font-weight: bold;
-  text-align: center;
-  background: #fafafa;
-  padding: 8px 0;
-}}
-
-.num {{ text-align: right; font-variant-numeric: tabular-nums; }}
-.best {{ font-weight: 800; background: #fff7cc; }}
-.muted {{ color: #999; }}
-</style>
-</head>
-<body>
-{content}
-</body>
-</html>
-"""
+        if m not in r.test:
+            cells.append({"class": "num muted", "value": "—"})
+            continue
+        v = r.test[m]
+        v_disp = v * DISPLAY_SCALE.get(m, 1.0)
+        cls = "num"
+        bv = best.get(m)
+        if bv is not None and is_best(v, bv, m):
+            cls += " best"
+        cells.append({"class": cls, "value": fmt(v_disp)})
+    return cells
 
 
 def summary_table(runs_dir: str, out: str, title: str = "main") -> None:
@@ -194,18 +128,23 @@ def summary_table(runs_dir: str, out: str, title: str = "main") -> None:
     if not rows:
         return
 
-    html_text = render_html(rows, title)
+    metrics = all_metrics(rows)
+    best = best_map(rows, metrics)
+    metric_labels = [
+        {"key": m, "label": f"{m} ({DISPLAY_SUFFIX[m]})" if m in DISPLAY_SUFFIX else m}
+        for m in metrics
+    ]
+    table_rows = [
+        {"algo": r.algo, "cells": _build_cells(r, metrics, best)} for r in rows
+    ]
+
+    env = Environment(
+        loader=FileSystemLoader(str(TEMPLATES_DIR)),
+        autoescape=select_autoescape(["html", "j2"]),
+    )
+    html_text = env.get_template("summary_table.html.j2").render(
+        title=title, metrics=metric_labels, rows=table_rows,
+    )
+
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(html_text, encoding="utf-8")
-
-
-@click.command()
-@click.option("--runs-dir", type=str, default="runs", show_default=True)
-@click.option("--out", type=str, default="runs/summary.html", show_default=True)
-@click.option("--title", type=str, default="main", show_default=True)
-def main(runs_dir: str, out: str, title: str) -> None:
-    summary_table(runs_dir, out, title)
-
-
-if __name__ == "__main__":
-    main()

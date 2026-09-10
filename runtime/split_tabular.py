@@ -1,6 +1,5 @@
 from pathlib import Path
 
-import click
 import pandas as pd
 from sklearn.model_selection import train_test_split
 
@@ -43,15 +42,3 @@ def prepare(input_csv: str, data_config: str, features: str, outdir: str) -> Non
             "split_random_seed": [dcfg.random_seed],
     })
     meta.to_parquet(out / "meta.parquet", index=False, engine="pyarrow")
-
-@click.command()
-@click.option("--input", "input_csv", required=True, type=str)
-@click.option("--data-config", required=True, type=click.Path(exists=True, dir_okay=False))
-@click.option("--features", required=True, type=click.Path(exists=True, dir_okay=False))
-@click.option("--outdir", required=True, type=click.Path(file_okay=False))
-def main(input_csv: str, data_config: str, features: str, outdir: str) -> None:
-    prepare(input_csv, data_config, features, outdir)
-
-
-if __name__ == "__main__":
-    main()
