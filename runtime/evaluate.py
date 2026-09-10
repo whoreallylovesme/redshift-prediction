@@ -1,8 +1,6 @@
 import json
 from pathlib import Path
 
-import click
-
 from lib.dataset import read_dataset
 from lib.metrics import evaluate_regression
 
@@ -25,15 +23,3 @@ def calc_metrics(preds: str, outdir: str, model_name: str) -> None:
         json.dumps(report, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
-
-
-@click.command()
-@click.option("--preds", required=True, type=click.Path(exists=True, dir_okay=False))
-@click.option("--outdir", required=True, type=click.Path(file_okay=False))
-@click.option("--model-name", "model_name", required=True)
-def main(preds: str, outdir: str, model_name: str) -> None:
-    calc_metrics(preds, outdir, model_name)
-
-
-if __name__ == "__main__":
-    main()

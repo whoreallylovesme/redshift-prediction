@@ -10,28 +10,28 @@ from prefect import flow, task
 from lib.config_models import FlowConfig
 from lib.inference import inference
 from lib.utils import load_yaml_as
-from runtime.calc_metrics import calc_metrics
-from runtime.plots_html import summary_plots
-from runtime.prepare_dataset import prepare
-from runtime.table import summary_table
+from runtime.evaluate import calc_metrics
+from runtime.render_plots import summary_plots
+from runtime.render_table import summary_table
+from runtime.split_tabular import prepare
 from runtime.train import train
 
 
 @task
-def prepare_dataset_task(
+def split_tabular_data(
     input_csv: str, data_config: str, features: str, outdir: str,
 ) -> None:
     prepare(input_csv, data_config, features, outdir)
 
 @task
-def train_task(
+def fit_model(
     config: str, outdir: str,
     train_path: str | None = None, features: str | None = None, feature_set: str | None = None,
 ) -> None:
     train(config, outdir, train_path, features, feature_set)
 
 @task
-def inference_task(
+def predict(
     model_path: str, out: str,
     config: str | None = None, test_path: str | None = None,
     features: str | None = None, feature_set: str | None = None,
@@ -40,27 +40,27 @@ def inference_task(
     inference(model_path, out, config, test_path, features, feature_set, data_dir, catalog)
 
 @task
-def calc_metrics_task(preds: str, outdir: str, model_name: str) -> None:
+def evaluate(preds: str, outdir: str, model_name: str) -> None:
     calc_metrics(preds, outdir, model_name)
 
 @task
-def summary_table_task(runs_dir: str, out: str, title: str) -> None:
+def render_summary_table(runs_dir: str, out: str, title: str) -> None:
     summary_table(runs_dir, out, title)
 
 @task
-def summary_plots_task(runs_dir: str, out: str, title: str) -> None:
+def render_summary_plots(runs_dir: str, out: str, title: str) -> None:
     summary_plots(runs_dir, out, title)
 
 @task
-def capsnet_train_task(config: str) -> None:
+def fit_capsnet(config: str) -> None:
     train(config)
 
 @task
-def capsnet_inference_task(config: str) -> None:
+def predict_capsnet_splits(config: str) -> None:
     inference(config_path=config)
 
 @task
-def capsnet_metrics_task(preds: str, outdir: str, model_name: str) -> None:
+def evaluate_capsnet_split(preds: str, outdir: str, model_name: str) -> None:
     out = Path(outdir)
     out.mkdir(parents=True, exist_ok=True)
     df = pd.read_parquet(preds)
@@ -74,13 +74,13 @@ def run_capsnet_pipeline(config: FlowConfig) -> None:
     train_cfg = config.train
     if train_cfg is None:
         raise ValueError("capsnet pipeline requires a train section")
-    capsnet_train_task(train_cfg["config"])
-    capsnet_inference_task(train_cfg["config"])
+    fit_capsnet(train_cfg["config"])
+    predict_capsnet_splits(train_cfg["config"])
     nn_raw = yaml.safe_load(Path(train_cfg["config"]).read_text())
     for split in nn_raw.get("inference", {}).get("splits", []):
         out = str(split["out"])
         split_dir = str(Path(out).parent)
-        capsnet_metrics_task(out, split_dir, f"capsnet_{split['name']}")
+        evaluate_capsnet_split(out, split_dir, f"capsnet_{split['name']}")
 
 def run_tabular_pipeline(config: FlowConfig) -> None:
     runs_root = config.runs_root
@@ -92,7 +92,7 @@ def run_tabular_pipeline(config: FlowConfig) -> None:
     shutil.rmtree(prepared_root, ignore_errors=True)
     shutil.rmtree(runs_root, ignore_errors=True)
 
-    prepare_dataset_task(
+    split_tabular_data(
         dataset["input_csv"],
         dataset["data_config"],
         dataset["features"],
@@ -105,26 +105,26 @@ def run_tabular_pipeline(config: FlowConfig) -> None:
         feature_set = model["feature_set"]
         outdir = model.get("outdir", f"{runs_root}/{model_name}_{feature_set}")
 
-        train_task(
+        fit_model(
             config_path,
             outdir,
             train_path=f"{prepared_root}/train.parquet",
             features=dataset["features"],
             feature_set=feature_set,
         )
-        inference_task(
+        predict(
             f"{outdir}/model.pkl",
             f"{outdir}/preds.parquet",
             test_path=f"{prepared_root}/test.parquet",
             features=dataset["features"],
             feature_set=feature_set,
         )
-        calc_metrics_task(f"{outdir}/preds.parquet", outdir, model_name)
+        evaluate(f"{outdir}/preds.parquet", outdir, model_name)
 
     if summaries.get("enabled", True):
         title = str(summaries.get("title", "main"))
-        summary_table_task(runs_root, f"{runs_root}/summary_table.html", title)
-        summary_plots_task(runs_root, f"{runs_root}/summary_plots.html", title)
+        render_summary_table(runs_root, f"{runs_root}/summary_table.html", title)
+        render_summary_plots(runs_root, f"{runs_root}/summary_plots.html", title)
 
 def run_nn_pipeline(config: FlowConfig) -> None:
     runs_root = config.runs_root
@@ -139,14 +139,14 @@ def run_nn_pipeline(config: FlowConfig) -> None:
         config_path = model["config"]
         model_dir = model.get("train_outdir", f"{runs_root}/{model_name}")
 
-        train_task(config_path, model_dir)
+        fit_model(config_path, model_dir)
 
         for split in splits:
             split_name = split["name"]
             split_dir = split.get("outdir", f"{runs_root}/runs_{split_name}/{model_name}")
             preds_path = f"{split_dir}/preds.parquet"
 
-            inference_task(
+            predict(
                 f"{model_dir}/best_model.pt",
                 preds_path,
                 config=config_path,
@@ -154,15 +154,15 @@ def run_nn_pipeline(config: FlowConfig) -> None:
                 catalog=split["catalog"],
             )
             metric_suffix = split.get("metric_suffix", split_name)
-            calc_metrics_task(preds_path, split_dir, f"{model_name}_{metric_suffix}")
+            evaluate(preds_path, split_dir, f"{model_name}_{metric_suffix}")
 
     if summaries.get("enabled", False):
         for split in splits:
             split_name = split["name"]
             split_runs = split.get("summary_runs_dir", f"{runs_root}/runs_{split_name}")
             title = split.get("summary_title", f"nn_runs_{split_name}")
-            summary_table_task(split_runs, f"{split_runs}/summary_table.html", title)
-            summary_plots_task(split_runs, f"{split_runs}/summary_plots.html", title)
+            render_summary_table(split_runs, f"{split_runs}/summary_table.html", title)
+            render_summary_plots(split_runs, f"{split_runs}/summary_plots.html", title)
 
 @flow(name="pipeline")
 def pipeline(config_path: str) -> None:

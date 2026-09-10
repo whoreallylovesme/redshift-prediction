@@ -1,0 +1,53 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8"/>
+<title>{{ title }}</title>
+<style>
+body { font-family: system-ui; margin: 24px; }
+
+table { border-collapse: collapse; width: 100%; }
+th, td { border: 1px solid #eee; padding: 6px 10px; }
+th { background: #fafafa; }
+
+.table-title {
+  font-size: 18px;
+  font-weight: bold;
+  text-align: center;
+  background: #fafafa;
+  padding: 8px 0;
+}
+
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+.best { font-weight: 800; background: #fff7cc; }
+.muted { color: #999; }
+</style>
+</head>
+<body>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+  <th class="table-title" colspan="{{ metrics|length + 1 }}">{{ title }}</th>
+</tr>
+<tr>
+  <th>algo</th>
+  {% for m in metrics %}
+  <th>{{ m.label }}</th>
+  {% endfor %}
+</tr>
+</thead>
+<tbody>
+{% for r in rows %}
+<tr>
+  <td>{{ r.algo }}</td>
+  {% for c in r.cells %}
+  <td class="{{ c.class }}">{{ c.value }}</td>
+  {% endfor %}
+</tr>
+{% endfor %}
+</tbody>
+</table>
+</div>
+</body>
+</html>
