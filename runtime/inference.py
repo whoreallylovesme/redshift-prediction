@@ -127,7 +127,7 @@ def inference(
 ) -> None:
     if config_path is not None:
         raw_cfg = load_yaml(config_path)
-        if isinstance(raw_cfg, dict) and raw_cfg.get("model_type") == "pytorch":
+        if isinstance(raw_cfg, dict) and raw_cfg.get("model_type") == "lightning":
             cfg = PytorchTrainConfig.model_validate(raw_cfg)
             out_dir = cfg.out_dir or f"nn_runs/{Path(config_path).stem}"
             model_path = model_path or f"{out_dir}/best_model.pt"

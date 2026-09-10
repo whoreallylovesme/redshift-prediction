@@ -1,4 +1,4 @@
-model_type: pytorch
+model_type: lightning
 
 estimator: |
   import torch
