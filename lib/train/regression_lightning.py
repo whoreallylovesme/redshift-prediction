@@ -12,10 +12,10 @@ from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader
 
-from lib.config_models import PytorchTrainConfig
-from lib.log import get_logger
+from lib.config import PytorchTrainConfig
 from lib.metrics import bias, nmad, outlier_percent
-from lib.utils import pick_device
+from lib.utils.log import get_logger
+from lib.utils.utils import pick_device
 
 logger = get_logger()
 
@@ -38,7 +38,7 @@ class RegressionModule(L.LightningModule):
     @property
     def criterion(self) -> nn.Module:
         if self.cfg.z_weight_alpha > 0:
-            from lib.nn.train.utils import WeightedHuberLoss
+            from lib.train.utils import WeightedHuberLoss
 
             return WeightedHuberLoss(delta=0.1, alpha=self.cfg.z_weight_alpha)
         return nn.HuberLoss(delta=0.1)

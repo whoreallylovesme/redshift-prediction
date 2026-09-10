@@ -3,8 +3,8 @@ from typing import Any
 import pandas as pd
 from sklearn.model_selection import GridSearchCV, train_test_split
 
-from .config_models import SklearnTrainConfig
-from .metrics import evaluate_regression
+from lib.config import SklearnTrainConfig
+from lib.metrics import evaluate_regression
 
 
 def feature_selection(df: pd.DataFrame, features: list[str]) -> tuple[list[str], list[str]]:
@@ -100,5 +100,5 @@ def evaluate(
     y: pd.Series,
 ) -> dict[str, float]:
     pred = model.predict(X)
-
-    return evaluate_regression(y, pred)
+    result: dict[str, float] = evaluate_regression(y, pred)
+    return result
