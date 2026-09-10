@@ -1,32 +1,33 @@
-import json
+import shutil
 from collections.abc import Callable
 from pathlib import Path
 from typing import cast
 
-import click
-import joblib
+import numpy as np
+from hydra import main as hydra_main
+from omegaconf import DictConfig
 from sklearn.model_selection import train_test_split
 
 from lib.config_models import FeaturesConfig, PytorchTrainConfig, SklearnTrainConfig
 from lib.dataset import read_dataset
-from lib.estimator_loader import load_estimator
-from lib.log import get_logger
+from lib.hydra_utils import hydra_to_yaml
 from lib.registry import TORCH_TRAINERS, register_torch_trainer
-from lib.training import (
-    evaluate,
-    feature_selection,
-    hyperparameter_optimization,
-    train_model,
-)
-from lib.utils import load_yaml, load_yaml_as
+from lib.utils import load_yaml, load_yaml_as, pick_device
 
-logger = get_logger()
-
+_ = shutil, Path, np, train_test_split, FeaturesConfig, pick_device
 
 
 def _train_sklearn(
     train_path: str, config_path: str, features_path: str, feature_set: str, outdir: str,
 ) -> None:
+    from lib.estimator_loader import load_estimator
+    from lib.training import (
+        evaluate,
+        feature_selection,
+        hyperparameter_optimization,
+        train_model,
+    )
+
     cfg = load_yaml_as(config_path, SklearnTrainConfig)
     fcfg = load_yaml_as(features_path, FeaturesConfig)
     target = fcfg.target
@@ -50,9 +51,13 @@ def _train_sklearn(
     best_params = hyperparameter_optimization(estimator, X_train, y_train, cfg)
     model = train_model(estimator, X_train, y_train, best_params)
 
+    import joblib as jb
+
     out = Path(outdir)
     out.mkdir(parents=True, exist_ok=True)
-    joblib.dump(model, out / "model.pkl")
+    jb.dump(model, out / "model.pkl")
+
+    import json
 
     report = {
         "feature_set": feature_set,
@@ -62,7 +67,7 @@ def _train_sklearn(
         "val_metrics": evaluate(model, X_val, y_val),
     }
     (out / "train_report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
-    logger.info(f"Saved to {out.resolve()}")
+    print(f"Saved to {out.resolve()}")
 
 def _train_capsnet(config_path: str, **_: object) -> None:
     from lib.nn.train.capsnet import run_train
@@ -79,7 +84,6 @@ def _train_lightning_default(
     from lib.nn.train.regression_lightning import run_regression
 
     cfg = PytorchTrainConfig.model_validate(load_yaml(config_path))
-    outdir = outdir or cfg.out_dir or f"nn_runs/{Path(config_path).stem}"
     loaded = load_estimator(cfg.estimator, expected_type=nn.Module)
     model = cast(nn.Module, loaded)
     tr, va = get_npz_dataloaders(
@@ -87,10 +91,9 @@ def _train_lightning_default(
         batch_size=cfg.batch_size, num_workers=cfg.num_workers,
         train_ratio=cfg.train_ratio, seed=cfg.seed,
         weighted_sampling=cfg.weighted_sampling, max_samples=cfg.max_samples,
-        crop_size=cfg.crop_size, out_size=cfg.out_size,
-        physics_augment=cfg.physics_augment,
+        crop_size=cfg.crop_size, physics_augment=cfg.physics_augment,
     )
-    run_regression(cfg, model, tr, va, outdir)
+    run_regression(cfg, model, tr, va, cast(str, outdir))
 
 def _train_sklearn_entry(
     config_path: str,
@@ -110,7 +113,7 @@ def _train_sklearn_entry(
         config_path,
         cast(str, features_path),
         cast(str, feature_set),
-        outdir,
+        cast(str, outdir),
     )
 
 register_torch_trainer("capsnet", _train_capsnet)
@@ -137,10 +140,12 @@ def train(
         features_path=features_path, feature_set=feature_set,
     )
 
-@click.command()
-@click.option("--config", required=True, type=click.Path(exists=True, dir_okay=False))
-def main(config: str) -> None:
-    train(config)
+
+@hydra_main(config_path="../conf", config_name="config", version_base="1.3")
+def main(cfg: DictConfig) -> None:
+    config_path = hydra_to_yaml(cfg)
+    train(str(config_path))
+
 
 if __name__ == "__main__":
     main()

@@ -1,0 +1,16 @@
+batch_size: 256
+lr: 0.0005
+decay_rate: 0.95
+lam_recon: 0.005
+lam_redshift: 1.0
+z_min: 0.0
+z_max: 1.0
+crop_size: 64
+image_scale: 10.0
+num_workers: 3
+train_ratio: 0.85
+weighted_sampling: true
+
+augment:
+  rot90_prob: 0.67
+  flip_prob: 0.33

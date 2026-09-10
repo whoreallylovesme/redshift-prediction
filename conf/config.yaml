@@ -1,0 +1,8 @@
+defaults:
+  - _self_
+  - train: default
+  - model: ???
+  - dataset: ???
+
+seed: 200
+device: auto
