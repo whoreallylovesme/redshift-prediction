@@ -1,0 +1,9 @@
+pipeline: capsnet
+runs_root: nn_capsnet_runs
+
+train:
+  config: configs/nn/capsnet_hayat.yaml
+  out_dir: nn_capsnet_runs/hayat_paper_v2
+
+summaries:
+  enabled: false

@@ -7,6 +7,8 @@ import torch.nn.functional as F
 from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader, Dataset, WeightedRandomSampler
 
+from lib.nn.dataloaders.common import subsample_indices
+
 
 def _center_crop_resize(img: np.ndarray, crop_size: int, out_size: int = 224) -> np.ndarray:
     h, w = img.shape[:2]
@@ -18,7 +20,6 @@ def _center_crop_resize(img: np.ndarray, crop_size: int, out_size: int = 224) ->
         t = F.interpolate(t, size=(out_size, out_size), mode="bilinear", align_corners=False)
         img = t.squeeze(0).permute(1, 2, 0).numpy()
     return img
-
 
 def parse_catalog(catalog_path: str | Path) -> dict[str, float]:
     mapping: dict[str, float] = {}
@@ -33,10 +34,8 @@ def parse_catalog(catalog_path: str | Path) -> dict[str, float]:
                 mapping[objid] = z_spec
     return mapping
 
-
 def _resolve_w1w2_path(griz_path: Path, w1w2_dir: Path) -> Path:
     return w1w2_dir / f"{griz_path.stem}_wise.npz"
-
 
 class PhotozDataset(Dataset[tuple[torch.Tensor, torch.Tensor]]):
     def __init__(
@@ -49,6 +48,7 @@ class PhotozDataset(Dataset[tuple[torch.Tensor, torch.Tensor]]):
         w1w2_dir: Path | None = None,
         in_channels: int = 4,
         crop_size: int | None = None,
+        out_size: int = 224,
         physics_augment: bool = False,
     ) -> None:
         self.files = files
@@ -59,6 +59,7 @@ class PhotozDataset(Dataset[tuple[torch.Tensor, torch.Tensor]]):
         self.std = std if std is not None else np.ones(in_channels, dtype=np.float32)
         self.augment = augment
         self.crop_size = crop_size
+        self.out_size = out_size
         self.physics_augment = physics_augment
 
     def __len__(self) -> int:
@@ -74,7 +75,6 @@ class PhotozDataset(Dataset[tuple[torch.Tensor, torch.Tensor]]):
 
         label_val = self.labels[idx]
 
-        # Physics augmentation on raw flux: simulate higher-z galaxy
         if self.augment and self.physics_augment and np.random.rand() < 0.4:
             delta_z = float(np.random.uniform(0.0, 0.5))
             z_aug = label_val + delta_z
@@ -82,9 +82,8 @@ class PhotozDataset(Dataset[tuple[torch.Tensor, torch.Tensor]]):
             img = img * flux_factor
             label_val = z_aug
 
-        # Center crop + resize to 224
         if self.crop_size is not None and self.crop_size < img.shape[0]:
-            img = _center_crop_resize(img, self.crop_size, out_size=224)
+            img = _center_crop_resize(img, self.crop_size, out_size=self.out_size)
 
         img = (img - self.mean) / (self.std + 1e-8)
 
@@ -100,7 +99,6 @@ class PhotozDataset(Dataset[tuple[torch.Tensor, torch.Tensor]]):
         tensor = torch.from_numpy(img).permute(2, 0, 1)
         label = torch.tensor(label_val, dtype=torch.float32)
         return tensor, label
-
 
 def compute_stats(
     files: list[Path],
@@ -121,7 +119,6 @@ def compute_stats(
     all_pixels: npt.NDArray[np.floating] = np.concatenate(acc, axis=0)
     return all_pixels.mean(axis=0).astype(np.float32), all_pixels.std(axis=0).astype(np.float32)
 
-
 def _compute_sample_weights(labels: list[float], n_bins: int = 20) -> npt.NDArray[np.float64]:
     arr = np.array(labels)
     bins = np.linspace(arr.min(), arr.max() + 1e-8, n_bins + 1)
@@ -132,7 +129,6 @@ def _compute_sample_weights(labels: list[float], n_bins: int = 20) -> npt.NDArra
     bin_weights = 1.0 / counts
     sample_weights: npt.NDArray[np.float64] = bin_weights[bin_idx]
     return sample_weights
-
 
 def get_npz_dataloaders(
     data_dir: str | Path,
@@ -146,6 +142,7 @@ def get_npz_dataloaders(
     w1w2_dir: str | Path | None = None,
     in_channels: int = 4,
     crop_size: int | None = None,
+    out_size: int = 224,
     physics_augment: bool = False,
 ) -> tuple[
     DataLoader[tuple[torch.Tensor, torch.Tensor]],
@@ -170,9 +167,7 @@ def get_npz_dataloaders(
         raise ValueError(f"No matching images found in {data_dir}")
 
     if max_samples is not None and len(files) > max_samples:
-        rng = np.random.default_rng(seed)
-        idx = rng.choice(len(files), size=max_samples, replace=False)
-        idx.sort()
+        idx = subsample_indices(len(files), int(max_samples), seed)
         files = [files[i] for i in idx]
         labels = [labels[i] for i in idx]
 
@@ -190,12 +185,12 @@ def get_npz_dataloaders(
     train_ds = PhotozDataset(
         train_files, train_labels, mean, std,
         augment=True, w1w2_dir=_w1w2_dir, in_channels=in_channels,
-        crop_size=crop_size, physics_augment=physics_augment,
+        crop_size=crop_size, out_size=out_size, physics_augment=physics_augment,
     )
     val_ds = PhotozDataset(
         val_files, val_labels, mean, std,
         augment=False, w1w2_dir=_w1w2_dir, in_channels=in_channels,
-        crop_size=crop_size,
+        crop_size=crop_size, out_size=out_size,
     )
 
     sampler = None
