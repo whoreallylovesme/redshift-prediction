@@ -1,64 +1,56 @@
-from pathlib import Path
-from typing import Any
-
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import plotly.graph_objects as go
 from numpy.typing import NDArray
 
 
 def redshift_scatter(
     y_true: pd.Series,
     y_pred: NDArray[np.float64],
-    path: str | Path,
-    model_name: str | None,
-    vmin: Any = None,
-    vmax: Any = None
-) -> None:
+    model_name: str | None = None,
+    vmin: float | None = None,
+    vmax: float | None = None,
+) -> go.Figure:
     y_true_arr = np.asarray(y_true).ravel()
     y_pred_arr = np.asarray(y_pred).ravel()
 
-    fig, ax = plt.subplots(figsize=(6, 6))
-
     if vmin is None:
-        vmin = np.min([y_true_arr.min(), y_pred_arr.min()])
+        vmin = float(np.min([y_true_arr.min(), y_pred_arr.min()]))
     if vmax is None:
-        vmax = np.max([y_true_arr.max(), y_pred_arr.max()])
+        vmax = float(np.max([y_true_arr.max(), y_pred_arr.max()]))
 
-    hb = ax.hexbin(
-        y_true_arr,
-        y_pred_arr,
-        gridsize=120,
-        cmap="plasma",
-        mincnt=1
+    fig = go.Figure()
+
+    fig.add_trace(go.Histogram2d(
+        x=y_true_arr,
+        y=y_pred_arr,
+        nbinsx=120,
+        nbinsy=120,
+        colorscale="Plasma",
+        zmin=1,
+        hovertemplate="z_spec=%{x:.4f}<br>z_phot=%{y:.4f}<br>count=%{z}<extra></extra>",
+    ))
+
+    for offset, dash, name in [
+        (0.0, "dash", "z_phot = z_spec"),
+        (0.15, "dot", "+0.15"),
+        (-0.15, "dot", "-0.15"),
+    ]:
+        fig.add_trace(go.Scatter(
+            x=[vmin, vmax], y=[vmin + offset, vmax + offset],
+            mode="lines", line={"dash": dash, "width": 1, "color": "gray"},
+            name=name, hoverinfo="skip",
+        ))
+
+    fig.update_layout(
+        title=model_name if model_name is not None else "",
+        xaxis_title="z_spec",
+        yaxis_title="z_phot",
+        xaxis_range=[vmin, vmax],
+        yaxis_range=[vmin, vmax],
+        width=600,
+        height=600,
+        coloraxis_colorbar={"title": "Count"},
+        template="plotly_white",
     )
-
-    ax.plot([vmin, vmax], [vmin, vmax], linestyle="--", linewidth=1)
-
-    ax.plot(
-        [vmin, vmax],
-        [vmin + 0.15, vmax + 0.15],
-        linestyle=":",
-        linewidth=1
-    )
-
-    ax.plot(
-        [vmin, vmax],
-        [vmin - 0.15, vmax - 0.15],
-        linestyle=":",
-        linewidth=1
-    )
-
-    cb = fig.colorbar(hb, ax=ax)
-    cb.set_label("Galaxies per pixel")
-
-    ax.set_xlabel("z_spec")
-    ax.set_ylabel("z_phot")
-    ax.set_title(model_name if model_name is not None else "unknown")
-    ax.set_xlim(vmin, vmax)
-    ax.set_ylim(vmin, vmax)
-    ax.set_aspect("equal", adjustable="box")
-    ax.grid(True, alpha=0.25)
-
-    fig.savefig(path, dpi=150, bbox_inches="tight")
-    plt.close(fig)
+    return fig
