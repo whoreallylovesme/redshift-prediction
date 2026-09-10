@@ -1,0 +1,44 @@
+model_type: lightning
+model: capsnet
+
+h5_path: datasets/sdss_w_specz_train.h5
+morph_parquet: datasets/hayat_train_morph_generated.parquet
+out_dir: nn_capsnet_runs/hayat_paper_v2
+
+labels:
+  enabled: true
+  iters: 2
+  epochs_per_iter: 2
+  fine_lr: 5.0e-5
+  threshold: 0.8
+  seed_parquet: datasets/hayat_train_morph_generated.parquet
+  init_weights: null
+  out: datasets/hayat_train_morph_generated.parquet
+
+crop_size: 64
+image_scale: 10.0
+batch_size: 256
+lr: 0.0005
+decay_rate: 0.95
+lam_recon: 0.005
+lam_redshift: 1.0
+z_min: 0.0
+z_max: 0.4
+
+stage_a_epochs: 0
+stage_b_epochs: 20
+
+train_ratio: 0.8
+weighted_sampling: false
+num_workers: 3
+seed: 200
+device: auto
+
+augment:
+  rot90_prob: 0.67
+  flip_prob: 0.33
+
+inference:
+  h5_path: sdss_w_specz_valid.h5
+  out: nn_capsnet_runs/hayat_paper_v2/preds_valid.parquet
+  compare_npz: null

@@ -1,8 +1,12 @@
 from __future__ import annotations
 
-import torch
+from typing import TYPE_CHECKING
+
 import yaml
 from pydantic import BaseModel
+
+if TYPE_CHECKING:
+    import torch
 
 
 def load_yaml(path: str) -> object:
@@ -16,6 +20,8 @@ def load_yaml_as[ModelT: BaseModel](path: str, model_cls: type[ModelT]) -> Model
 
 
 def pick_device(spec: str = "auto") -> torch.device:
+    import torch
+
     if spec != "auto":
         return torch.device(spec)
     if torch.cuda.is_available():
