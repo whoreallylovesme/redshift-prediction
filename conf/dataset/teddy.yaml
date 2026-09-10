@@ -1,0 +1,22 @@
+images_dir: teddyA_grizw1w2
+catalog_path: datasets/teddy_happy_orig/Teddy/teddy_A
+gz1_parquet: datasets/galaxy_zoo/teddy_A_gz1.parquet
+out_dir: nn_capsnet_runs/teddy_w1w2
+
+inference:
+  splits:
+    - name: B
+      images_dir: teddyB_grizw1w2
+      catalog: datasets/teddy_happy_orig/Teddy/teddy_B
+      gz1_parquet: datasets/galaxy_zoo/teddy_B_gz1.parquet
+      out: nn_capsnet_runs/teddy_w1w2/preds_B.parquet
+    - name: C
+      images_dir: teddyC_grizw1w2
+      catalog: datasets/teddy_happy_orig/Teddy/teddy_C
+      gz1_parquet: datasets/galaxy_zoo/teddy_C_gz1.parquet
+      out: nn_capsnet_runs/teddy_w1w2/preds_C.parquet
+    - name: D
+      images_dir: teddyD_grizw1w2
+      catalog: datasets/teddy_happy_orig/Teddy/teddy_D
+      gz1_parquet: datasets/galaxy_zoo/teddy_D_gz1.parquet
+      out: nn_capsnet_runs/teddy_w1w2/preds_D.parquet

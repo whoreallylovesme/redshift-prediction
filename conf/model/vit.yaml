@@ -1,0 +1,7 @@
+model_type: lightning
+
+head_prefix: head
+freeze_epochs: 0
+epochs: 30
+weight_decay: 0.01
+out_size: 224

@@ -1,0 +1,8 @@
+model_type: lightning
+model: capsnet
+
+in_channels: 6
+per_channel_norm: true
+
+stage_a_epochs: 7
+stage_b_epochs: 30
