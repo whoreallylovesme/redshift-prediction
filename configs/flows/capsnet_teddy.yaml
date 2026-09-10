@@ -1,0 +1,9 @@
+pipeline: capsnet
+runs_root: nn_capsnet_runs
+
+train:
+  config: configs/nn/capsnet_teddy_w1w2.yaml
+  out_dir: nn_capsnet_runs/teddy_w1w2
+
+summaries:
+  enabled: false

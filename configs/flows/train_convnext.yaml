@@ -1,5 +1,5 @@
 pipeline: nn
-runs_root: nn_photoz_runs
+runs_root: nn_runs
 models:
   - name: convnext_tiny
     config: configs/nn/convnext_tiny.yaml

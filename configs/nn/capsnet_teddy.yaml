@@ -1,0 +1,51 @@
+model_type: lightning
+model: capsnet
+dataset: teddy
+
+images_dir: teddyA_imgs
+catalog_path: datasets/teddy_happy_orig/Teddy/teddy_A
+gz1_parquet: datasets/galaxy_zoo/teddy_A_gz1.parquet
+out_dir: nn_capsnet_runs/teddy_v2
+
+in_channels: 4
+crop_size: 64
+image_scale: 10.0
+
+batch_size: 256
+lr: 0.0005
+decay_rate: 0.95
+lam_recon: 0.005
+lam_redshift: 1.0
+z_min: 0.0
+z_max: 1.0  
+
+stage_a_epochs: 7
+stage_b_epochs: 30
+
+train_ratio: 0.85
+weighted_sampling: true  
+num_workers: 3
+seed: 200
+device: auto
+
+augment:
+  rot90_prob: 0.67
+  flip_prob: 0.33
+
+inference:
+  splits:
+    - name: B
+      images_dir: teddyB_imgs
+      catalog: datasets/teddy_happy_orig/Teddy/teddy_B
+      gz1_parquet: datasets/galaxy_zoo/teddy_B_gz1.parquet
+      out: nn_capsnet_runs/teddy_v2/preds_B.parquet
+    - name: C
+      images_dir: teddyC_imgs
+      catalog: datasets/teddy_happy_orig/Teddy/teddy_C
+      gz1_parquet: datasets/galaxy_zoo/teddy_C_gz1.parquet
+      out: nn_capsnet_runs/teddy_v2/preds_C.parquet
+    - name: D
+      images_dir: teddyD_imgs
+      catalog: datasets/teddy_happy_orig/Teddy/teddy_D
+      gz1_parquet: datasets/galaxy_zoo/teddy_D_gz1.parquet
+      out: nn_capsnet_runs/teddy_v2/preds_D.parquet

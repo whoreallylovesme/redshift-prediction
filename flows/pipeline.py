@@ -1,13 +1,16 @@
 import shutil
+from pathlib import Path
 from typing import cast
 
 import click
+import pandas as pd
+import yaml
 from prefect import flow, task
 
 from lib.config_models import FlowConfig
+from lib.inference import inference
 from lib.utils import load_yaml_as
 from runtime.calc_metrics import calc_metrics
-from runtime.inference import inference
 from runtime.plots_html import summary_plots
 from runtime.prepare_dataset import prepare
 from runtime.table import summary_table
@@ -20,14 +23,12 @@ def prepare_dataset_task(
 ) -> None:
     prepare(input_csv, data_config, features, outdir)
 
-
 @task
 def train_task(
     config: str, outdir: str,
     train_path: str | None = None, features: str | None = None, feature_set: str | None = None,
 ) -> None:
     train(config, outdir, train_path, features, feature_set)
-
 
 @task
 def inference_task(
@@ -38,21 +39,48 @@ def inference_task(
 ) -> None:
     inference(model_path, out, config, test_path, features, feature_set, data_dir, catalog)
 
-
 @task
 def calc_metrics_task(preds: str, outdir: str, model_name: str) -> None:
     calc_metrics(preds, outdir, model_name)
-
 
 @task
 def summary_table_task(runs_dir: str, out: str, title: str) -> None:
     summary_table(runs_dir, out, title)
 
-
 @task
 def summary_plots_task(runs_dir: str, out: str, title: str) -> None:
     summary_plots(runs_dir, out, title)
 
+@task
+def capsnet_train_task(config: str) -> None:
+    train(config)
+
+@task
+def capsnet_inference_task(config: str) -> None:
+    inference(config_path=config)
+
+@task
+def capsnet_metrics_task(preds: str, outdir: str, model_name: str) -> None:
+    out = Path(outdir)
+    out.mkdir(parents=True, exist_ok=True)
+    df = pd.read_parquet(preds)
+    adapted = out / "preds_metrics.parquet"
+    df.rename(columns={"z_spec": "y_true", "z_pred": "y_pred"})[
+        ["y_true", "y_pred"]
+    ].to_parquet(adapted, index=False)
+    calc_metrics(str(adapted), outdir, model_name)
+
+def run_capsnet_pipeline(config: FlowConfig) -> None:
+    train_cfg = config.train
+    if train_cfg is None:
+        raise ValueError("capsnet pipeline requires a train section")
+    capsnet_train_task(train_cfg["config"])
+    capsnet_inference_task(train_cfg["config"])
+    nn_raw = yaml.safe_load(Path(train_cfg["config"]).read_text())
+    for split in nn_raw.get("inference", {}).get("splits", []):
+        out = str(split["out"])
+        split_dir = str(Path(out).parent)
+        capsnet_metrics_task(out, split_dir, f"capsnet_{split['name']}")
 
 def run_tabular_pipeline(config: FlowConfig) -> None:
     runs_root = config.runs_root
@@ -98,7 +126,6 @@ def run_tabular_pipeline(config: FlowConfig) -> None:
         summary_table_task(runs_root, f"{runs_root}/summary_table.html", title)
         summary_plots_task(runs_root, f"{runs_root}/summary_plots.html", title)
 
-
 def run_nn_pipeline(config: FlowConfig) -> None:
     runs_root = config.runs_root
     models = config.models
@@ -137,7 +164,6 @@ def run_nn_pipeline(config: FlowConfig) -> None:
             summary_table_task(split_runs, f"{split_runs}/summary_table.html", title)
             summary_plots_task(split_runs, f"{split_runs}/summary_plots.html", title)
 
-
 @flow(name="pipeline")
 def pipeline(config_path: str) -> None:
     config = load_yaml_as(config_path, FlowConfig)
@@ -146,15 +172,15 @@ def pipeline(config_path: str) -> None:
         run_tabular_pipeline(config)
     elif pipeline_type == "nn":
         run_nn_pipeline(config)
+    elif pipeline_type == "capsnet":
+        run_capsnet_pipeline(config)
     else:
         raise ValueError(f"Unsupported pipeline type: {pipeline_type}")
-
 
 @click.command()
 @click.option("--config", "config_path", default="configs/flows/run_all.yaml", type=str)
 def main(config_path: str) -> None:
     pipeline(config_path)
-
 
 if __name__ == "__main__":
     main()

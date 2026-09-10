@@ -1,0 +1,26 @@
+pipeline: tabular
+runs_root: runs_srgz_fast
+prepared_root: prepared
+dataset:
+  input_csv: datasets/dsat.csv
+  data_config: configs/data/dataset.yaml
+  features: features/features.yaml
+models:
+  - name: catboost
+    config: configs/tabular/catboost_srgz_fast.yaml
+    feature_set: set1
+  - name: llr
+    config: configs/tabular/llr_srgz_fast.yaml
+    feature_set: set1
+  - name: mlp
+    config: configs/tabular/mlp_srgz_fast.yaml
+    feature_set: set1
+  - name: rf
+    config: configs/tabular/rf_srgz_fast.yaml
+    feature_set: set1
+  - name: gam
+    config: configs/tabular/gam_srgz_fast.yaml
+    feature_set: set1
+summaries:
+  enabled: true
+  title: srgz_fast
