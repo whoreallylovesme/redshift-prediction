@@ -8,12 +8,10 @@ class DatasetConfig(BaseModel):
     shuffle: bool = Field(default=True, validation_alias=AliasPath("split", "shuffle"))
     random_seed: int = Field(default=42, validation_alias=AliasPath("split", "random_seed"))
 
-
 class FeaturesConfig(BaseModel):
     target: str
     feature_sets: dict[str, list[str]]
     default_set: str | None = None
-
 
 class SklearnTrainConfig(BaseModel):
     model_type: str | None = None
@@ -33,7 +31,6 @@ class SklearnTrainConfig(BaseModel):
     test_path: str | None = None
     features_path: str | None = None
     feature_set: str | None = None
-
 
 class PytorchTrainConfig(BaseModel):
     model_type: Literal["lightning"]
@@ -71,12 +68,12 @@ class PytorchTrainConfig(BaseModel):
         validation_alias=AliasPath("train", "max_samples"),
     )
 
-
 class FlowConfig(BaseModel):
-    pipeline: Literal["tabular", "nn"]
+    pipeline: Literal["tabular", "nn", "capsnet"]
     runs_root: str
     prepared_root: str | None = None
     dataset: dict[str, str] | None = None
-    models: list[dict[str, str]]
+    models: list[dict[str, str]] = Field(default_factory=list)
     splits: list[dict[str, str]] = Field(default_factory=list)
     summaries: dict[str, bool | str] = Field(default_factory=dict)
+    train: dict[str, str] | None = None
