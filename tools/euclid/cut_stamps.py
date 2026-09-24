@@ -22,7 +22,7 @@ MOSAICS = Path(sys.argv[3]) if len(sys.argv) > 3 else Path(f"/root/euclid_q1/mos
 OUT = Path(sys.argv[4]) if len(sys.argv) > 4 else Path(f"/root/euclid_q1/stamps/{TILE}.npz")
 CUT = 32  # полукадр 64x64
 
-BANDS = ["vis", "y", "j", "h"]
+BANDS = {"vis": "vis", "y": "nir_y", "j": "nir_j", "h": "nir_h"}
 
 
 def main() -> None:
@@ -34,7 +34,7 @@ def main() -> None:
 
     shape = None
     for band in BANDS:
-        f = MOSAICS / f"{band}.fits"
+        f = MOSAICS / f"{BANDS[band]}.fits"
         with fits.open(f, memmap=True) as hd:
             hdr = hd[0].header if hd[0].data is not None else hd[1].header
             data = hd[0].data if hd[0].data is not None else hd[1].data
@@ -69,7 +69,7 @@ def main() -> None:
                 )
                 if patch.shape != (2 * CUT, 2 * CUT):
                     patch = np.zeros((2 * CUT, 2 * CUT), dtype=np.float32)
-                X[k, BANDS.index(band)] = np.nan_to_num(patch, nan=0.0)
+                X[k, list(BANDS).index(band)] = np.nan_to_num(patch, nan=0.0)
         print(f"  {band}: готово")
 
     OUT.parent.mkdir(parents=True, exist_ok=True)
