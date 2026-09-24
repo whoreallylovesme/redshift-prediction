@@ -6,6 +6,7 @@ from typing import Any
 import yaml
 from torch.utils.data import DataLoader
 
+from lib.dataloaders.euclid_capsnet import get_euclid_capsnet_dataloaders
 from lib.dataloaders.hdf5 import get_hdf5_dataloaders
 from lib.dataloaders.teddy_capsnet import get_teddy_capsnet_dataloaders
 from lib.train.capsnet_lightning import CapsNetModule, TrainConfig, run_staged
@@ -48,6 +49,10 @@ def run_train(config_path: Path) -> None:
     elif dataset == "teddy":
         train_a, val_a, train_b, val_b = _build_teddy(
             loader_kwargs, cfg, max_samples, rot90_prob, flip_prob,
+        )
+    elif dataset == "euclid":
+        train_a, val_a, train_b, val_b = _build_euclid(
+            loader_kwargs, cfg, rot90_prob, flip_prob,
         )
     else:
         raise ValueError(f"Unknown dataset: {dataset!r}")
@@ -107,5 +112,27 @@ def _build_teddy(
     logger.info("[cli] building Teddy stage-B loaders (full set, z-balanced)")
     train_b, val_b = get_teddy_capsnet_dataloaders(
         **common, weighted_sampling=lk.get("weighted_sampling", True), labeled_only=False,
+    )
+    return train_a, val_a, train_b, val_b
+
+
+def _build_euclid(
+    lk: dict[str, Any], cfg: TrainConfig,
+    rot90_prob: float, flip_prob: float,
+) -> tuple[DataLoader[Any], DataLoader[Any], DataLoader[Any], DataLoader[Any]]:
+    train_a, val_a, train_b, val_b = get_euclid_capsnet_dataloaders(
+        stamps_dir=lk["stamps_dir"],
+        labels_parquet=lk["labels_parquet"],
+        train_tiles=list(lk["train_tiles"]),
+        valid_tiles=list(lk["valid_tiles"]),
+        stage_a_zprob=float(lk.get("stage_a_zprob", 0.95)),
+        save_scales_to=str(Path(cfg.out_dir) / "weights" / "norm_scales.npy"),
+        batch_size=lk.get("batch_size", 256),
+        num_workers=lk.get("num_workers", 3),
+        z_min=cfg.z_min,
+        z_max=cfg.z_max,
+        seed=cfg.seed,
+        rot90_prob=rot90_prob,
+        flip_prob=flip_prob,
     )
     return train_a, val_a, train_b, val_b
