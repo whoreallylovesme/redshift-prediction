@@ -59,6 +59,7 @@ def main() -> None:
     args = ap.parse_args()
 
     labels = pd.read_parquet(args.labels_parquet)
+    labels = labels[(labels["spe_gal_prob"] > 0.9) & (labels["spe_qso_prob"] < 0.1)]
     ds = EuclidStampsDataset(
         stamps_dir=Path(args.stamps_dir),
         tiles=list(args.test_tiles),
