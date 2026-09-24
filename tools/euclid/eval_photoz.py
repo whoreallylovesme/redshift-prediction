@@ -16,7 +16,6 @@ import pandas as pd
 import torch
 
 from lib.dataloaders.euclid_capsnet import EuclidStampsDataset
-from lib.metrics import bias, nmad, outlier_fraction
 from lib.models.capsnet import CapsNet, logistic_to_z
 from lib.utils.log import get_logger
 
@@ -31,18 +30,19 @@ def predict(net: CapsNet, ds: EuclidStampsDataset, device: str,
         for i in range(0, len(ds), batch):
             imgs = torch.stack([ds[j][0] for j in range(i, min(i + batch, len(ds)))])
             z_logistic, _, _ = net(imgs.to(device))
-            z = logistic_to_z(z_logistic.detach().cpu().numpy(), z_min, z_max)
-            out.append(np.asarray(z))
+            z = logistic_to_z(z_logistic.detach().cpu(), z_min, z_max)
+            out.append(np.asarray(z, dtype=np.float64))
     return np.concatenate(out)
 
 
 def metrics_row(name: str, z_true: np.ndarray, z_pred: np.ndarray) -> dict[str, object]:
+    dz = ((pd.Series(z_pred) - pd.Series(z_true)) / (1.0 + pd.Series(z_true))).to_numpy()
     return {
         "model": name,
         "n": int(len(z_true)),
-        "nmad": float(nmad(z_true, z_pred)),
-        "bias": float(bias(z_true, z_pred)),
-        "outlier_frac": float(outlier_fraction(z_true, z_pred, threshold=0.15)),
+        "nmad": float(1.4826 * np.median(np.abs(dz - np.median(dz)))),
+        "bias": float(np.median(dz)),
+        "outlier_frac": float(np.mean(np.abs(dz) > 0.15)),
     }
 
 
