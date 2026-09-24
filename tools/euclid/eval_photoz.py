@@ -31,7 +31,8 @@ def predict(net: CapsNet, ds: EuclidStampsDataset, device: str,
         for i in range(0, len(ds), batch):
             imgs = torch.stack([ds[j][0] for j in range(i, min(i + batch, len(ds)))])
             z_logistic, _, _ = net(imgs.to(device))
-            out.append(logistic_to_z(z_logistic.cpu().numpy(), z_min, z_max))
+            z = logistic_to_z(z_logistic.detach().cpu().numpy(), z_min, z_max)
+            out.append(np.asarray(z))
     return np.concatenate(out)
 
 
