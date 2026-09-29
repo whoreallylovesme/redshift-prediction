@@ -11,8 +11,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import torch
-
 from catboost import CatBoostRegressor
+
 from lib.dataloaders.euclid_capsnet import EuclidStampsDataset
 from lib.models.capsnet import CapsNet, logistic_to_z
 
