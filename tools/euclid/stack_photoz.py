@@ -17,9 +17,12 @@ from lib.dataloaders.euclid_capsnet import EuclidStampsDataset
 from lib.models.capsnet import CapsNet, logistic_to_z
 
 D = "/home/kadyrov/mash/astro/datasets/euclid_q1"
-TRAIN = [102158895, 102159196, 102159195, 102158896, 102158894, 102160057, 102158893, 102159779]
-VALID = [102159778]
 TEST = [102157954, 102160336]
+VALID = [102159778]
+TRAIN = sorted(
+    int(f.stem) for f in Path("/home/kadyrov/mash/astro/datasets/euclid_q1/stamps").glob("*.npz")
+    if int(f.stem) not in TEST + VALID
+)
 
 FLUX = ["flux_u_ext_decam_unif", "flux_g_ext_decam_unif", "flux_r_ext_decam_unif",
         "flux_i_ext_decam_unif", "flux_z_ext_decam_unif", "flux_vis_unif",
@@ -56,7 +59,8 @@ def feats(df: pd.DataFrame) -> pd.DataFrame:
 
 def main() -> None:
     ckpt = sys.argv[1]
-    labels = pd.read_parquet(f"{D}/merged/edfn_labels_consensus.parquet")
+    labels_path = sys.argv[2] if len(sys.argv) > 2 else f"{D}/merged/edfn_labels_consensus.parquet"
+    labels = pd.read_parquet(labels_path)
     net = CapsNet(in_channels=4, input_size=64, num_class=2, dim_capsule=16, routings=3)
     net.load_state_dict(torch.load(ckpt, map_location="cpu"))
     net = net.to("cuda")

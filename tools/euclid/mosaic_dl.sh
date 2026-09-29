@@ -3,7 +3,7 @@
 set -u
 TILE="$1"
 BASE="https://irsa.ipac.caltech.edu/ibe/data/euclid/q1/MER/$TILE"
-OUT="/root/euclid_q1/mosaics/$TILE"
+OUT="${MOSAICS_DIR:-/root/euclid_q1/mosaics}/$TILE"
 mkdir -p "$OUT"
 
 CHUNK=32   # МБ
@@ -30,7 +30,11 @@ dl_file() {
       local havesize=0
       [ -f "$part" ] && havesize=$(stat -c%s "$part")
       if [ "$havesize" != "$partsize" ]; then
-        curl -s --max-time 3600 -r $A-$B -o "$part" "$url" &
+        ( for try in 1 2 3 4 5; do
+            curl -s --max-time 420 -r $A-$B -o "$part" "$url"
+            [ "$(stat -c%s "$part" 2>/dev/null || echo 0)" = "$partsize" ] && break
+            sleep $((try*5))
+          done ) &
         pids+=($!)
       fi
       j=$(( j + 1 ))
