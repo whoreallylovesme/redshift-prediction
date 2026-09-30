@@ -266,6 +266,15 @@ class CapsNet(nn.Module):
         out_lin = nn.Linear(prev, out_dim)
         nn.init.kaiming_normal_(out_lin.weight, nonlinearity="relu")
         nn.init.zeros_(out_lin.bias)
+        if self.mdn_components > 0:
+            import math
+
+            with torch.no_grad():
+                k = self.mdn_components
+                for j in range(k):
+                    q = (j + 1) / (k + 1)
+                    out_lin.bias[j + k] = math.log(q / (1 - q))
+                out_lin.bias[2 * k :] = -0.45  # сигма ~0.1 на старте
         regressor_layers.append(out_lin)
         self.redshift = nn.Sequential(*regressor_layers)
 
@@ -339,7 +348,7 @@ def mdn_decode(raw: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Ten
     k = raw.shape[-1] // 3
     w = torch.softmax(raw[..., :k], dim=-1)
     mu = torch.sigmoid(raw[..., k : 2 * k])
-    sigma = torch.nn.functional.softplus(raw[..., 2 * k :]) + 1e-4
+    sigma = 0.005 + 0.245 * torch.sigmoid(raw[..., 2 * k :])
     return w, mu, sigma
 
 
