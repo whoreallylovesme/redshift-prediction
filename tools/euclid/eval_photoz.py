@@ -34,9 +34,12 @@ def predict(net: CapsNet, ds: EuclidStampsDataset, device: str,
             z_out, _, _ = net(imgs.to(device))
             z_out = z_out.detach().cpu()
             if net.mdn_components > 0:
-                grid = torch.linspace(z_min, z_max, 301)
-                pz = mdn_pz(z_out, grid)
-                out.append(grid[pz.argmax(dim=1)].numpy().astype(np.float64))
+                from lib.models.capsnet import z_to_logistic
+
+                grid_y = torch.linspace(0.01, 0.99, 301)
+                pz = mdn_pz(z_out, grid_y)
+                z_vals = logistic_to_z(grid_y, z_min, z_max)
+                out.append(z_vals[pz.argmax(dim=1)].numpy().astype(np.float64))
             else:
                 z = logistic_to_z(z_out, z_min, z_max)
                 out.append(np.asarray(z, dtype=np.float64))
@@ -48,7 +51,9 @@ def pz_metrics(net: CapsNet, ds: EuclidStampsDataset, z_true: np.ndarray, device
     """CRPS и PIT-калиброванность (KS против равномерного)."""
     from scipy import stats
 
-    grid = torch.linspace(z_min, z_max, 301)
+    from lib.models.capsnet import z_to_logistic
+
+    grid = logistic_to_z(torch.linspace(0.01, 0.99, 301), z_min, z_max)
     net.eval()
     crps_l: list[np.ndarray] = []
     pit_l: list[np.ndarray] = []
