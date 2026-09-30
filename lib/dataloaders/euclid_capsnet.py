@@ -38,6 +38,8 @@ class EuclidStampsDataset(Dataset[tuple[torch.Tensor, torch.Tensor, torch.Tensor
         augment: bool = False,
         rot90_prob: float = 0.67,
         flip_prob: float = 0.33,
+        cutout_prob: float = 0.0,
+        cutout_size: int = 16,
     ) -> None:
         label_index = labels.set_index("object_id")
         frames: list[np.ndarray] = []
@@ -68,6 +70,8 @@ class EuclidStampsDataset(Dataset[tuple[torch.Tensor, torch.Tensor, torch.Tensor
         self.augment = augment
         self.rot90_prob = rot90_prob
         self.flip_prob = flip_prob
+        self.cutout_prob = cutout_prob
+        self.cutout_size = cutout_size
 
     def __len__(self) -> int:
         return len(self.z)
@@ -139,6 +143,8 @@ def get_euclid_capsnet_dataloaders(
     valid_tiles: list[int],
     stage_a_zprob: float = 0.95,
     save_scales_to: str | None = None,
+    cutout_prob: float = 0.0,
+    cutout_size: int = 16,
     batch_size: int = 256,
     num_workers: int = 3,
     z_min: float = 0.0,
@@ -167,6 +173,8 @@ def get_euclid_capsnet_dataloaders(
             augment=augment,
             rot90_prob=rot90_prob,
             flip_prob=flip_prob,
+            cutout_prob=cutout_prob,
+            cutout_size=cutout_size,
         )
 
     train_b = build(train_tiles, labels, augment=True)

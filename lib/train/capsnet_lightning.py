@@ -39,6 +39,8 @@ class TrainConfig:
     z_max: float = 0.4
     outlier_threshold: float = 0.15
     mdn_components: int = 0
+    redshift_loss: str = "mse"
+    lr_schedule: str = "exp"
     seed: int = 200
     device: str = "auto"
 
@@ -150,6 +152,8 @@ class CapsNetModule(L.LightningModule):
                 from lib.models.capsnet import mdn_nll
 
                 l_redshift = mdn_nll(z_logistic_pred, y_true)
+            elif cfg.redshift_loss == "huber":
+                l_redshift = F.smooth_l1_loss(z_logistic_pred, y_true)
             else:
                 l_redshift = F.mse_loss(z_logistic_pred, y_true)
         else:
@@ -227,7 +231,13 @@ class CapsNetModule(L.LightningModule):
         opt = Adam(self.parameters(), lr=self.cfg.lr)
         if self._optimizer_state is not None:
             opt.load_state_dict(self._optimizer_state)
-        sch = ExponentialLR(opt, gamma=self.cfg.decay_rate)
+        sch: ExponentialLR | torch.optim.lr_scheduler.CosineAnnealingLR
+        if self.cfg.lr_schedule == "cosine":
+            sch = torch.optim.lr_scheduler.CosineAnnealingLR(
+                opt, T_max=max(int(self.cfg.stage_b_epochs), 1),
+            )
+        else:
+            sch = ExponentialLR(opt, gamma=self.cfg.decay_rate)
         if self._scheduler_state is not None:
             sch.load_state_dict(self._scheduler_state)
         return [opt], [{"scheduler": sch, "interval": "epoch"}]
