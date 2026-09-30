@@ -167,9 +167,10 @@ class CapsNetModule(L.LightningModule):
         parts = {"margin": l_margin, "recon": l_recon, "redshift": l_redshift}
         raw = z_logistic_pred.detach()
         if cfg.mdn_components > 0:
-            grid = torch.linspace(cfg.z_min, cfg.z_max, 151, device=raw.device)
-            pz = mdn_pz(raw, grid)  # [B,G]
-            z_pred_phys = grid[pz.argmax(dim=1)]
+            grid_y = torch.linspace(0.01, 0.99, 151, device=raw.device)
+            pz = mdn_pz(raw, grid_y)  # [B,G] в логистическом пространстве
+            z_vals = logistic_to_z(grid_y, cfg.z_min, cfg.z_max)
+            z_pred_phys = z_vals[pz.argmax(dim=1)]
         else:
             z_pred_phys = logistic_to_z(raw, cfg.z_min, cfg.z_max)
         return total, parts, z.detach().cpu().numpy(), z_pred_phys.cpu().numpy()
