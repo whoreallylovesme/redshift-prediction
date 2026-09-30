@@ -181,6 +181,7 @@ class CapsNet(nn.Module):
         num_class: int = 2,
         dim_capsule: int = 16,
         routings: int = 3,
+        mdn_components: int = 0,
     ) -> None:
         super().__init__()
         if input_size % 16 != 0:
@@ -260,7 +261,9 @@ class CapsNet(nn.Module):
             regressor_layers.append(lin)
             regressor_layers.append(nn.PReLU())
             prev = h
-        out_lin = nn.Linear(prev, 1)
+        self.mdn_components = int(mdn_components)
+        out_dim = 3 * self.mdn_components if self.mdn_components > 0 else 1
+        out_lin = nn.Linear(prev, out_dim)
         nn.init.kaiming_normal_(out_lin.weight, nonlinearity="relu")
         nn.init.zeros_(out_lin.bias)
         regressor_layers.append(out_lin)
@@ -313,8 +316,10 @@ class CapsNet(nn.Module):
         d = d.reshape(b, self.in_channels, self.input_size, self.input_size)
         recon = self.decoder_conv(d)
 
-        z_logistic = self.redshift(active).squeeze(-1)
-        return z_logistic, probs, recon
+        z_out: torch.Tensor = self.redshift(active)
+        if self.mdn_components > 0:
+            return z_out, probs, recon
+        return z_out.squeeze(-1), probs, recon
 
 
 def margin_loss(
@@ -327,3 +332,29 @@ def margin_loss(
     pos = target_onehot * (m_plus - probs).clamp(min=0.0).pow(2)
     neg = lam * (1.0 - target_onehot) * (probs - m_minus).clamp(min=0.0).pow(2)
     return (pos + neg).sum(dim=1).mean()
+
+
+def mdn_decode(raw: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """raw [B,3K] -> (w [B,K] softmax, mu [B,K] in (0,1), sigma [B,K] > 0)."""
+    k = raw.shape[-1] // 3
+    w = torch.softmax(raw[..., :k], dim=-1)
+    mu = torch.sigmoid(raw[..., k : 2 * k])
+    sigma = torch.nn.functional.softplus(raw[..., 2 * k :]) + 1e-4
+    return w, mu, sigma
+
+
+def mdn_nll(raw: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+    """NLL истинного логистического y под гауссовой смесью."""
+    w, mu, sigma = mdn_decode(raw)
+    comp = -0.5 * ((y.unsqueeze(-1) - mu) / sigma) ** 2 - torch.log(sigma) - 0.918
+    log_prob = torch.logsumexp(comp + torch.log(w.clamp_min(1e-8)), dim=-1)
+    return -log_prob.mean()
+
+
+def mdn_pz(raw: torch.Tensor, grid: torch.Tensor) -> torch.Tensor:
+    """Плотность p(z) на решётке z: [B, G]."""
+    w, mu, sigma = mdn_decode(raw)
+    g = grid.view(1, 1, -1)
+    norm = sigma.unsqueeze(-1) * 2.5066
+    gauss = torch.exp(-0.5 * ((g - mu.unsqueeze(-1)) / sigma.unsqueeze(-1)) ** 2)
+    return (w.unsqueeze(-1) * gauss / norm).sum(dim=1)

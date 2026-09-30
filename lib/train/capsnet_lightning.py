@@ -17,7 +17,7 @@ from torch.optim.lr_scheduler import ExponentialLR
 from torch.utils.data import DataLoader
 
 from lib.metrics import bias, nmad, outlier_fraction
-from lib.models.capsnet import CapsNet, logistic_to_z, margin_loss, z_to_logistic
+from lib.models.capsnet import CapsNet, logistic_to_z, margin_loss, mdn_pz, z_to_logistic
 from lib.utils.log import get_logger
 from lib.utils.utils import pick_device
 
@@ -38,6 +38,7 @@ class TrainConfig:
     z_min: float = 0.0
     z_max: float = 0.4
     outlier_threshold: float = 0.15
+    mdn_components: int = 0
     seed: int = 200
     device: str = "auto"
 
@@ -96,6 +97,7 @@ class CapsNetModule(L.LightningModule):
         self.net = CapsNet(
             in_channels=cfg.in_channels, input_size=cfg.crop_size,
             num_class=2, dim_capsule=16, routings=3,
+            mdn_components=cfg.mdn_components,
         )
         self.stage = "B"
         self.num_pixels = cfg.in_channels * cfg.crop_size * cfg.crop_size
@@ -144,7 +146,12 @@ class CapsNetModule(L.LightningModule):
         if self.stage == "B":
             z_clamped = z.clamp(min=cfg.z_min + 1e-5, max=cfg.z_max - 1e-5)
             y_true = z_to_logistic(z_clamped, cfg.z_min, cfg.z_max)
-            l_redshift = F.mse_loss(z_logistic_pred, y_true)
+            if cfg.mdn_components > 0:
+                from lib.models.capsnet import mdn_nll
+
+                l_redshift = mdn_nll(z_logistic_pred, y_true)
+            else:
+                l_redshift = F.mse_loss(z_logistic_pred, y_true)
         else:
             l_redshift = torch.zeros((), device=device)
 
@@ -154,7 +161,13 @@ class CapsNetModule(L.LightningModule):
             + cfg.lam_redshift * l_redshift
         )
         parts = {"margin": l_margin, "recon": l_recon, "redshift": l_redshift}
-        z_pred_phys = logistic_to_z(z_logistic_pred.detach(), cfg.z_min, cfg.z_max)
+        raw = z_logistic_pred.detach()
+        if cfg.mdn_components > 0:
+            grid = torch.linspace(cfg.z_min, cfg.z_max, 151, device=raw.device)
+            pz = mdn_pz(raw, grid)  # [B,G]
+            z_pred_phys = grid[pz.argmax(dim=1)]
+        else:
+            z_pred_phys = logistic_to_z(raw, cfg.z_min, cfg.z_max)
         return total, parts, z.detach().cpu().numpy(), z_pred_phys.cpu().numpy()
 
     def training_step(
