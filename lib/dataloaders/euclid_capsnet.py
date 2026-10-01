@@ -64,8 +64,12 @@ class EuclidStampsDataset(Dataset[tuple[torch.Tensor, torch.Tensor, torch.Tensor
         self.ids = lab["object_id"].to_numpy(np.int64)
         z_lab = lab["spe_z"].to_numpy(np.float32)
         self.z = np.clip(z_lab, z_min + 1e-5, z_max - 1e-5)
-        ext = lab["extended_prob"].fillna(0.5).to_numpy(np.float32)
-        self.morph = (ext > 0.5).astype(np.float32)
+        if "morph_class" in lab.columns:
+            # класс из MER: POINT_LIKE_PROB + фолбэк FWHM против звёздного локуса
+            self.morph = lab["morph_class"].fillna(0.5).to_numpy(np.float32)
+        else:
+            ext = lab["extended_prob"].fillna(0.5).to_numpy(np.float32)
+            self.morph = (ext > 0.5).astype(np.float32)
         self.norm_scales = norm_scales.astype(np.float32)
         self.augment = augment
         self.rot90_prob = rot90_prob
