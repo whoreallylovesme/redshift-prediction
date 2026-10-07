@@ -30,9 +30,10 @@ from scipy.spatial import cKDTree
 
 from lib.models.capsnet import CapsNet, logistic_to_z
 from lib.models.gnn import GraphSAGERegressor
+from lib.utils.log import get_logger
 
-D = Path("/home/kadyrov/mash/astro/datasets/euclid_q1")
-RUNS = Path("/home/kadyrov/mash/astro/nn_capsnet_euclid_runs")
+logger = get_logger()
+
 TEST = [102157954, 102160336]
 VALID = [102159778]
 FLUX = [
@@ -55,9 +56,10 @@ def nmad_bias_out(zp: np.ndarray, zt: np.ndarray) -> tuple[float, float, float]:
 
 def colors(df: pd.DataFrame) -> dict[str, np.ndarray]:
     def col(f1: str, f2: str) -> np.ndarray:
-        return -2.5 * np.log10(
+        c = -2.5 * np.log10(
             df[f1].fillna(1).clip(lower=1) / df[f2].fillna(1).clip(lower=1)
         ).to_numpy(np.float32)
+        return np.asarray(c, dtype=np.float32)
 
     return {
         "col_gu": col("flux_g_ext_decam_unif", "flux_u_ext_decam_unif"),
@@ -77,7 +79,8 @@ def sky_xy(df: pd.DataFrame) -> np.ndarray:
 
 
 def capsnet_zpred(
-    df: pd.DataFrame, tiles: list[int], device: str, cache: Path
+    df: pd.DataFrame, tiles: list[int], device: str, cache: Path,
+    data_dir: Path, runs_dir: Path,
 ) -> np.ndarray:
     """Предикты CapsNet по object_id для узлов со штампами (кэш по ids)."""
     if cache.exists():
@@ -85,21 +88,21 @@ def capsnet_zpred(
         if "object_id" in blob and len(blob["object_id"]) == len(df) and (
             blob["object_id"] == df.object_id.to_numpy()
         ).all():
-            print(f"z_pred из кэша {cache}")
-            return blob["zp"]
-        print("кэш zp не совпадает с текущим df - пересчитываю")
+            logger.info(f"z_pred из кэша {cache}")
+            return np.asarray(blob["zp"], dtype=np.float32)
+        logger.info("кэш zp не совпадает с текущим df - пересчитываю")
     from lib.dataloaders.euclid_capsnet import EuclidStampsDataset
 
     net = CapsNet(in_channels=4, input_size=64, num_class=2, dim_capsule=16, routings=3)
     net.load_state_dict(
-        torch.load(RUNS / "edfn_morph_v1/weights/stage_b_best.pt", map_location="cpu")
+        torch.load(runs_dir / "edfn_morph_v1/weights/stage_b_best.pt", map_location="cpu")
     )
     net = net.to(device).eval()
-    scales = np.load(RUNS / "edfn_morph_v1/weights/norm_scales.npy").astype(np.float32)
+    scales = np.load(runs_dir / "edfn_morph_v1/weights/norm_scales.npy").astype(np.float32)
     zp = np.full(len(df), np.nan, np.float32)
     for tile in tiles:
         ds = EuclidStampsDataset(
-            stamps_dir=D / "stamps", tiles=[tile], labels=df,
+            stamps_dir=data_dir / "stamps", tiles=[tile], labels=df,
             norm_scales=scales, z_min=0.0, z_max=3.0, augment=False,
         )
         if len(ds) == 0:
@@ -113,7 +116,7 @@ def capsnet_zpred(
         pred_by_id = dict(zip(ds.ids.tolist(), np.concatenate(out), strict=True))
         rows = df.index[df.object_id.isin(pred_by_id)].to_numpy()
         zp[rows] = [pred_by_id[int(o)] for o in df.object_id.to_numpy()[rows]]
-        print(f"  капснет, тайл {tile}: {len(pred_by_id):,} предсказаний")
+        logger.info(f"  капснет, тайл {tile}: {len(pred_by_id):,} предсказаний")
     np.savez(cache, object_id=df.object_id.to_numpy(), zp=zp)
     return zp
 
@@ -175,8 +178,26 @@ def train_gnn(
     model.eval()
     with torch.no_grad():
         z_gnn = model.predict_z(x, ei, ew, deg).cpu().numpy()
-    print(f"GNN: {_ep} эпох, лучший val NMAD {best:.4f}")
+    logger.info(f"GNN: {_ep} эпох, лучший val NMAD {best:.4f}")
     return z_gnn.astype(np.float32)
+
+
+def _gnn_node_features(
+    df: pd.DataFrame, cols: dict[str, np.ndarray], zp: np.ndarray, phz: np.ndarray
+) -> np.ndarray:
+    """Признаки узлов GNN: базовые + zp_smart + собственный PHZ (round11)."""
+    base = np.column_stack(
+        list(cols.values())
+        + [
+            np.log10(df.flux_vis_unif.fillna(1).clip(lower=1)).to_numpy(np.float32),
+            df.morph_class.fillna(0.5).to_numpy(np.float32),
+            np.clip(df.fwhm.fillna(1.3).to_numpy(np.float32), 0, 10),
+        ]
+    )
+    return np.column_stack(
+        [base, np.where(np.isfinite(zp), zp, phz), np.isfinite(zp).astype(np.float32),
+         np.nan_to_num(phz, nan=0.4), np.isfinite(phz).astype(np.float32)]
+    )
 
 
 def build_stack_frame(
@@ -231,50 +252,74 @@ def build_stack_frame(
     return f
 
 
+def _fit_stack(x: np.ndarray, y: np.ndarray, w: np.ndarray, iters: int,
+               va: tuple[np.ndarray, np.ndarray] | None = None) -> CatBoostRegressor:
+    m = CatBoostRegressor(iterations=iters, learning_rate=0.03, depth=8,
+                          loss_function="RMSE", verbose=0, random_seed=SEED,
+                          early_stopping_rounds=100 if va else None)
+    m.fit(x, y, sample_weight=w, eval_set=None if va is None else va,
+          use_best_model=va is not None)
+    return m
+
+
+def _stack_oof_iters(frame: pd.DataFrame, feats_cols: list[str], zt_s: np.ndarray,
+                     tile_s: np.ndarray, w_all: np.ndarray, m_tr_s: np.ndarray,
+                     train_tiles: list[int]) -> int:
+    """5-fold OOF по тайлам -> медиана best_iter + 1 (как gnn_lab round11)."""
+    tiles26 = np.array(sorted(set(tile_s[np.isin(tile_s, train_tiles)])))
+    rng = np.random.RandomState(0)
+    rng.shuffle(tiles26)
+    folds = [set(tiles26[i::5].tolist()) for i in range(5)]
+    iters_oof: list[int] = []
+    for fset in folds:
+        fit_m = np.array([t in fset for t in tile_s])
+        m_fit, m_oof = fit_m & m_tr_s, (~fit_m) & m_tr_s
+        wf = w_all[m_fit] / w_all[m_fit].mean()
+        m = _fit_stack(frame.loc[m_fit, feats_cols].to_numpy(), zt_s[m_fit], wf,
+                       2500, va=(frame.loc[m_oof, feats_cols].to_numpy(), zt_s[m_oof]))
+        iters_oof.append(int(m.get_best_iteration()))
+    iters = int(np.median(iters_oof)) + 1
+    logger.info(f"OOF: медиана итераций {iters} (фолды {iters_oof})")
+    return iters
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--epochs", type=int, default=400)
     ap.add_argument("--patience", type=int, default=30)
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--workdir", default="/home/kadyrov/mash/astro/repo/gnn_lab/final")
+    ap.add_argument("--data-dir", default="/home/kadyrov/mash/astro/datasets/euclid_q1")
+    ap.add_argument("--runs-dir", default="/home/kadyrov/mash/astro/nn_capsnet_euclid_runs")
     a = ap.parse_args()
     work = Path(a.workdir)
+    data_dir = Path(a.data_dir)
+    runs_dir = Path(a.runs_dir)
     work.mkdir(parents=True, exist_ok=True)
 
-    df = pd.read_parquet(D / "merged/edf_consensus_all_morph.parquet")
+    df = pd.read_parquet(data_dir / "merged/edf_consensus_all_morph.parquet")
     df = df.drop_duplicates("object_id").reset_index(drop=True)
-    print(f"узлов каталога: {len(df):,}")
+    logger.info(f"узлов каталога: {len(df):,}")
     train_tiles = sorted(
-        int(p.stem) for p in (D / "stamps").glob("*.npz")
+        int(p.stem) for p in (data_dir / "stamps").glob("*.npz")
         if p.stem.isdigit() and int(p.stem) not in TEST + VALID
     )
     tile = df.tile.to_numpy()
     m_tr, m_va, m_te = (np.isin(tile, g) for g in (train_tiles, VALID, TEST))
-    print(f"трен-тайлов: {len(train_tiles)}; train {m_tr.sum():,} "
-          f"valid {m_va.sum():,} test {m_te.sum():,}")
+    logger.info(f"трен-тайлов: {len(train_tiles)}; train {m_tr.sum():,} "
+                f"valid {m_va.sum():,} test {m_te.sum():,}")
 
     cols = colors(df)
     phz = df.phz_median.to_numpy(np.float32)
-    zp = capsnet_zpred(df, train_tiles + VALID + TEST, a.device, work / "zp_cache.npz")
+    zp = capsnet_zpred(df, train_tiles + VALID + TEST, a.device, work / "zp_cache.npz",
+                       data_dir, runs_dir)
 
-    # признаки узлов GNN: базовые + zp_smart + собственный PHZ (round11)
-    base = np.column_stack(
-        list(cols.values())
-        + [
-            np.log10(df.flux_vis_unif.fillna(1).clip(lower=1)).to_numpy(np.float32),
-            df.morph_class.fillna(0.5).to_numpy(np.float32),
-            np.clip(df.fwhm.fillna(1.3).to_numpy(np.float32), 0, 10),
-        ]
-    )
-    feats = np.column_stack(
-        [base, np.where(np.isfinite(zp), zp, phz), np.isfinite(zp).astype(np.float32),
-         np.nan_to_num(phz, nan=0.4), np.isfinite(phz).astype(np.float32)]
-    )
+    feats = _gnn_node_features(df, cols, zp, phz)
     graph = build_graph(sky_xy(df), cols["col_gi"], k=16)
     zt = df.spe_z.to_numpy(np.float32)
     z_gnn = train_gnn(feats, zt, m_tr, m_va, graph, a.device, a.epochs, a.patience)
     gn, gb, go = nmad_bias_out(z_gnn[m_te], zt[m_te])
-    print(f"GNN на тесте: NMAD={gn:.4f} bias={gb:+.4f} outliers={go:.3f}")
+    logger.info(f"GNN на тесте: NMAD={gn:.4f} bias={gb:+.4f} outliers={go:.3f}")
     np.savez(work / "z_gnn_full.npz", object_id=df.object_id.to_numpy(), z_gnn=z_gnn)
 
     # стек на узлах штампованных тайлов (34k), env - по полному каталогу
@@ -285,40 +330,17 @@ def main() -> None:
     d_sp = np.abs(zt_s - sub.phz_median.to_numpy(np.float32))
     w_all = np.clip(np.exp(-d_sp / 0.05), 0.2, 5.0).astype(np.float32)
     tile_s = sub.tile.to_numpy()
-
-    def fit(x: np.ndarray, y: np.ndarray, w: np.ndarray, iters: int,
-            va: tuple[np.ndarray, np.ndarray] | None = None) -> CatBoostRegressor:
-        m = CatBoostRegressor(iterations=iters, learning_rate=0.03, depth=8,
-                              loss_function="RMSE", verbose=0, random_seed=SEED,
-                              early_stopping_rounds=100 if va else None)
-        m.fit(x, y, sample_weight=w, eval_set=None if va is None else va,
-              use_best_model=va is not None)
-        return m
-
-    tiles26 = np.array(sorted(set(tile_s[np.isin(tile_s, train_tiles)])))
-    rng = np.random.RandomState(0)
-    rng.shuffle(tiles26)
-    folds = [set(tiles26[i::5].tolist()) for i in range(5)]
     m_tr_s = np.isin(tile_s, train_tiles)
-    iters_oof: list[int] = []
-    for fset in folds:
-        fit_m = np.array([t in fset for t in tile_s])
-        m_fit, m_oof = fit_m & m_tr_s, (~fit_m) & m_tr_s
-        wf = w_all[m_fit] / w_all[m_fit].mean()
-        m = fit(X.loc[m_fit, feats_cols].to_numpy(), zt_s[m_fit], wf,
-                2500, va=(X.loc[m_oof, feats_cols].to_numpy(), zt_s[m_oof]))
-        iters_oof.append(int(m.get_best_iteration()))
-    iters = int(np.median(iters_oof)) + 1
-    print(f"OOF: медиана итераций {iters} (фолды {iters_oof})")
 
+    iters = _stack_oof_iters(X, feats_cols, zt_s, tile_s, w_all, m_tr_s, train_tiles)
     m_tv = np.isin(tile_s, train_tiles) | np.isin(tile_s, VALID)
     w_tv = w_all[m_tv] / w_all[m_tv].mean()
-    final = fit(X.loc[m_tv, feats_cols].to_numpy(), zt_s[m_tv], w_tv, iters)
+    final = _fit_stack(X.loc[m_tv, feats_cols].to_numpy(), zt_s[m_tv], w_tv, iters)
     m_te_s = np.isin(tile_s, TEST)
     zp_te = final.predict(X.loc[m_te_s, feats_cols].to_numpy())
     nmad, bias, out = nmad_bias_out(zp_te.astype(np.float32), zt_s[m_te_s])
-    print(f"ФИНАЛ: NMAD={nmad:.4f} bias={bias:+.4f} outliers={out:.3f} "
-          f"n={int(m_te_s.sum())} ({iters} ит., refit train+valid)")
+    logger.info(f"ФИНАЛ: NMAD={nmad:.4f} bias={bias:+.4f} outliers={out:.3f} "
+                f"n={int(m_te_s.sum())} ({iters} ит., refit train+valid)")
     np.savez(work / "final_preds.npz", object_id=sub.object_id.to_numpy()[m_te_s],
              z_true=zt_s[m_te_s], z_pred=zp_te, z_gnn=z_gnn[m_te])
 

@@ -1,10 +1,10 @@
 from __future__ import annotations
 
+import math
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
-__all__ = ["CapsNet", "logistic_to_z", "z_to_logistic", "margin_loss"]
 
 
 def squash(s: torch.Tensor, dim: int | tuple[int, ...] = -1, eps: float = 1e-8) -> torch.Tensor:
@@ -102,9 +102,7 @@ class ConvCapsuleLayer3D(nn.Module):
 
             preact = (c.unsqueeze(3) * votes).sum(dim=1) + self.bias
 
-            sq = (preact * preact).sum(dim=(2, 3, 4), keepdim=True)
-            norm = torch.sqrt(sq + 1e-8)
-            v = (sq / (1.0 + sq)) * (preact / norm)
+            v = squash(preact, dim=(2, 3, 4))
 
             if r < self.routings - 1:
 
@@ -133,6 +131,8 @@ class CapsuleLayer(nn.Module):
         self.dim_caps = dim_caps
         self.routings = routings
 
+        # W/B: имена параметров зафиксированы ключами state_dict существующих
+        # чекпоинтов (edfn_morph_v1 и др.) - переименование ломает загрузку.
         self.W = nn.Parameter(torch.empty(num_caps, in_num_caps, dim_caps, in_dim_caps))
         nn.init.xavier_uniform_(self.W)
         self.B = nn.Parameter(torch.empty(num_caps, dim_caps))
@@ -164,15 +164,97 @@ def mask_by_class(caps: torch.Tensor, target_class: torch.Tensor | None) -> torc
     batch_idx = torch.arange(caps.shape[0], device=caps.device)
     return caps[batch_idx, idx]
 
-def z_to_logistic(z: torch.Tensor, z_min: float = 0.0, z_max: float = 0.4) -> torch.Tensor:
+def z_to_logistic(z: torch.Tensor, z_min: float, z_max: float) -> torch.Tensor:
     eps = 1e-6
     return torch.log((z - z_min).clamp(min=eps) / (z_max - z).clamp(min=eps))
 
-def logistic_to_z(y: torch.Tensor, z_min: float = 0.0, z_max: float = 0.4) -> torch.Tensor:
+def logistic_to_z(y: torch.Tensor, z_min: float, z_max: float) -> torch.Tensor:
     e = torch.exp(y)
     return (e * z_max + z_min) / (e + 1.0)
 
+def _init_mdn_bias(bias: torch.Tensor, components: int) -> None:
+    """Стартовый bias MDN-головы: равномерные логит-медианы + узкая сигма."""
+    with torch.no_grad():
+        for j in range(components):
+            q = (j + 1) / (components + 1)
+            bias[j + components] = math.log(q / (1 - q))
+        bias[2 * components :] = -0.45  # сигма ~0.1 на старте
+
+
 class CapsNet(nn.Module):
+
+    @staticmethod
+    def _build_stem(in_channels: int) -> tuple[nn.Conv2d, nn.BatchNorm2d]:
+        conv1 = nn.Conv2d(in_channels, 128, kernel_size=3, padding=1)
+        nn.init.kaiming_normal_(conv1.weight, nonlinearity="relu")
+        assert conv1.bias is not None
+        nn.init.zeros_(conv1.bias)
+        return conv1, nn.BatchNorm2d(128)
+
+    @staticmethod
+    def _build_caps_block(
+        in_caps: int, in_atoms: int, out_atoms: int, routings: int | None = None,
+    ) -> tuple[Conv2DCaps, Conv2DCaps | ConvCapsuleLayer3D, Conv2DCaps, Conv2DCaps]:
+        """Residual-блок капсул: downsample/skip/две свёртки (skip=3D при routings)."""
+        down = Conv2DCaps(in_caps, in_atoms, 32, out_atoms, kernel_size=3, stride=2)
+        skip: Conv2DCaps | ConvCapsuleLayer3D
+        if routings is None:
+            skip = Conv2DCaps(32, out_atoms, 32, out_atoms, kernel_size=3, stride=1)
+        else:
+            skip = ConvCapsuleLayer3D(
+                in_caps=32, in_atoms=out_atoms, out_caps=32, out_atoms=out_atoms,
+                kernel_size=3, stride=1, routings=routings,
+            )
+        a = Conv2DCaps(32, out_atoms, 32, out_atoms, kernel_size=3, stride=1)
+        b = Conv2DCaps(32, out_atoms, 32, out_atoms, kernel_size=3, stride=1)
+        return down, skip, a, b
+
+    @staticmethod
+    def _build_decoder_dense(dim_capsule: int, flat: int) -> tuple[nn.Linear, nn.PReLU]:
+        dense = nn.Linear(dim_capsule, flat)
+        nn.init.kaiming_normal_(dense.weight, nonlinearity="relu")
+        nn.init.zeros_(dense.bias)
+        return dense, nn.PReLU()
+
+    @staticmethod
+    def _build_decoder_conv(in_channels: int) -> nn.Sequential:
+        layers: list[nn.Module] = []
+        prev_ch = in_channels
+        for ch in (64, 32, 16, 8):
+            ct = nn.ConvTranspose2d(prev_ch, ch, kernel_size=3, padding=1)
+            nn.init.kaiming_normal_(ct.weight, nonlinearity="relu")
+            assert ct.bias is not None
+            nn.init.zeros_(ct.bias)
+            layers.append(ct)
+            layers.append(nn.PReLU())
+            prev_ch = ch
+        ct_out = nn.ConvTranspose2d(prev_ch, in_channels, kernel_size=3, padding=1)
+        nn.init.kaiming_normal_(ct_out.weight, nonlinearity="relu")
+        assert ct_out.bias is not None
+        nn.init.zeros_(ct_out.bias)
+        layers.append(ct_out)
+        layers.append(nn.Tanh())
+        return nn.Sequential(*layers)
+
+    @staticmethod
+    def _build_regressor(dim_capsule: int, mdn_components: int) -> nn.Sequential:
+        layers: list[nn.Module] = []
+        prev = dim_capsule
+        for h in (128, 64, 32, 16):
+            lin = nn.Linear(prev, h)
+            nn.init.kaiming_normal_(lin.weight, nonlinearity="relu")
+            nn.init.zeros_(lin.bias)
+            layers.append(lin)
+            layers.append(nn.PReLU())
+            prev = h
+        out_dim = 3 * mdn_components if mdn_components > 0 else 1
+        out_lin = nn.Linear(prev, out_dim)
+        nn.init.kaiming_normal_(out_lin.weight, nonlinearity="relu")
+        nn.init.zeros_(out_lin.bias)
+        if mdn_components > 0:
+            _init_mdn_bias(out_lin.bias, mdn_components)
+        layers.append(out_lin)
+        return nn.Sequential(*layers)
 
     def __init__(
         self,
@@ -191,34 +273,14 @@ class CapsNet(nn.Module):
         self.num_class = num_class
         self.dim_capsule = dim_capsule
 
-        self.conv1 = nn.Conv2d(in_channels, 128, kernel_size=3, padding=1)
-        nn.init.kaiming_normal_(self.conv1.weight, nonlinearity="relu")
-        assert self.conv1.bias is not None
-        nn.init.zeros_(self.conv1.bias)
-        self.bn1 = nn.BatchNorm2d(128)
+        self.conv1, self.bn1 = self._build_stem(in_channels)
 
-        self.b1_down = Conv2DCaps(128, 1, 32, 4, kernel_size=3, stride=2)
-        self.b1_skip = Conv2DCaps(32, 4, 32, 4, kernel_size=3, stride=1)
-        self.b1_a = Conv2DCaps(32, 4, 32, 4, kernel_size=3, stride=1)
-        self.b1_b = Conv2DCaps(32, 4, 32, 4, kernel_size=3, stride=1)
-
-        self.b2_down = Conv2DCaps(32, 4, 32, 8, kernel_size=3, stride=2)
-        self.b2_skip = Conv2DCaps(32, 8, 32, 8, kernel_size=3, stride=1)
-        self.b2_a = Conv2DCaps(32, 8, 32, 8, kernel_size=3, stride=1)
-        self.b2_b = Conv2DCaps(32, 8, 32, 8, kernel_size=3, stride=1)
-
-        self.b3_down = Conv2DCaps(32, 8, 32, 8, kernel_size=3, stride=2)
-        self.b3_skip = Conv2DCaps(32, 8, 32, 8, kernel_size=3, stride=1)
-        self.b3_a = Conv2DCaps(32, 8, 32, 8, kernel_size=3, stride=1)
-        self.b3_b = Conv2DCaps(32, 8, 32, 8, kernel_size=3, stride=1)
-
-        self.b4_down = Conv2DCaps(32, 8, 32, 8, kernel_size=3, stride=2)
-        self.b4_skip = ConvCapsuleLayer3D(
-            in_caps=32, in_atoms=8, out_caps=32, out_atoms=8,
-            kernel_size=3, stride=1, routings=routings,
+        self.b1_down, self.b1_skip, self.b1_a, self.b1_b = self._build_caps_block(128, 1, 4)
+        self.b2_down, self.b2_skip, self.b2_a, self.b2_b = self._build_caps_block(32, 4, 8)
+        self.b3_down, self.b3_skip, self.b3_a, self.b3_b = self._build_caps_block(32, 8, 8)
+        self.b4_down, self.b4_skip, self.b4_a, self.b4_b = self._build_caps_block(
+            32, 8, 8, routings=routings
         )
-        self.b4_a = Conv2DCaps(32, 8, 32, 8, kernel_size=3, stride=1)
-        self.b4_b = Conv2DCaps(32, 8, 32, 8, kernel_size=3, stride=1)
 
         l1_h = input_size // 8
         l2_h = input_size // 16
@@ -229,54 +291,13 @@ class CapsNet(nn.Module):
         )
 
         flat = in_channels * input_size * input_size
-        self.decoder_dense = nn.Linear(dim_capsule, flat)
-        nn.init.kaiming_normal_(self.decoder_dense.weight, nonlinearity="relu")
-        nn.init.zeros_(self.decoder_dense.bias)
-        self.decoder_dense_act = nn.PReLU()
+        self.decoder_dense, self.decoder_dense_act = self._build_decoder_dense(
+            dim_capsule, flat
+        )
+        self.decoder_conv = self._build_decoder_conv(in_channels)
 
-        decoder_layers: list[nn.Module] = []
-        prev_ch = in_channels
-        for ch in (64, 32, 16, 8):
-            ct = nn.ConvTranspose2d(prev_ch, ch, kernel_size=3, padding=1)
-            nn.init.kaiming_normal_(ct.weight, nonlinearity="relu")
-            assert ct.bias is not None
-            nn.init.zeros_(ct.bias)
-            decoder_layers.append(ct)
-            decoder_layers.append(nn.PReLU())
-            prev_ch = ch
-        ct_out = nn.ConvTranspose2d(prev_ch, in_channels, kernel_size=3, padding=1)
-        nn.init.kaiming_normal_(ct_out.weight, nonlinearity="relu")
-        assert ct_out.bias is not None
-        nn.init.zeros_(ct_out.bias)
-        decoder_layers.append(ct_out)
-        decoder_layers.append(nn.Tanh())
-        self.decoder_conv = nn.Sequential(*decoder_layers)
-
-        regressor_layers: list[nn.Module] = []
-        prev = dim_capsule
-        for h in (128, 64, 32, 16):
-            lin = nn.Linear(prev, h)
-            nn.init.kaiming_normal_(lin.weight, nonlinearity="relu")
-            nn.init.zeros_(lin.bias)
-            regressor_layers.append(lin)
-            regressor_layers.append(nn.PReLU())
-            prev = h
         self.mdn_components = int(mdn_components)
-        out_dim = 3 * self.mdn_components if self.mdn_components > 0 else 1
-        out_lin = nn.Linear(prev, out_dim)
-        nn.init.kaiming_normal_(out_lin.weight, nonlinearity="relu")
-        nn.init.zeros_(out_lin.bias)
-        if self.mdn_components > 0:
-            import math
-
-            with torch.no_grad():
-                k = self.mdn_components
-                for j in range(k):
-                    q = (j + 1) / (k + 1)
-                    out_lin.bias[j + k] = math.log(q / (1 - q))
-                out_lin.bias[2 * k :] = -0.45  # сигма ~0.1 на старте
-        regressor_layers.append(out_lin)
-        self.redshift = nn.Sequential(*regressor_layers)
+        self.redshift = self._build_regressor(dim_capsule, self.mdn_components)
 
     def forward(
         self, x: torch.Tensor, target_class: torch.Tensor | None = None,

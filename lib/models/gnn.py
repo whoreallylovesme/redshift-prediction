@@ -56,7 +56,10 @@ class GraphSAGERegressor(nn.Module):
         h = x
         for layer in self.layers:
             h = layer(h, edge_index, edge_weight, deg)
-        return self.head(h).squeeze(-1)
+        # nn.Module.__call__ типизирован в стабах torch как Any; явная
+        # аннотация фиксирует тип для warn_return_any, не меняя поведение.
+        logit: torch.Tensor = self.head(h).squeeze(-1)
+        return logit
 
     def predict_z(
         self,

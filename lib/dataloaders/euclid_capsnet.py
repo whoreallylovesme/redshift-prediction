@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -19,8 +18,46 @@ from lib.utils.log import get_logger
 
 logger = get_logger()
 
+_Sample = tuple[torch.Tensor, torch.Tensor, torch.Tensor]
 
-class EuclidStampsDataset(Dataset[tuple[torch.Tensor, torch.Tensor, torch.Tensor]]):
+
+def _load_tiles(
+    stamps_dir: Path, tiles: list[int], labels: pd.DataFrame,
+) -> tuple[np.ndarray, pd.DataFrame]:
+    """Читает npz-тайлы, джойнит с метками и отсеивает объекты без spe_z."""
+    label_index = labels.set_index("object_id")
+    frames: list[np.ndarray] = []
+    rows: list[pd.DataFrame] = []
+    for tile in tiles:
+        f = stamps_dir / f"{tile}.npz"
+        if not f.exists():
+            logger.warning(f"[euclid] нет штампов тайла {tile}, пропускаю")
+            continue
+        with np.load(f) as z:
+            ids = z["ids"]
+            X = z["X"]
+        found = label_index.reindex(ids.tolist())
+        mask = found["spe_z"].notna().to_numpy()
+        rows.append(found[mask].reset_index())
+        frames.append(X[mask])
+        logger.info(f"[euclid] тайл {tile}: {int(mask.sum())}/{len(ids)} с метками")
+    if not frames:
+        raise RuntimeError(f"[euclid] ни одного тайла в {stamps_dir}")
+    return np.concatenate(frames, axis=0), pd.concat(rows, ignore_index=True)
+
+
+def _morph_labels(lab: pd.DataFrame) -> np.ndarray:
+    """Морф-метка: колонка morph_class из MER, иначе порог extended_prob > 0.5."""
+    if "morph_class" in lab.columns:
+        # класс из MER: POINT_LIKE_PROB + фолбэк FWHM против звёздного локуса
+        morph = lab["morph_class"].fillna(0.5).to_numpy(np.float32)
+    else:
+        ext = lab["extended_prob"].fillna(0.5).to_numpy(np.float32)
+        morph = (ext > 0.5).astype(np.float32)
+    return np.asarray(morph, dtype=np.float32)
+
+
+class EuclidStampsDataset(Dataset[_Sample]):
     """Штампы выбранных объектов; тайлы держим в памяти как float16.
 
     В labels должны быть колонки object_id, spe_z, extended_prob; берутся
@@ -38,49 +75,22 @@ class EuclidStampsDataset(Dataset[tuple[torch.Tensor, torch.Tensor, torch.Tensor
         augment: bool = False,
         rot90_prob: float = 0.67,
         flip_prob: float = 0.33,
-        cutout_prob: float = 0.0,
-        cutout_size: int = 16,
     ) -> None:
-        label_index = labels.set_index("object_id")
-        frames: list[np.ndarray] = []
-        rows: list[pd.DataFrame] = []
-        for tile in tiles:
-            f = stamps_dir / f"{tile}.npz"
-            if not f.exists():
-                logger.warning(f"[euclid] нет штампов тайла {tile}, пропускаю")
-                continue
-            with np.load(f) as z:
-                ids = z["ids"]
-                X = z["X"]
-            found = label_index.reindex(ids.tolist())
-            mask = found["spe_z"].notna().to_numpy()
-            rows.append(found[mask].reset_index())
-            frames.append(X[mask])
-            logger.info(f"[euclid] тайл {tile}: {int(mask.sum())}/{len(ids)} с метками")
-        if not frames:
-            raise RuntimeError(f"[euclid] ни одного тайла в {stamps_dir}")
-        self.X = np.concatenate(frames, axis=0)
-        lab = pd.concat(rows, ignore_index=True)
+        X, lab = _load_tiles(stamps_dir, tiles, labels)
+        self.X = X
         self.ids = lab["object_id"].to_numpy(np.int64)
         z_lab = lab["spe_z"].to_numpy(np.float32)
         self.z = np.clip(z_lab, z_min + 1e-5, z_max - 1e-5)
-        if "morph_class" in lab.columns:
-            # класс из MER: POINT_LIKE_PROB + фолбэк FWHM против звёздного локуса
-            self.morph = lab["morph_class"].fillna(0.5).to_numpy(np.float32)
-        else:
-            ext = lab["extended_prob"].fillna(0.5).to_numpy(np.float32)
-            self.morph = (ext > 0.5).astype(np.float32)
+        self.morph = _morph_labels(lab)
         self.norm_scales = norm_scales.astype(np.float32)
         self.augment = augment
         self.rot90_prob = rot90_prob
         self.flip_prob = flip_prob
-        self.cutout_prob = cutout_prob
-        self.cutout_size = cutout_size
 
     def __len__(self) -> int:
         return len(self.z)
 
-    def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def __getitem__(self, idx: int) -> _Sample:
         img = self.X[idx].astype(np.float32)  # [4,H,W]
         img = np.arcsinh(img / self.norm_scales[:, None, None]) / 3.0
         if self.augment:
@@ -95,9 +105,15 @@ class EuclidStampsDataset(Dataset[tuple[torch.Tensor, torch.Tensor, torch.Tensor
 
 
 def _norm_scales(
-    stamps_dir: Path, tiles: list[int], labels: pd.DataFrame, sample: int = 200_000, seed: int = 0
+    stamps_dir: Path,
+    tiles: list[int],
+    labels: pd.DataFrame,
+    sample: int = 200_000,
+    percentile: float = 99.5,
+    divisor: float = 5.0,
+    seed: int = 0,
 ) -> np.ndarray:
-    """Пер-канальные масштабы: p99.5 |потока| на подвыборке, делённый на 5."""
+    """Пер-канальные масштабы: перцентиль |потока| на подвыборке, делённый на divisor."""
     rng = np.random.default_rng(seed)
     frames = []
     for tile in tiles:
@@ -107,28 +123,31 @@ def _norm_scales(
     X = np.concatenate(frames, axis=0)
     idx = rng.choice(len(X), size=min(sample, len(X)), replace=False)
     flat = X[idx].astype(np.float32).reshape(len(idx), X.shape[1], -1)
-    p99 = np.percentile(np.abs(flat), 99.5, axis=(0, 2))
-    return (p99 / 5.0).astype(np.float32)
+    p = np.percentile(np.abs(flat), percentile, axis=(0, 2))
+    return (p / divisor).astype(np.float32)
 
 
-def _z_balanced_sampler(z: np.ndarray) -> WeightedRandomSampler:
-    bins = np.linspace(0.0, 1.0, 9)
-    y = (z / (z.max() + 1e-9)).clip(0.0, 0.999)
+def _z_balanced_sampler(
+    z: np.ndarray, n_bins: int = 9, clip_max: float = 0.999,
+) -> WeightedRandomSampler:
+    bins = np.linspace(0.0, 1.0, n_bins)
+    y = (z / (z.max() + 1e-9)).clip(0.0, clip_max)
     b = np.digitize(y, bins)
-    counts = np.bincount(b, minlength=9).astype(np.float64)
+    counts = np.bincount(b, minlength=n_bins).astype(np.float64)
     w = 1.0 / np.maximum(counts[b], 1.0)
     return WeightedRandomSampler(w.tolist(), len(z), replacement=True)
 
 
 def _loader(
-    ds: Dataset[Any],
+    ds: Dataset[_Sample],
     batch_size: int,
     num_workers: int,
     *,
     weighted: bool = False,
     z: np.ndarray | None = None,
-) -> DataLoader[Any]:
-    sampler = _z_balanced_sampler(z) if weighted and z is not None else None
+    sampler_bins: int = 9,
+) -> DataLoader[_Sample]:
+    sampler = _z_balanced_sampler(z, n_bins=sampler_bins) if weighted and z is not None else None
     return DataLoader(
         ds,
         batch_size=batch_size,
@@ -147,8 +166,6 @@ def get_euclid_capsnet_dataloaders(
     valid_tiles: list[int],
     stage_a_zprob: float = 0.95,
     save_scales_to: str | None = None,
-    cutout_prob: float = 0.0,
-    cutout_size: int = 16,
     batch_size: int = 256,
     num_workers: int = 3,
     z_min: float = 0.0,
@@ -156,11 +173,22 @@ def get_euclid_capsnet_dataloaders(
     seed: int = 200,
     rot90_prob: float = 0.67,
     flip_prob: float = 0.33,
-    **_: Any,
-) -> tuple[DataLoader[Any], DataLoader[Any], DataLoader[Any], DataLoader[Any]]:
+    norm_sample: int = 200_000,
+    norm_percentile: float = 99.5,
+    norm_divisor: float = 5.0,
+    sampler_bins: int = 9,
+) -> tuple[DataLoader[_Sample], DataLoader[_Sample], DataLoader[_Sample], DataLoader[_Sample]]:
     labels = pd.read_parquet(labels_parquet)
     stamps = Path(stamps_dir)
-    scales = _norm_scales(stamps, train_tiles, labels, seed=seed)
+    scales = _norm_scales(
+        stamps,
+        train_tiles,
+        labels,
+        sample=norm_sample,
+        percentile=norm_percentile,
+        divisor=norm_divisor,
+        seed=seed,
+    )
     logger.info(f"[euclid] norm_scales (VIS,Y,J,H): {np.array2string(scales, precision=3)}")
     if save_scales_to:
         Path(save_scales_to).parent.mkdir(parents=True, exist_ok=True)
@@ -177,8 +205,6 @@ def get_euclid_capsnet_dataloaders(
             augment=augment,
             rot90_prob=rot90_prob,
             flip_prob=flip_prob,
-            cutout_prob=cutout_prob,
-            cutout_size=cutout_size,
         )
 
     train_b = build(train_tiles, labels, augment=True)
@@ -189,6 +215,8 @@ def get_euclid_capsnet_dataloaders(
 
     la = _loader(train_a, batch_size, num_workers)
     va = _loader(valid, batch_size, num_workers)
-    lb = _loader(train_b, batch_size, num_workers, weighted=True, z=train_b.z)
+    lb = _loader(
+        train_b, batch_size, num_workers, weighted=True, z=train_b.z, sampler_bins=sampler_bins,
+    )
     vb = _loader(valid, batch_size, num_workers)
     return la, va, lb, vb
