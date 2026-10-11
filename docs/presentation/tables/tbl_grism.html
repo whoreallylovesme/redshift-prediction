@@ -1,0 +1,21 @@
+<!doctype html>
+<html><head><meta charset="utf-8"/>
+<style>
+body { font-family: system-ui; margin: 24px; }
+table { border-collapse: collapse; }
+th, td { border: 1px solid #eee; padding: 10px 16px; font-size: 22px; }
+th { background: #fafafa; }
+.table-title { font-size: 24px; font-weight: bold; text-align: center; background: #fafafa; padding: 10px 0; }
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+.best { font-weight: 800; background: #fff7cc; }
+</style></head>
+<body><table>
+<thead>
+<tr><th class='table-title' colspan='3'>гризм-тест EDF-N (2 тестовых тайла)</th></tr>
+<tr><th>модель</th><th>sigma_nmad</th><th>f_outlier_percent</th></tr>
+</thead><tbody>
+<tr><td>SOM 24×24</td><td class='num'>0.120</td><td class='num'>22.9</td></tr>
+<tr><td>CapsNet (1 сеть)</td><td class='num'>0.131</td><td class='num'>26.9</td></tr>
+<tr><td>морф-ансамбль ×4</td><td class='num'>0.119</td><td class='num'>21.9</td></tr>
+<tr class='best'><td>морф-стек + CatBoost</td><td class='num'>0.097</td><td class='num'>13.0</td></tr>
+</tbody></table></body></html>

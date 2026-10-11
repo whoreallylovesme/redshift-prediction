@@ -1,0 +1,43 @@
+\documentclass[border=10pt]{standalone}
+\usepackage{fontspec}
+\usepackage[russian]{babel}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta, calc}
+\setmainfont{Helvetica Neue}
+\setsansfont{Helvetica Neue}
+\definecolor{stb}{HTML}{2F5D8E}
+\definecolor{stf}{HTML}{EAF1F8}
+\definecolor{acb}{HTML}{B8860B}
+\definecolor{acf}{HTML}{FDF3E0}
+\definecolor{grb}{HTML}{4C7A4C}
+\definecolor{grf}{HTML}{EFF6EF}
+\definecolor{txt}{HTML}{1A1A1A}
+\begin{document}
+\begin{tikzpicture}[
+  font=\sffamily,
+  stage/.style={draw=stb, fill=stf, very thick, rounded corners=4pt, align=center,
+    text width=40mm, inner sep=3mm, text=txt, minimum height=20mm},
+  stack/.style={draw=grb, fill=grf, very thick, rounded corners=4pt, align=center,
+    text width=110mm, inner sep=3mm, text=txt, minimum height=22mm},
+  res/.style={draw=acb, fill=acf, very thick, rounded corners=4pt, align=center,
+    text width=70mm, inner sep=3mm, text=txt, minimum height=20mm},
+  ar/.style={-{Stealth[length=3.6mm, width=3mm]}, very thick, draw=black!60},
+  lbl/.style={font=\sffamily\footnotesize, text=black!60, inner sep=1pt},
+]
+% ===== ряд моделей: центры -88, 0, +88; боксы ±23мм, зазоры 42мм
+\node[stage] (caps) at (-88mm, 40mm) {{\bfseries CapsNet}\\[2pt]{\small штампы VIS, Y, J, H}};
+\node[stage] (cat)  at (0, 40mm)    {{\bfseries CatBoost}\\[2pt]{\small цвета и потоки (MER)}};
+\node[stage] (env)  at (88mm, 40mm) {{\bfseries PHZ соседей}\\[2pt]{\small медиана $z_{\mathrm{PHZ}}$ окружения}};
+
+% ===== стек по центру
+\node[stack] (stk) at (0, 0mm) {{\bfseries Стек CatBoost}\\[2pt]{\small входы: $z_{\mathrm{pred}}$, цвета, PHZ соседей}};
+
+% ===== результат
+\node[res] (z) at (0, -44mm) {{\bfseries финальная оценка $z_{\mathrm{phot}}$}};
+
+\draw[ar] (caps.south) -- ($(stk.north)+(-40mm,0mm)$);
+\draw[ar] (cat.south) -- (stk.north);
+\draw[ar] (env.south) -- ($(stk.north)+(40mm,0mm)$);
+\draw[ar] (stk.south) -- (z.north);
+\end{tikzpicture}
+\end{document}
