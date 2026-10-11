@@ -1111,3 +1111,7 @@
 - Расшифровки аббревиатур при первом употреблении: сл.13 - VIS (visible imager), SPE (spectroscopic), MER (merged), полосы Y/J/H названы полосами ближнего ИК NISP; сл. «Морфология» - FWHM (full width at half maximum). Хвостовые абзацы срезаны сразу.
 
 - «Схема стека» вычищена до чистой схемы (fig_stack_v3): убраны результаты (NMAD 0.0882, выбросы 5.6%) и формула весов; k=16 тоже убран. Осталось: CapsNet (штампы) + CatBoost (цвета MER) + PHZ соседей (медиана окружения) → Стек CatBoost (входы: z_pred, цвета, PHZ) → финальная оценка z_phot. nl-сервер погашен.
+
+## 2026-10-11 — MR !21 (материалы презентации)
+- Ветка presentation-vkr, MR !21 в main: docs/presentation (4 схемы TikZ+PNG, 4 формулы, fig_bins/fig_errdist, tbl_grism) + README + docs/status.md. Коммит 7c5ade7.
+- Воркфлоу проверки нашёл: ветка неслась от init-fix (117 файлов в диффе) - пересажена на origin/main (cherry-pick, force-push), теперь ровно 22 файла, 0 py-файлов; ruff-ошибки были от незакоммиченной рабочей копии, на main ruff чист. Описание MR дополнено итогом проверки.
