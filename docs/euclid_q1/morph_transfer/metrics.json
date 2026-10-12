@@ -1,0 +1,30 @@
+{
+  "task": "binary morphology (0=elliptical, 1=spiral), Euclid GZ stamps",
+  "tiles_test": [
+    102157630,
+    102157953
+  ],
+  "n_test": 870,
+  "n_spiral": 522,
+  "n_elliptical": 348,
+  "threshold": 0.5,
+  "accuracy": 0.9828,
+  "balanced_accuracy": 0.9832,
+  "roc_auc": 0.9968,
+  "confusion_matrix": {
+    "layout": "rows=true [elliptical, spiral], cols=pred [elliptical, spiral]",
+    "tn_ell_ell": 343,
+    "fp_ell_pred_spiral": 5,
+    "fn_spiral_pred_ell": 10,
+    "tp_spiral_spiral": 512
+  },
+  "model": "/home/kadyrov/mash/astro/nn_capsnet_euclid_runs/gz_morph_v1/best.pt",
+  "best_epoch": 8,
+  "channels": [
+    "VIS",
+    "Y",
+    "J",
+    "H"
+  ],
+  "norm": "arcsinh(x/p99.5(|X|_train)/5)/3 per channel"
+}
