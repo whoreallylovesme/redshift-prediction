@@ -1,0 +1,7 @@
+threedhst_dir: datasets/euclid_q1/labels/threedhst
+mer_dir: datasets/euclid_q1/mer
+edf_f_tiles: datasets/euclid_q1/edf_f_tiles.txt
+packet: datasets/euclid_q1/packets/dataset.h5
+ho_native: datasets/euclid_q1/labels/ho_native_photometry.npz
+output_dir: datasets/euclid_q1/labels/cdfs
+workers: 8

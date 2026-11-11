@@ -1,0 +1,5 @@
+phz_dir: datasets/euclid_q1/phz
+pattern: "*.fits"
+workers: 8
+lookups:
+  - {out: datasets/euclid_q1/phz_lookups/phz_h6.npz, ids: [{path: datasets/euclid_q1/hetdex/build/h6_ids.npy}]}

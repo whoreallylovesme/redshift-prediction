@@ -9,6 +9,11 @@ if TYPE_CHECKING:
     import torch
 
 
+def check(ok: object, message: str) -> None:
+    if not bool(ok):
+        raise ValueError(message)
+
+
 def load_yaml(path: str) -> object:
     with open(path, encoding="utf-8") as f:
         return yaml.safe_load(f)

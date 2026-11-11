@@ -1,0 +1,68 @@
+catalog: datasets/euclid_q1/hetdex/hetdex_sc2_v1.5.fits
+mer_dir: datasets/euclid_q1/mer
+edfn_tiles: datasets/euclid_q1/edfn_tiles.txt
+catalog_accuracy: datasets/euclid_q1/labels/edfn_catalog_accuracy.parquet
+
+exclusion_ids:
+  - {path: datasets/euclid_q1/labels/labels_release.parquet}
+  - {path: datasets/euclid_q1/labels/labelled_n_table.parquet}
+  - {path: datasets/euclid_q1/labels/t1/desi_all_matches.parquet}
+  - {path: datasets/euclid_q1/labels/t1/t1_ids.npy}
+  - {path: datasets/euclid_q1/labels/t1/t1_labels.parquet}
+  - {path: datasets/euclid_q1/labels/d2/d2_ids.npy}
+  - {path: datasets/euclid_q1/labels/d2/d2_labels.parquet}
+  - {path: datasets/euclid_q1/labels/d3/d3_ids.npy}
+  - {path: datasets/euclid_q1/labels/d3/d3_labels.parquet}
+  - {path: datasets/euclid_q1/labels/d4/d4_ids.npy}
+  - {path: datasets/euclid_q1/labels/d4/d4_labels.parquet}
+  - {path: datasets/euclid_q1/labels/d5/d5_ids.npy}
+  - {path: datasets/euclid_q1/labels/d5/d5_labels.parquet}
+  - {path: datasets/euclid_q1/labels/da/da_split.json, column: subset_object_ids}
+  - {path: datasets/euclid_q1/labels/da/da_split.json, column: test_object_ids}
+  - {path: datasets/euclid_q1/labels/ho_native_photometry.npz}
+  - {path: datasets/euclid_q1/labels/exclusions/desi_labels.parquet}
+  - {path: datasets/euclid_q1/labels/exclusions/desi_matched.parquet}
+  - {path: datasets/euclid_q1/labels/exclusions/desi_spatial_held_manifest.parquet}
+  - {path: datasets/euclid_q1/labels/exclusions/desi_legacy219_manifest.parquet}
+  - {path: datasets/euclid_q1/labels/exclusions/official_phz_test.parquet}
+  - {path: datasets/euclid_q1/labels/exclusions/source_candidate_union.parquet}
+  - {path: datasets/euclid_q1/labels/exclusions/references_all.parquet}
+  - {path: datasets/euclid_q1/labels/exclusions/sdss_reference_all_candidates.parquet}
+  - {path: datasets/euclid_q1/labels/exclusions/reference_all_locked_candidates.parquet}
+  - {path: datasets/euclid_q1/labels/exclusions/cds_q1_companion_edfn_desi_subset.csv}
+exclusion_positions:
+  - {path: datasets/euclid_q1/labels/exclusions/desi_matched.parquet, ra: ra, dec: dec}
+  - {path: datasets/euclid_q1/labels/exclusions/desi_labels.parquet, ra: right_ascension, dec: declination}
+  - {path: datasets/euclid_q1/labels/exclusions/cds_q1_companion_edfn_desi_subset.csv, ra: ra_mer, dec: dec_mer}
+  - {path: datasets/euclid_q1/labels/exclusions/cds_q1_companion_edfn_desi_subset.csv, ra: ra_desi, dec: dec_desi}
+  - {path: datasets/euclid_q1/labels/t1/desi_all_matches.parquet, ra: desi_ra, dec: desi_dec}
+  - {path: datasets/euclid_q1/labels/d5/kim2025_specz.npz, ra: ra, dec: dec}
+
+build_dir: datasets/euclid_q1/hetdex/build
+native: datasets/euclid_q1/hetdex/h6_native_photometry.npz
+mosaic_dir: datasets/euclid_q1/hetdex/mosaics
+stamp_dir: datasets/euclid_q1/hetdex/stamps
+normalizers: datasets/euclid_q1/packets/normalizers.json
+packet: datasets/euclid_q1/packets/h6.h5
+phosphoros_request: datasets/euclid_q1/hetdex/phosphoros_request.npz
+exclude_ids:
+  - 2659576794653909037
+  - 2666074184672083635
+  - 2669252349673751325
+  - 2670996943656261536
+  - 2673083323653262751
+  - 2685678957670461208
+  - 2695876003647335376
+  - 2696087260649815513
+  - 2707153290672197542
+  - 2709986984674971441
+  - 2719648126655408102
+  - 2721083561650449443
+  - 2725702060659741576
+  - 2730865957658979528
+  - 2735318881656721607
+  - 2737317434667170412
+
+workers: 8
+download_workers: 4
+download_attempts: 5

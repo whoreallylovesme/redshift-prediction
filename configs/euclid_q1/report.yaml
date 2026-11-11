@@ -1,0 +1,81 @@
+tag: P_final
+run_name: final
+seeds: [20261025, 20261026, 20261027, 20261028, 20261029, 20261030]
+meta_dir: runs/euclid_clip_p_final/P_final
+pred_dir: runs/euclid_clip_p_final/inference
+clip_dir: runs/euclid_clip_p_final
+clip_seeds: [20261025, 20261026]
+classical_dir: runs/euclid_clip_p_final/classical
+learners: [catboost, rf, annz, llr, gam]
+out_dir: runs/euclid_clip_p_final/report
+
+packet: datasets/euclid_q1/packets/dataset.h5
+phz_lookup: datasets/euclid_q1/phz_lookups/phz_lookup.npz
+cdfs_packet: datasets/euclid_q1/packets/cdfs.h5
+cdfs_labels: datasets/euclid_q1/labels/cdfs/cdfs_train.parquet
+cdfs_phz: datasets/euclid_q1/phz_lookups/phz_cdfs.npz
+ho_packet: datasets/euclid_q1/packets/ho.h5
+ho_photometry: datasets/euclid_q1/labels/ho_native_photometry.npz
+ho_reference: datasets/euclid_q1/labels/reference_phz.parquet
+ho_phz: datasets/euclid_q1/phz_lookups/phz_ho.npz
+north_labels: datasets/euclid_q1/labels/labelled_n_table.parquet
+
+extra_sets:
+  d2:
+    labels: datasets/euclid_q1/labels/d2/d2_labels.parquet
+    column: z_desi
+    packet: datasets/euclid_q1/packets/d2.h5
+    phz: datasets/euclid_q1/phz_lookups/phz_d2.npz
+    source: DESI
+  d3:
+    labels: datasets/euclid_q1/labels/d3/d3_labels.parquet
+    column: z_desi
+    packet: datasets/euclid_q1/packets/d3.h5
+    phz: datasets/euclid_q1/phz_lookups/phz_d3.npz
+    source: DESI
+  d4:
+    labels: datasets/euclid_q1/labels/d4/d4_labels.parquet
+    column: z_desi
+    packet: datasets/euclid_q1/packets/d4.h5
+    phz: datasets/euclid_q1/phz_lookups/phz_d4.npz
+    source: DESI
+  d5:
+    labels: datasets/euclid_q1/labels/d5/d5_labels.parquet
+    column: z_ext
+    packet: datasets/euclid_q1/packets/d5.h5
+    phz: datasets/euclid_q1/phz_lookups/phz_d5.npz
+    source: NEP-Wide
+
+hetdex_packet: datasets/euclid_q1/packets/h6.h5
+hetdex_labels: datasets/euclid_q1/hetdex/build/h6_labels.parquet
+hetdex_meta: datasets/euclid_q1/hetdex/build/h6_meta.parquet
+hetdex_phz: datasets/euclid_q1/phz_lookups/phz_h6.npz
+
+phosphoros:
+  files:
+    - datasets/euclid_q1/phosphoros/out/predictions/CDFS.parquet
+    - datasets/euclid_q1/phosphoros/out/predictions/D2.parquet
+    - datasets/euclid_q1/phosphoros/out/predictions/D3.parquet
+    - datasets/euclid_q1/phosphoros/out/predictions/D4.parquet
+    - datasets/euclid_q1/phosphoros/out/predictions/D5.parquet
+    - datasets/euclid_q1/phosphoros/out/predictions/F_TRAIN.parquet
+    - datasets/euclid_q1/phosphoros/out/predictions/F_VALID.parquet
+    - datasets/euclid_q1/phosphoros/out/predictions/HO.parquet
+    - datasets/euclid_q1/phosphoros/out/predictions/N_A.parquet
+    - datasets/euclid_q1/phosphoros/out/predictions/N_B.parquet
+  hetdex: datasets/euclid_q1/phosphoros/out/predictions/H6.parquet
+phosphoros_zpf:
+  files:
+    - datasets/euclid_q1/phosphoros/out/predictions/CDFS.parquet
+    - datasets/euclid_q1/phosphoros/out/north_zpf/predictions/D2.parquet
+    - datasets/euclid_q1/phosphoros/out/north_zpf/predictions/D3.parquet
+    - datasets/euclid_q1/phosphoros/out/north_zpf/predictions/D4.parquet
+    - datasets/euclid_q1/phosphoros/out/north_zpf/predictions/D5.parquet
+    - datasets/euclid_q1/phosphoros/out/predictions/F_TRAIN.parquet
+    - datasets/euclid_q1/phosphoros/out/predictions/F_VALID.parquet
+    - datasets/euclid_q1/phosphoros/out/predictions/HO.parquet
+    - datasets/euclid_q1/phosphoros/out/north_zpf/predictions/N_A.parquet
+    - datasets/euclid_q1/phosphoros/out/north_zpf/predictions/N_B.parquet
+  hetdex: datasets/euclid_q1/phosphoros/out/north_zpf/predictions/H6.parquet
+
+store_rows: datasets/euclid_q1/pretrain/store/rows.npz

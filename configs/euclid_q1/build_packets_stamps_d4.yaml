@@ -1,0 +1,5 @@
+products_root: datasets/euclid_q1/products/d4
+registry_glob: "registry2/d4_c*.json"
+native: datasets/euclid_q1/labels/d4/d4_native_photometry.npz
+normalizers: datasets/euclid_q1/packets/normalizers.json
+packet: datasets/euclid_q1/packets/d4.h5

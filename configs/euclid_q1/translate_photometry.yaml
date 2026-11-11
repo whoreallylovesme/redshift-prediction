@@ -1,0 +1,15 @@
+labels: datasets/euclid_q1/translation/inputs/f_labels.npz
+f_train_photometry: datasets/euclid_q1/native/F_TRAIN_native_photometry.npz
+f_valid_photometry: datasets/euclid_q1/native/F_VALID_native_photometry.npz
+cdfs_photometry: datasets/euclid_q1/native/CDFS_native_photometry.npz
+ho_photometry: datasets/euclid_q1/native/HO_native_photometry.npz
+grids_dir: datasets/euclid_q1/translation/grids
+zero_points: datasets/euclid_q1/translation/zero_points/zpc_f.json
+z_fix_predictions:
+  - datasets/euclid_q1/phosphoros/out/south_zpf/predictions/F_TRAIN.parquet
+  - datasets/euclid_q1/phosphoros/out/south_zpf/predictions/F_VALID.parquet
+  - datasets/euclid_q1/phosphoros/out/south_zpf/predictions/CDFS.parquet
+  - datasets/euclid_q1/phosphoros/out/south_zpf/predictions/HO.parquet
+z_fix_column: ppub_median
+normalizers: datasets/euclid_q1/packets/normalizers.json
+out_dir: datasets/euclid_q1/translation/tables

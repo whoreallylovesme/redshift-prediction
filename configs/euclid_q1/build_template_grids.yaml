@@ -1,0 +1,5 @@
+north_model_fits: datasets/euclid_q1/phosphoros/grids/north_model_grid.fits
+south_model_fits: datasets/euclid_q1/phosphoros/grids/south_model_grid.fits
+north_galactic_grid: datasets/euclid_q1/phosphoros/workspace_north/IntermediateProducts/PublicCosmos31EmissionLines/GalacticCorrectionCoefficientGrids/public_cosmos31_601z_el_g23.dat
+south_galactic_grid: datasets/euclid_q1/phosphoros/workspace_south/IntermediateProducts/PublicCosmos31EmissionLinesSouth/GalacticCorrectionCoefficientGrids/public_cosmos31_601z_el_south_g23.dat
+out_dir: datasets/euclid_q1/translation/grids
