@@ -1,0 +1,37 @@
+model_type: lightning
+model: capsnet
+dataset: euclid
+
+stamps_dir: datasets/euclid_q1/stamps
+labels_parquet: datasets/euclid_q1/merged/edfn_labels.parquet
+
+# сплит по тайлам (без утечек через перекрытия):
+# test: 102157954, 102160336 — пространственно разнесены с трейном
+train_tiles: [102158895, 102159196, 102159195, 102158896, 102158894, 102160057, 102158893, 102159779]
+valid_tiles: [102159778]
+test_tiles: [102157954, 102160336]
+
+in_channels: 4
+crop_size: 64
+stage_a_zprob: 0.95
+
+batch_size: 256
+lr: 0.0005
+decay_rate: 0.96
+lam_recon: 0.005
+lam_redshift: 1.0
+z_min: 0.0
+z_max: 3.0
+
+stage_a_epochs: 3
+stage_b_epochs: 40
+
+num_workers: 3
+seed: 200
+device: auto
+
+out_dir: nn_capsnet_euclid_runs/edfn_4ch
+
+augment:
+  rot90_prob: 0.67
+  flip_prob: 0.33
