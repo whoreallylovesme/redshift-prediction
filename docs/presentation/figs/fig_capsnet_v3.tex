@@ -1,0 +1,62 @@
+\documentclass[border=10pt]{standalone}
+\usepackage{fontspec}
+\usepackage[russian]{babel}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta, calc}
+\setmainfont{Helvetica Neue}
+\setsansfont{Helvetica Neue}
+\definecolor{stb}{HTML}{2F5D8E}
+\definecolor{stf}{HTML}{EAF1F8}
+\definecolor{grb}{HTML}{4C7A4C}
+\definecolor{grf}{HTML}{EFF6EF}
+\definecolor{acb}{HTML}{B8860B}
+\definecolor{acf}{HTML}{FDF3E0}
+\definecolor{txt}{HTML}{1A1A1A}
+\begin{document}
+\begin{tikzpicture}[
+  font=\sffamily,
+  stage/.style={draw=stb, fill=stf, very thick, rounded corners=4pt, align=center,
+    text width=34mm, inner sep=2.5mm, text=txt, minimum height=24mm},
+  caps/.style={draw=grb, fill=grf, very thick, rounded corners=4pt, align=center,
+    text width=36mm, inner sep=2.5mm, text=txt, minimum height=24mm},
+  res/.style={draw=acb, fill=acf, very thick, rounded corners=4pt, align=center,
+    text width=28mm, inner sep=2.5mm, text=txt, minimum height=24mm},
+  ar/.style={-{Stealth[length=3.4mm, width=2.8mm]}, very thick, draw=black!60},
+  dar/.style={-{Stealth[length=3mm, width=2.5mm]}, thick, draw=black!50, dashed},
+  lbl/.style={font=\sffamily\footnotesize, text=black!60, inner sep=1pt},
+]
+% ===== основной ряд: центры 0, 62, 124, 186, 248, 300
+\node[stage] (inp) at (0, 0mm)    {{\bfseries Вход}\\[2pt]{\small штамп 64$\times$64$\times$4}\\[-1pt]{\small VIS, Y, J, H}};
+\node[stage] (cnv) at (62mm, 0mm) {{\bfseries Свёртки}\\[2pt]{\small карты признаков}};
+\node[caps] (prim) at (124mm, 0mm) {{\bfseries PrimaryCaps}\\[2pt]{\small 8-мерные векторы}};
+\node[caps] (dig) at (186mm, 0mm) {{\bfseries DigitCaps}\\[2pt]{\small 16-мерные векторы}};
+\node[stage] (mlp) at (248mm, 0mm) {{\bfseries Голова MLP}\\[2pt]{\small по вектору объекта}};
+\node[res] (z) at (300mm, 0mm) {{\bfseries $\hat{z}$}\\[2pt]{\small photo-z}};
+
+\draw[ar] (inp.east) -- (cnv.west);
+\draw[ar] (cnv.east) -- (prim.west);
+\draw[ar] (prim.east) -- (dig.west) node[midway, above, lbl] {routing};
+\draw[ar] (dig.east) -- (mlp.west);
+\draw[ar] (mlp.east) -- (z.west);
+
+% ===== мини-капсулы (кружок со стрелкой) в боксах капсул
+\begin{scope}[shift={($(prim.center)+(0mm,-7.5mm)$)}]
+  \foreach \x/\a in {-5/30, 0/80, 5/130} {
+    \draw[grb, thick, fill=white] (\x, 0) circle (1.7mm);
+    \draw[-{Stealth[length=1.4mm]}, grb, thick] (\x, 0) -- ++(\a:2.4mm);
+  }
+\end{scope}
+\begin{scope}[shift={($(dig.center)+(0mm,-7.5mm)$)}]
+  \foreach \x/\a in {-5/50, 5/110} {
+    \draw[grb, very thick, fill=white] (\x, 0) circle (2.2mm);
+    \draw[-{Stealth[length=1.8mm]}, grb, very thick] (\x, 0) -- ++(\a:3.1mm);
+  }
+\end{scope}
+
+% ===== декодер - серая плашка снизу
+\node[draw=black!35, fill=black!3, thick, rounded corners=3pt, align=center,
+  text width=120mm, inner sep=3mm, text=txt] (dec) at (155mm, -26mm)
+  {{\small\bfseries Декодер: реконструкция входа} - регуляризует энкодер, на инференсе не используется};
+\draw[dar] (dig.south) -- ($(dec.north)+(28mm,0mm)$);
+\end{tikzpicture}
+\end{document}

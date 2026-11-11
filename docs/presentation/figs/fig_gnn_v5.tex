@@ -1,0 +1,58 @@
+\documentclass[border=10pt]{standalone}
+\usepackage{fontspec}
+\usepackage[russian]{babel}
+\usepackage{amsmath}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta, calc}
+\setmainfont{Helvetica Neue}
+\setsansfont{Helvetica Neue}
+\definecolor{stb}{HTML}{2F5D8E}
+\definecolor{stf}{HTML}{EAF1F8}
+\definecolor{grb}{HTML}{4C7A4C}
+\definecolor{grf}{HTML}{EFF6EF}
+\definecolor{acb}{HTML}{B8860B}
+\definecolor{acf}{HTML}{FDF3E0}
+\definecolor{txt}{HTML}{1A1A1A}
+\begin{document}
+\begin{tikzpicture}[
+  font=\sffamily,
+  stage/.style={draw=stb, fill=stf, very thick, rounded corners=4pt, align=center,
+    text width=36mm, inner sep=3mm, text=txt, minimum height=20mm},
+  inp/.style={draw=grb, fill=grf, very thick, rounded corners=4pt, align=center,
+    text width=34mm, inner sep=3mm, text=txt, minimum height=17mm},
+  res/.style={draw=acb, fill=acf, very thick, rounded corners=4pt, align=center,
+    text width=30mm, inner sep=3mm, text=txt, minimum height=20mm},
+  ar/.style={-{Stealth[length=3.6mm, width=3mm]}, very thick, draw=black!60},
+  dar/.style={-{Stealth[length=3mm, width=2.5mm]}, thick, draw=black!50, dashed},
+  lbl/.style={font=\sffamily\footnotesize, text=black!60, inner sep=1pt},
+]
+% ===== входы слева (каталог сверху, метки снизу)
+\node[inp] (cat) at (0, 58mm) {{\bfseries Каталог объектов}\\[2pt]{\small 262\,377: цвета, потоки,}\\[-1pt]{\small морфология, PHZ}};
+\node[inp] (lab) at (0, 22mm) {{\bfseries Метки $z_{\mathrm{SPE}}$}\\[2pt]{\small только у 31\,377 узлов}};
+
+% ===== граф соседей
+\node[inp, draw=grb] (graph) at (60mm, 40mm) {{\bfseries Граф соседей}\\[2pt]{\small $k{=}16$ ближайших по небу}\\[-1pt]{\small веса: близость и цвет}};
+
+% ===== модель
+\node[stage] (s1) at (124mm, 40mm) {{\bfseries Слой SAGE 1}\\[2pt]{\small агрегация соседей}};
+\node[stage] (s2) at (182mm, 40mm) {{\bfseries Слой SAGE 2}\\[2pt]{\small агрегация соседей}};
+\node[stage] (mlp) at (238mm, 40mm) {{\bfseries Голова MLP}\\[2pt]{\small по вектору узла}};
+
+% ===== результат
+\node[res] (z) at (290mm, 40mm) {{\bfseries $z_{\mathrm{gnn}}$}\\[2pt]{\small одна из фичей стека}};
+
+% ===== стрелки
+\draw[ar] (cat.east) -- ($(graph.west)+(0mm,7mm)$);
+\draw[dar] (lab.east) -- ($(graph.west)+(0mm,-7mm)$) node[midway, below, lbl] {обучение};
+\draw[ar] (graph.east) -- (s1.west);
+\draw[ar] (s1.east) -- (s2.west);
+\draw[ar] (s2.east) -- (mlp.west);
+\draw[ar] (mlp.east) -- (z.west);
+
+% ===== формула слоя под моделью
+\node[draw=black!35, fill=black!3, thick, rounded corners=3pt, align=center,
+  text width=112mm, inner sep=3mm, text=txt] (fml) at (153mm, -4mm)
+  {{\small формула слоя: $h_v \;=\; \mathrm{ReLU}\!\left(W_{\mathrm{сам}}\, x_v \;+\; W_{\mathrm{сос}} \cdot \dfrac{\sum_{u \in N(v)} w_{uv}\, x_u}{\deg v}\right)$}};
+\draw[dar] (s1.south) -- (fml.north west);
+\end{tikzpicture}
+\end{document}

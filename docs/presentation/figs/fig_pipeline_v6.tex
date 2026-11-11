@@ -1,0 +1,49 @@
+\documentclass[border=10pt]{standalone}
+\usepackage{fontspec}
+\usepackage[russian]{babel}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta}
+\setmainfont{Helvetica Neue}
+\setsansfont{Helvetica Neue}
+\definecolor{stb}{HTML}{2F5D8E}
+\definecolor{stf}{HTML}{EAF1F8}
+\definecolor{acb}{HTML}{B8860B}
+\definecolor{acf}{HTML}{FDF3E0}
+\definecolor{txt}{HTML}{1A1A1A}
+\begin{document}
+\begin{tikzpicture}[
+  font=\sffamily,
+  stage/.style={draw=stb, fill=stf, very thick, rounded corners=4pt, align=center,
+    text width=44mm, inner sep=3mm, text=txt, minimum height=20mm},
+  art/.style={draw=acb, fill=acf, thick, rounded corners=3pt, align=center,
+    text width=40mm, inner sep=2.5mm, text=txt},
+  ar/.style={-{Stealth[length=3.6mm, width=3mm]}, very thick, draw=black!60},
+  dn/.style={-{Stealth[length=2.8mm, width=2.4mm]}, thick, draw=black!45, dashed},
+  lbl/.style={font=\sffamily\footnotesize, text=black!60, inner sep=1pt},
+]
+% ===== 5 этапов: центры 0, 78, 156, 234, 312; боксы ±25мм, зазоры 28мм
+\node[stage] (prep) at (0, 40mm)    {{\bfseries Подготовка датасета}\\[2pt]{\small очистка и разделение}};
+\node[stage] (train) at (78mm, 40mm) {{\bfseries Обучение модели}\\[2pt]{\small подбор гиперпараметров}};
+\node[stage] (inf) at (156mm, 40mm)  {{\bfseries Прогноз и метрики}\\[2pt]{\small инференс на тесте}};
+\node[stage] (vis) at (234mm, 40mm)  {{\bfseries Отчёты и графики}\\[2pt]{\small таблицы и визуализация}};
+\node[stage] (full) at (312mm, 40mm) {{\bfseries Сводный отчёт}\\[2pt]{\small общая таблица и графики}};
+
+\draw[ar] (prep.east) -- (train.west) node[midway, above, lbl] {сплит};
+\draw[ar] (train.east) -- (inf.west) node[midway, above, lbl] {модель};
+\draw[ar] (inf.east) -- (vis.west) node[midway, above, lbl] {метрики};
+\draw[ar] (vis.east) -- (full.west) node[midway, above, lbl] {эксперименты};
+
+% ===== артефакты: центры те же, края ±22.5мм
+\node[art] (a1) at (0, 0mm)   {{\ttfamily\footnotesize data.yaml}\\[2pt]{\ttfamily\footnotesize data.parquet}};
+\node[art] (a2) at (78mm, 0mm)  {{\ttfamily\footnotesize train/test.parquet}\\[2pt]{\ttfamily\footnotesize model.pkl, model.yaml}};
+\node[art] (a3) at (156mm, 0mm) {{\ttfamily\footnotesize result.parquet}\\[2pt]{\ttfamily\footnotesize metrics.json}};
+\node[art] (a4) at (234mm, 0mm) {{\ttfamily\footnotesize report1/, report2/, \ldots}};
+\node[art] (a5) at (312mm, 0mm) {{\ttfamily\footnotesize full\_report.html}\\[2pt]{\ttfamily\footnotesize все эксперименты}};
+
+\draw[dn] (prep.south) -- (a1.north);
+\draw[dn] (train.south) -- (a2.north);
+\draw[dn] (inf.south) -- (a3.north);
+\draw[dn] (vis.south) -- (a4.north);
+\draw[dn] (full.south) -- (a5.north);
+\end{tikzpicture}
+\end{document}
