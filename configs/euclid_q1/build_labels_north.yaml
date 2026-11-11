@@ -1,0 +1,7 @@
+packet: datasets/euclid_q1/packets/dataset.h5
+nb_packet: datasets/euclid_q1/packets/nb.h5
+labels: datasets/euclid_q1/labels/labels_release.parquet
+desi: datasets/euclid_q1/labels/desi_redshifts.parquet
+native: datasets/euclid_q1/labels/n_native_photometry.npz
+phz_lookup: datasets/euclid_q1/phz_lookups/phz_lookup.npz
+output: datasets/euclid_q1/labels/labelled_n_table.parquet

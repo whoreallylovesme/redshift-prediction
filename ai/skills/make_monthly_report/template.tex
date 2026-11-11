@@ -1,0 +1,99 @@
+% Шаблон make_monthly_report. Образец заполнения: reports/monthly/2026-11-12/report.tex. Компиляция: tectonic report.tex
+\documentclass[11pt,a4paper]{article}
+
+\usepackage{fontspec}
+\usepackage{polyglossia}
+\setmainlanguage{russian}
+\setotherlanguage{english}
+\setmainfont{Times New Roman}
+\newfontfamily\cyrillicfont{Times New Roman}
+\setsansfont{Helvetica}
+\newfontfamily\cyrillicfontsf{Helvetica}
+\setmonofont{Menlo}[Scale=0.85]
+\newfontfamily\cyrillicfonttt{Menlo}[Scale=0.85]
+
+\usepackage[margin=2cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs,array,multirow,tabularx,longtable}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage[font=small,labelsep=period]{caption}
+\usepackage[shortlabels]{enumitem}
+\usepackage{xcolor}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta}
+\usepackage[colorlinks=true,linkcolor=black,urlcolor=blue!50!black,citecolor=black]{hyperref}
+
+\setlist{nosep,leftmargin=1.2em}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{4pt}
+\setlength{\emergencystretch}{3em}
+\sloppy
+\graphicspath{{figures/}}
+
+\definecolor{ml}{HTML}{2A78D6}
+\definecolor{ppub}{HTML}{EB6834}
+
+\newcommand{\NMAD}{\mathrm{NMAD}}
+\newcommand{\fnref}[1]{\textsuperscript{\ref{#1}}}
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
+
+\begin{document}
+
+\begin{center}
+{\Large Отчёт}\\[4pt]
+{\large за период <<13 МЕСЯЦА – 12 МЕСЯЦА ГОД>> г.}\\[8pt]
+Кадыров Э.Э., группа 420, кафедра ИИТ, ВМК МГУ\\
+Научные руководители: <научные руководители>\\[4pt]
+Тема: «Прогноз космологического красного смещения по фотометрическим признакам»
+\end{center}
+
+\section{Выполнение календарного плана}
+\begin{table}[H]
+\centering\small
+\begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{2.3cm}>{\raggedright\arraybackslash}p{3.9cm}Y>{\raggedright\arraybackslash}p{1.9cm}}
+\toprule
+Срок & Задача плана & Что сделано & Статус \\
+\midrule
+<<СТРОКА НА КАЖДЫЙ ПУНКТ ПРОШЛОГО ПЛАНА>> \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\section{Выполненная работа}
+% Подразделы по научным вопросам в хронологии месяца, у каждого рисунок (\caption{} пустой).
+% Главный результат месяца — подробно: таблица метрик, таблица ΔNMAD с 95% ДИ, опубликованные методы сравнения, слабые места.
+\subsection{<<ВОПРОС 1>>}
+<<ЧТО СДЕЛАНО: ДАННЫЕ, МОДЕЛЬ, С ЧЕМ СРАВНИВАЛИ>>
+\begin{figure}[H]
+\centering\includegraphics[width=\linewidth]{<<РИСУНОК>>}
+\caption{}
+\end{figure}
+\begin{itemize}
+  \item <<ЧИСЛА С ДИ И ВЫВОД, ВКЛЮЧАЯ ОТРИЦАТЕЛЬНЫЙ>>
+\end{itemize}
+
+\subsection{Отчёты, презентация и инструменты}
+\begin{itemize}
+  \item <<ОТЧЁТЫ С ЧИСЛОМ СТРАНИЦ, ПРЕЗЕНТАЦИЯ СО ССЫЛКОЙ И ЧИСЛОМ СЛАЙДОВ>>
+\end{itemize}
+
+\section{Тестовые наборы}
+\begin{table}[H]
+\centering\small
+\begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{3.3cm}lr Y >{\raggedright\arraybackslash}p{3.2cm}}
+\toprule
+Набор & Поле & $n$ & Метки и отбор & Где использован \\
+\midrule
+<<ВСЕ НАБОРЫ, НА КОТОРЫХ СЧИТАЛИСЬ МЕТРИКИ>> \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\section{Репозиторий и объём кода}
+\begin{itemize}
+  \item <<ССЫЛКИ (ПРОВЕРЕНЫ), ЧТО ВЫЛОЖЕНО И ЧТО НЕТ>>
+  \item <<ЧИСЛО СТРОК ЗА ПЕРИОД ПО КАТЕГОРИЯМ И СПОСОБ ПОДСЧЁТА>>
+\end{itemize}
+
+\end{document}

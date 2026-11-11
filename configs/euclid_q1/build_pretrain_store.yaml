@@ -1,0 +1,9 @@
+keys: datasets/euclid_q1/pretrain/keys.txt
+shards_dir: datasets/euclid_q1/pretrain/shards
+store_dir: datasets/euclid_q1/pretrain/store
+stage_dir: datasets/euclid_q1/pretrain/stage
+pilot_packet: datasets/euclid_q1/packets/dataset.h5
+extra_packets:
+  - datasets/euclid_q1/packets/extra.h5
+  - datasets/euclid_q1/packets/extra2.h5
+ho_packet: datasets/euclid_q1/packets/ho.h5

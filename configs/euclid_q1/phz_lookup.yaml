@@ -1,0 +1,15 @@
+phz_dir: datasets/euclid_q1/phz
+pattern: "*.fits"
+workers: 8
+lookups:
+  - out: datasets/euclid_q1/phz_lookups/phz_lookup.npz
+    ids:
+      - path: datasets/euclid_q1/packets/dataset.h5
+        indices: [train_indices, valid_indices, test_indices]
+      - path: datasets/euclid_q1/packets/nb.h5
+  - {out: datasets/euclid_q1/phz_lookups/phz_ho.npz, ids: [{path: datasets/euclid_q1/packets/ho.h5}]}
+  - {out: datasets/euclid_q1/phz_lookups/phz_cdfs.npz, ids: [{path: datasets/euclid_q1/packets/cdfs.h5}]}
+  - {out: datasets/euclid_q1/phz_lookups/phz_d2.npz, ids: [{path: datasets/euclid_q1/packets/d2.h5}]}
+  - {out: datasets/euclid_q1/phz_lookups/phz_d3.npz, ids: [{path: datasets/euclid_q1/packets/d3.h5}]}
+  - {out: datasets/euclid_q1/phz_lookups/phz_d4.npz, ids: [{path: datasets/euclid_q1/packets/d4.h5}]}
+  - {out: datasets/euclid_q1/phz_lookups/phz_d5.npz, ids: [{path: datasets/euclid_q1/packets/d5.h5}]}

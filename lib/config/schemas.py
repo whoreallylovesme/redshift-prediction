@@ -68,8 +68,30 @@ class PytorchTrainConfig(BaseModel):
         validation_alias=AliasPath("train", "max_samples"),
     )
 
+class EuclidStage(BaseModel):
+    config: str
+    enabled: bool = True
+
+class EuclidPretrainStage(EuclidStage):
+    seeds: list[int] = Field(default_factory=list)
+
+class EuclidFinetuneStage(EuclidStage):
+    seed_pairs: list[tuple[int, int]]
+    clip_root: str | None = None
+    out_dir: str | None = None
+
+class EuclidClassicalStage(EuclidStage):
+    learners: list[str] = Field(default_factory=list)
+
+class EuclidFlowConfig(BaseModel):
+    pretrain: EuclidPretrainStage | None = None
+    finetune: EuclidFinetuneStage
+    inference: bool = True
+    classical: EuclidClassicalStage | None = None
+    report: EuclidStage | None = None
+
 class FlowConfig(BaseModel):
-    pipeline: Literal["tabular", "nn", "capsnet"]
+    pipeline: Literal["tabular", "nn", "capsnet", "euclid_clip"]
     runs_root: str
     prepared_root: str | None = None
     dataset: dict[str, str] | None = None
@@ -77,3 +99,4 @@ class FlowConfig(BaseModel):
     splits: list[dict[str, str]] = Field(default_factory=list)
     summaries: dict[str, bool | str] = Field(default_factory=dict)
     train: dict[str, str] | None = None
+    euclid: EuclidFlowConfig | None = None

@@ -1,0 +1,5 @@
+products_root: datasets/euclid_q1/products/cdfs
+registry_glob: "registry2/cdfs_c*.json"
+native: datasets/euclid_q1/labels/cdfs/cdfs_native_photometry.npz
+normalizers: datasets/euclid_q1/packets/normalizers.json
+packet: datasets/euclid_q1/packets/cdfs.h5

@@ -1,0 +1,10 @@
+registry_manifest: datasets/euclid_q1/registry/manifest.json
+guards: datasets/euclid_q1/pretrain/guards.npz
+selected: datasets/euclid_q1/pretrain/selected.parquet
+mer_catalog_dir: datasets/euclid_q1/mer
+raw14_dir: datasets/euclid_q1/pretrain/raw14
+target_per_field: 500000
+reservoir_per_field: 1000000
+sample_seed: 20261101
+guard_radius_arcsec: 10.0
+neighbor_radius_arcsec: 1.0

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import sys
 from typing import cast
@@ -18,3 +19,7 @@ def get_logger(name: str = "pipeline") -> logging.Logger:
             logger.addHandler(handler)
             logger.setLevel(logging.INFO)
         return logger
+
+
+def log_event(**fields: object) -> None:
+    get_logger().info(json.dumps(fields))

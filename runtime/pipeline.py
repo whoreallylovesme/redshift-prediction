@@ -7,14 +7,17 @@ import pandas as pd
 import yaml
 from prefect import flow, task
 
-from lib.config import FlowConfig
+from lib.config import EuclidFlowConfig, FlowConfig
 from lib.inference import inference
-from lib.utils.utils import load_yaml_as
+from lib.utils.log import get_logger
+from lib.utils.utils import load_yaml, load_yaml_as
 from runtime.evaluate import calc_metrics
 from runtime.render_plots import summary_plots
 from runtime.render_table import summary_table
 from runtime.split_tabular import prepare
 from runtime.train import train
+
+logger = get_logger()
 
 
 @task
@@ -164,6 +167,147 @@ def run_nn_pipeline(config: FlowConfig) -> None:
             render_summary_table(split_runs, f"{split_runs}/summary_table.html", title)
             render_summary_plots(split_runs, f"{split_runs}/summary_plots.html", title)
 
+@task
+def fit_euclid_stage(config: str) -> None:
+    train(config)
+
+@task
+def predict_euclid_stage(config: str) -> None:
+    inference(config_path=config)
+
+@task
+def report_euclid_stage(config: str) -> None:
+    from runtime.euclid_report import build_report
+
+    build_report(Path(config))
+
+def derived_config(base: str, out: Path, **overrides: object) -> str:
+    raw = load_yaml(base)
+    if not isinstance(raw, dict):
+        raise ValueError(f"{base} must be a YAML mapping")
+    raw.update(overrides)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(yaml.safe_dump(raw, sort_keys=False, allow_unicode=True), encoding="utf-8")
+    return str(out)
+
+def run_euclid_pretrain(euclid: EuclidFlowConfig, runs_root: Path) -> None:
+    from lib.train.euclid_clip_pretrain import STATE_NAME
+
+    stage = euclid.pretrain
+    if stage is None or not stage.enabled:
+        return
+    seeds = stage.seeds or sorted({clip_seed for clip_seed, _ in euclid.finetune.seed_pairs})
+    for seed in seeds:
+        out_dir = runs_root / f"clip_1m_{seed}"
+        if (out_dir / STATE_NAME).exists():
+            logger.info(f"[euclid] pretrain seed {seed}: {out_dir / STATE_NAME} exists, skipped")
+            continue
+        config = derived_config(
+            stage.config, runs_root / "configs" / f"clip_1m_{seed}.yaml",
+            seed=seed, out_dir=str(out_dir),
+        )
+        fit_euclid_stage(config)
+
+def run_euclid_finetune(euclid: EuclidFlowConfig, runs_root: Path, tag: str, ft_dir: Path) -> None:
+    from lib.train.euclid_clip_pretrain import STATE_NAME
+
+    stage = euclid.finetune
+    if not stage.enabled:
+        return
+    clip_root = Path(stage.clip_root) if stage.clip_root else runs_root
+    for clip_seed, seed in stage.seed_pairs:
+        meta = ft_dir / f"{tag}_{seed}.json"
+        if meta.exists():
+            logger.info(f"[euclid] fine-tune seed {seed}: {meta} exists, skipped")
+            continue
+        config = derived_config(
+            stage.config, runs_root / "configs" / f"{tag}_{seed}.yaml",
+            seed=seed, clip_state=str(clip_root / f"clip_1m_{clip_seed}" / STATE_NAME),
+            out_dir=str(ft_dir),
+        )
+        fit_euclid_stage(config)
+
+def run_euclid_inference(
+    euclid: EuclidFlowConfig, runs_root: Path, tag: str, ft_dir: Path,
+) -> None:
+    if not euclid.inference:
+        return
+    pred_dir = runs_root / "inference"
+    seeds = [
+        seed for _, seed in euclid.finetune.seed_pairs
+        if not (pred_dir / f"{tag}_{seed}_pred.npz").exists()
+    ]
+    if not seeds:
+        logger.info(f"[euclid] inference: every prediction in {pred_dir} exists, skipped")
+        return
+    config = derived_config(
+        euclid.finetune.config, runs_root / "configs" / f"{tag}_inference.yaml",
+        inference={"out_dir": str(pred_dir), "seeds": seeds, "state_dir": str(ft_dir)},
+    )
+    predict_euclid_stage(config)
+
+def run_euclid_classical(
+    euclid: EuclidFlowConfig, runs_root: Path, tag: str, ft_dir: Path,
+) -> None:
+    stage = euclid.classical
+    if stage is None or not stage.enabled:
+        return
+    split_meta = ft_dir / f"{tag}_{euclid.finetune.seed_pairs[0][1]}.json"
+    for learner in stage.learners:
+        out_dir = runs_root / "classical" / learner
+        if (out_dir / "complete.json").exists():
+            logger.info(f"[euclid] classical {learner}: {out_dir} is complete, skipped")
+            continue
+        config = derived_config(
+            stage.config, runs_root / "configs" / f"classical_{learner}.yaml",
+            learner=learner, out_dir=str(out_dir), split_meta=str(split_meta),
+        )
+        fit_euclid_stage(config)
+
+def run_euclid_report(
+    euclid: EuclidFlowConfig, runs_root: Path, tag: str, ft_dir: Path,
+) -> None:
+    stage = euclid.report
+    if stage is None or not stage.enabled:
+        return
+    out_dir = runs_root / "report"
+    if (out_dir / "facts.json").exists():
+        logger.info(f"[euclid] report: {out_dir / 'facts.json'} exists, skipped")
+        return
+    pairs = euclid.finetune.seed_pairs
+    clip_root = Path(euclid.finetune.clip_root) if euclid.finetune.clip_root else runs_root
+    overrides: dict[str, object] = {
+        "tag": tag,
+        "seeds": [seed for _, seed in pairs],
+        "meta_dir": str(ft_dir),
+        "pred_dir": str(runs_root / "inference" if euclid.inference else ft_dir),
+        "clip_dir": str(clip_root),
+        "clip_seeds": sorted({clip_seed for clip_seed, _ in pairs}),
+        "out_dir": str(out_dir),
+    }
+    if euclid.classical is not None:
+        overrides["classical_dir"] = str(runs_root / "classical")
+        overrides["learners"] = euclid.classical.learners
+    config = derived_config(stage.config, runs_root / "configs" / "report.yaml", **overrides)
+    report_euclid_stage(config)
+
+def run_euclid_clip_pipeline(config: FlowConfig) -> None:
+    from lib.train.euclid_clip_finetune import EuclidClipConfig
+
+    euclid = config.euclid
+    if euclid is None:
+        raise ValueError("euclid_clip pipeline requires a euclid section")
+    if not euclid.finetune.seed_pairs:
+        raise ValueError("euclid_clip pipeline requires fine-tune seed pairs")
+    runs_root = Path(config.runs_root)
+    tag = load_yaml_as(euclid.finetune.config, EuclidClipConfig).tag
+    ft_dir = Path(euclid.finetune.out_dir) if euclid.finetune.out_dir else runs_root / tag
+    run_euclid_pretrain(euclid, runs_root)
+    run_euclid_finetune(euclid, runs_root, tag, ft_dir)
+    run_euclid_inference(euclid, runs_root, tag, ft_dir)
+    run_euclid_classical(euclid, runs_root, tag, ft_dir)
+    run_euclid_report(euclid, runs_root, tag, ft_dir)
+
 @flow(name="pipeline")
 def pipeline(config_path: str) -> None:
     config = load_yaml_as(config_path, FlowConfig)
@@ -174,6 +318,8 @@ def pipeline(config_path: str) -> None:
         run_nn_pipeline(config)
     elif pipeline_type == "capsnet":
         run_capsnet_pipeline(config)
+    elif pipeline_type == "euclid_clip":
+        run_euclid_clip_pipeline(config)
     else:
         raise ValueError(f"Unsupported pipeline type: {pipeline_type}")
 

@@ -1,0 +1,5 @@
+raw14: datasets/euclid_q1/inputs/raw14_expansion.npz
+normalizers: datasets/euclid_q1/packets/normalizers.json
+packet: datasets/euclid_q1/packets/extra.h5
+products_root: datasets/euclid_q1/products/extra
+products_manifest: datasets/euclid_q1/products/extra/run-001.manifest.json

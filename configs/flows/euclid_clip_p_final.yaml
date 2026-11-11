@@ -1,0 +1,23 @@
+pipeline: euclid_clip
+runs_root: runs/euclid_clip_p_final
+
+euclid:
+  pretrain:
+    config: configs/nn/euclid_clip_pretrain.yaml
+    enabled: true
+    seeds: [20261025, 20261026]
+  finetune:
+    config: configs/nn/euclid_clip_p_final.yaml
+    seed_pairs:
+      - [20261025, 20261025]
+      - [20261026, 20261026]
+      - [20261025, 20261027]
+      - [20261026, 20261028]
+      - [20261025, 20261029]
+      - [20261026, 20261030]
+  inference: true
+  classical:
+    config: configs/nn/euclid_classical.yaml
+    learners: [catboost, rf, annz, llr, gam]
+  report:
+    config: configs/euclid_q1/report.yaml
