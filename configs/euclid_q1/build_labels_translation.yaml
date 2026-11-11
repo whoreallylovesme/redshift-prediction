@@ -1,0 +1,8 @@
+packet: datasets/euclid_q1/packets/dataset.h5
+cdfs_packet: datasets/euclid_q1/packets/cdfs.h5
+ho_packet: datasets/euclid_q1/packets/ho.h5
+cdfs_labels: datasets/euclid_q1/labels/cdfs/cdfs_train.parquet
+ho_native: datasets/euclid_q1/labels/ho_native_photometry.npz
+reference: datasets/euclid_q1/labels/reference_phz.parquet
+phz_lookup: datasets/euclid_q1/phz_lookups/phz_lookup.npz
+output_dir: datasets/euclid_q1/translation/inputs

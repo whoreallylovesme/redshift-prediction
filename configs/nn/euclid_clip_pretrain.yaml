@@ -1,0 +1,14 @@
+model_type: torch
+model: euclid_clip_pretrain
+
+seed: 20261025
+epochs: 12
+packet: datasets/euclid_q1/packets/dataset.h5
+stage_dir: datasets/euclid_q1/pretrain/stage
+store_dir: datasets/euclid_q1/pretrain/store
+shard_dir: datasets/euclid_q1/pretrain/shards
+out_dir: runs/euclid_clip_p_final/clip_1m_20261025
+
+device: auto
+num_threads: 4
+memory_fraction: 0.3

@@ -1,0 +1,27 @@
+model_type: torch
+model: euclid_classical
+
+learner: catboost
+out_dir: runs/euclid_clip_p_final/classical/catboost
+split_meta: runs/euclid_clip_p_final/P_final/P_final_20261025.json
+
+pilot_packet: datasets/euclid_q1/packets/dataset.h5
+cdfs_packet: datasets/euclid_q1/packets/cdfs.h5
+cdfs_labels: datasets/euclid_q1/labels/cdfs/cdfs_train.parquet
+ho_packet: datasets/euclid_q1/packets/ho.h5
+ho_native: datasets/euclid_q1/labels/ho_native_photometry.npz
+ho_reference: datasets/euclid_q1/labels/reference_phz.parquet
+translated_f_train: datasets/euclid_q1/translation/tables/translated_F_TRAIN.npz
+translated_f_valid: datasets/euclid_q1/translation/tables/translated_F_VALID.npz
+translated_cdfs: datasets/euclid_q1/translation/tables/translated_CDFS.npz
+translated_muse: datasets/euclid_q1/translation/tables/translated_MUSE.npz
+
+predict_sets:
+  nb: datasets/euclid_q1/packets/nb.h5
+  d2: datasets/euclid_q1/packets/d2.h5
+  d3: datasets/euclid_q1/packets/d3.h5
+  d4: datasets/euclid_q1/packets/d4.h5
+  d5: datasets/euclid_q1/packets/d5.h5
+  h6: datasets/euclid_q1/packets/h6.h5
+
+threads: 8

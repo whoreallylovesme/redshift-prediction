@@ -304,7 +304,13 @@ def _infer_sklearn_entry(
         out,
     )
 
+def _infer_euclid_clip(config_path: str, **_: object) -> None:
+    from lib.inference.euclid_clip import run_inference as run_euclid_clip
+
+    run_euclid_clip(Path(config_path))
+
 register_torch_predictor("capsnet", _infer_capsnet)
+register_torch_predictor("euclid_clip", _infer_euclid_clip)
 
 def inference(
     model_path: str | None = None,
@@ -320,11 +326,13 @@ def inference(
         raise ValueError("config_path is required")
     raw_cfg = load_yaml(config_path)
     model_type = raw_cfg.get("model_type", "sklearn") if isinstance(raw_cfg, dict) else "sklearn"
+    model = str(raw_cfg.get("model", "")) if isinstance(raw_cfg, dict) else ""
     if model_type == "lightning":
-        model = str(raw_cfg.get("model", "")) if isinstance(raw_cfg, dict) else ""
         predictor: Callable[..., object] = TORCH_PREDICTORS.get(
             model, _infer_pytorch_default,
         )
+    elif model_type == "torch" and model in TORCH_PREDICTORS:
+        predictor = TORCH_PREDICTORS[model]
     elif model_type == "sklearn":
         predictor = _infer_sklearn_entry
     else:

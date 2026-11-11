@@ -1,4 +1,9 @@
 from lib.config.schemas import DatasetConfig as DatasetConfig
+from lib.config.schemas import EuclidClassicalStage as EuclidClassicalStage
+from lib.config.schemas import EuclidFinetuneStage as EuclidFinetuneStage
+from lib.config.schemas import EuclidFlowConfig as EuclidFlowConfig
+from lib.config.schemas import EuclidPretrainStage as EuclidPretrainStage
+from lib.config.schemas import EuclidStage as EuclidStage
 from lib.config.schemas import FeaturesConfig as FeaturesConfig
 from lib.config.schemas import FlowConfig as FlowConfig
 from lib.config.schemas import PytorchTrainConfig as PytorchTrainConfig
