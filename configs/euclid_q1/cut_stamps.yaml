@@ -1,0 +1,11 @@
+selected: datasets/euclid_q1/pretrain/selected.parquet
+raw14_dir: datasets/euclid_q1/pretrain/raw14
+mosaic_dirs:
+  - datasets/euclid_q1/mosaics/{key}
+normalizers: datasets/euclid_q1/packets/normalizers.json
+inputs_dir: datasets/euclid_q1/pretrain/inputs
+owners: datasets/euclid_q1/pretrain/owners.json
+keys: datasets/euclid_q1/pretrain/keys.txt
+shards_dir: datasets/euclid_q1/pretrain/shards
+read_flags: false
+workers: 4

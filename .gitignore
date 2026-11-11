@@ -23,3 +23,5 @@ s3_secrets.txt
 .env
 mashinki_download.txt
 *.log
+
+external/

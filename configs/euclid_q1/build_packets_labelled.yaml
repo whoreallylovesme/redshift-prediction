@@ -1,0 +1,7 @@
+products_manifest: datasets/euclid_q1/products/pilot/manifest.json
+products_root: datasets/euclid_q1/products/pilot
+raw14: datasets/euclid_q1/inputs/raw14.npz
+descriptor: datasets/euclid_q1/inputs/table_descriptor.npy
+fitting_labels: datasets/euclid_q1/labels/f_fitting.npz
+packet: datasets/euclid_q1/packets/dataset.h5
+normalizers: datasets/euclid_q1/packets/normalizers.json

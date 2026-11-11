@@ -1,0 +1,38 @@
+model_type: torch
+model: euclid_clip
+
+tag: P_final
+seed: 20261025
+clip_state: runs/euclid_clip_p_final/clip_1m_20261025/clip_state.pt
+out_dir: runs/euclid_clip_p_final/P_final
+
+packet: datasets/euclid_q1/packets/dataset.h5
+packet_phz: datasets/euclid_q1/phz_lookups/phz_lookup.npz
+cdfs_packet: datasets/euclid_q1/packets/cdfs.h5
+cdfs_labels: datasets/euclid_q1/labels/cdfs/cdfs_train.parquet
+ho_packet: datasets/euclid_q1/packets/ho.h5
+ho_photometry: datasets/euclid_q1/labels/ho_native_photometry.npz
+ho_reference: datasets/euclid_q1/labels/reference_phz.parquet
+table_override:
+  - datasets/euclid_q1/translation/tables/translated_F_TRAIN.npz
+  - datasets/euclid_q1/translation/tables/translated_F_VALID.npz
+  - datasets/euclid_q1/translation/tables/translated_CDFS.npz
+  - datasets/euclid_q1/translation/tables/translated_MUSE.npz
+
+eval_sets:
+  - {name: nb, packet: datasets/euclid_q1/packets/nb.h5, phz: datasets/euclid_q1/phz_lookups/phz_lookup.npz}
+  - {name: ho, packet: datasets/euclid_q1/packets/ho.h5, phz: datasets/euclid_q1/phz_lookups/phz_ho.npz}
+  - {name: d2, packet: datasets/euclid_q1/packets/d2.h5, phz: datasets/euclid_q1/phz_lookups/phz_d2.npz}
+  - {name: d3, packet: datasets/euclid_q1/packets/d3.h5, phz: datasets/euclid_q1/phz_lookups/phz_d3.npz}
+  - {name: d4, packet: datasets/euclid_q1/packets/d4.h5, phz: datasets/euclid_q1/phz_lookups/phz_d4.npz}
+  - {name: d5, packet: datasets/euclid_q1/packets/d5.h5, phz: datasets/euclid_q1/phz_lookups/phz_d5.npz}
+  - {name: h6, packet: datasets/euclid_q1/packets/h6.h5, phz: datasets/euclid_q1/phz_lookups/phz_h6.npz}
+
+epochs: 40
+z_reweight: 0.5
+zval_size: 1500
+zval_seed: 20261106
+
+device: auto
+num_threads: 4
+memory_fraction: 0.2

@@ -1,0 +1,53 @@
+executables: external/phosphoros/env/bin
+threads: 6
+buffer_size: 32
+timeout: 7200
+output_root: datasets/euclid_q1/phosphoros/out
+
+sides:
+  north:
+    workspace: datasets/euclid_q1/phosphoros/workspace_north
+    model_grid_config: configs/euclid_q1/phosphoros/compute_model_grid_emlines.conf
+    galactic_grid_config: configs/euclid_q1/phosphoros/compute_galactic_grid_emlines.conf
+    redshift_config: configs/euclid_q1/phosphoros/compute_redshifts_emlines.conf
+    grid_export: datasets/euclid_q1/phosphoros/grids/north_model_grid.fits
+  south:
+    workspace: datasets/euclid_q1/phosphoros/workspace_south
+    model_grid_config: configs/euclid_q1/phosphoros/compute_model_grid_south.conf
+    galactic_grid_config: configs/euclid_q1/phosphoros/compute_galactic_grid_south.conf
+    redshift_config: configs/euclid_q1/phosphoros/compute_redshifts_south.conf
+    grid_export: datasets/euclid_q1/phosphoros/grids/south_model_grid.fits
+
+sets:
+  N_A: {side: north, photometry: datasets/euclid_q1/native/N_A_native_photometry.npz}
+  N_B:
+    side: north
+    photometry: datasets/euclid_q1/labels/n_native_photometry.npz
+    ids_table: datasets/euclid_q1/labels/labelled_n_table.parquet
+    subset_column: subset
+    subset_value: N-B
+  D2: {side: north, photometry: datasets/euclid_q1/native/D2_native_photometry.npz}
+  D3: {side: north, photometry: datasets/euclid_q1/native/D3_native_photometry.npz}
+  D4: {side: north, photometry: datasets/euclid_q1/native/D4_native_photometry.npz}
+  D5: {side: north, photometry: datasets/euclid_q1/native/D5_native_photometry.npz}
+  H6: {side: north, photometry: datasets/euclid_q1/native/H6_native_photometry.npz}
+  F_TRAIN: {side: south, photometry: datasets/euclid_q1/native/F_TRAIN_native_photometry.npz}
+  F_VALID: {side: south, photometry: datasets/euclid_q1/native/F_VALID_native_photometry.npz}
+  HO: {side: south, photometry: datasets/euclid_q1/native/HO_native_photometry.npz}
+  CDFS: {side: south, photometry: datasets/euclid_q1/native/CDFS_native_photometry.npz}
+
+variants:
+  south_zpf:
+    sets: [F_TRAIN, F_VALID, CDFS, HO]
+    divide: {VIS: 1.05, Y: 0.95, J: 0.97, H: 0.95}
+    multiply_json: datasets/euclid_q1/translation/zero_points/zpc_f.json
+    multiply_json_keys: [factors, euclid]
+  north_zpf:
+    sets: [N_A, N_B, D2, D3, D4, D5, H6]
+    divide: {U: 1.0, G: 1.0, R: 0.99, I: 1.09, Z: 1.0, VIS: 1.05, Y: 0.95, J: 0.97, H: 0.95}
+    multiply_json: datasets/euclid_q1/translation/zero_points/zpc_f.json
+    multiply_json_keys: [factors, euclid]
+
+south_workspace:
+  north_workspace: datasets/euclid_q1/phosphoros/workspace_north
+  aux_archive: external/phosphoros/AuxiliaryData_0.8.tar.xz

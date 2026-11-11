@@ -119,7 +119,25 @@ def _train_sklearn_entry(
         cast(str, outdir),
     )
 
+def _train_euclid_clip(config_path: str, **_: object) -> None:
+    from lib.train.euclid_clip_finetune import run_train
+
+    run_train(Path(config_path))
+
+def _train_euclid_clip_pretrain(config_path: str, **_: object) -> None:
+    from lib.train.euclid_clip_pretrain import run_train
+
+    run_train(Path(config_path))
+
+def _train_euclid_classical(config_path: str, **_: object) -> None:
+    from lib.train.euclid_classical import run_train
+
+    run_train(Path(config_path))
+
 register_torch_trainer("capsnet", _train_capsnet)
+register_torch_trainer("euclid_clip", _train_euclid_clip)
+register_torch_trainer("euclid_clip_pretrain", _train_euclid_clip_pretrain)
+register_torch_trainer("euclid_classical", _train_euclid_classical)
 
 
 def train(
@@ -131,9 +149,11 @@ def train(
 ) -> None:
     raw_cfg = load_yaml(config_path)
     model_type = raw_cfg.get("model_type", "sklearn") if isinstance(raw_cfg, dict) else "sklearn"
+    model = str(raw_cfg.get("model", "")) if isinstance(raw_cfg, dict) else ""
     if model_type == "lightning":
-        model = str(raw_cfg.get("model", "")) if isinstance(raw_cfg, dict) else ""
         trainer: Callable[..., object] = TORCH_TRAINERS.get(model, _train_lightning_default)
+    elif model_type == "torch" and model in TORCH_TRAINERS:
+        trainer = TORCH_TRAINERS[model]
     elif model_type == "sklearn":
         trainer = _train_sklearn_entry
     else:

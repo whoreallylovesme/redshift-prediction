@@ -1,0 +1,14 @@
+mer_dir: datasets/euclid_q1/mer
+output_dir: datasets/euclid_q1/native
+sets:
+  - {name: F_TRAIN, source: datasets/euclid_q1/packets/dataset.h5, indices: train_indices, split: train}
+  - {name: F_VALID, source: datasets/euclid_q1/packets/dataset.h5, indices: valid_indices, split: valid}
+  - {name: N_A, source: datasets/euclid_q1/packets/dataset.h5, indices: test_indices, split: valid}
+  - {name: CDFS, source: datasets/euclid_q1/packets/cdfs.h5}
+  - {name: HO, source: datasets/euclid_q1/packets/ho.h5}
+  - {name: D2, source: datasets/euclid_q1/packets/d2.h5}
+  - {name: D3, source: datasets/euclid_q1/packets/d3.h5}
+  - {name: D4, source: datasets/euclid_q1/packets/d4.h5}
+  - {name: D5, source: datasets/euclid_q1/packets/d5.h5}
+  - {name: H6, source: datasets/euclid_q1/hetdex/phosphoros_request.npz}
+workers: 8

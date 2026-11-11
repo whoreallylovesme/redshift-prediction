@@ -1,0 +1,128 @@
+% Шаблон отчёта make_report. Компиляция: tectonic report.tex
+\documentclass[11pt,a4paper]{article}
+
+\usepackage{fontspec}
+\usepackage{polyglossia}
+\setmainlanguage{russian}
+\setotherlanguage{english}
+\setmainfont{Times New Roman}
+\newfontfamily\cyrillicfont{Times New Roman}
+\setsansfont{Helvetica}
+\newfontfamily\cyrillicfontsf{Helvetica}
+\setmonofont{Menlo}[Scale=0.9]
+\newfontfamily\cyrillicfonttt{Menlo}[Scale=0.9]
+
+\usepackage[margin=2cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs,array,multirow,tabularx,longtable}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage[font=small,labelsep=period]{caption}
+\usepackage{subcaption}
+\usepackage[shortlabels]{enumitem}
+\usepackage{xcolor}
+\usepackage[colorlinks=true,linkcolor=black,urlcolor=blue!50!black,citecolor=black]{hyperref}
+
+\setlist{nosep,leftmargin=1.2em}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{4pt}
+\graphicspath{{figures/}}
+
+% Роли цветов (совпадают с фигурами)
+\definecolor{ml}{HTML}{2A78D6}      % наша модель
+\definecolor{ppub}{HTML}{EB6834}    % Phosphoros (опубликованный)
+\definecolor{pfree}{HTML}{1BAF7A}   % Phosphoros без информации N
+\definecolor{poff}{HTML}{EDA100}    % официальный PHZ
+
+\newcommand{\NMAD}{\mathrm{NMAD}}
+\newcommand{\dz}{\Delta z/(1+z)}
+\newcommand{\fnref}[1]{\textsuperscript{\ref{#1}}}  % повторная ссылка на сноску \footnote{\label{fn:key}...}
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
+
+\title{Отчёт за <<ДАТА>>}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+\section{Сетап эксперимента}
+
+\subsection{Данные}
+
+\begin{table}[H]\centering\small\caption{Входы модели.}
+\begin{tabularx}{\linewidth}{llY}
+\toprule Вход & Форма & Содержимое \\ \midrule
+Изображение & <<C$\times$H$\times$W>> & <<слои>> \\
+Таблица & <<N$\times$K>> & <<полосы, столбцы>> \\
+\bottomrule\end{tabularx}\end{table}
+
+\begin{table}[H]\centering\small\caption{Объём выборок.}
+\begin{tabular}{lrrrr}
+\toprule Этап & F & S & N & Всего \\ \midrule
+<<этап>> & <<…>> & <<…>> & <<…>> & <<…>> \\
+\bottomrule\end{tabular}\end{table}
+
+\begin{table}[H]
+\centering
+\caption{Обзор меток}
+\begin{tabular}{llrl}
+\toprule
+Обзор & Поле & Число & Роль \\
+\midrule
+<<обзор>> & <<поле>> & <<число>> & <<роль>> \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% \begin{figure}[H]\centering\includegraphics[width=\linewidth]{fig_label_dist.pdf}\caption{}\end{figure}  % подписи к рисункам пустые
+
+\subsection{Трейн-выборка}
+\begin{itemize}
+  \item <<поля, метки, немеченые данные, синтетика, перевод/нормировка>>
+\end{itemize}
+
+\subsection{Тест-выборка}
+\begin{itemize}
+  \item <<наборы поля N, отбор, исключения, подтверждающий / описательный>>
+\end{itemize}
+
+\subsection{Модели}
+\paragraph{CLIP (предобучение).}
+\begin{itemize}
+  \item <<энкодеры, размерности, лосс, температура, данные, эпохи, оптимизатор, батч, аугментации, параметры>>
+\end{itemize}
+\paragraph{DL-головы и дообучение.}
+\begin{itemize}
+  \item <<архитектура, лосс, гиперпараметры, сиды, ансамбль>>
+\end{itemize}
+\paragraph{Базовые методы.}
+\begin{itemize}
+  \item <<Phosphoros, официальный PHZ: что это и настройки>>
+\end{itemize}
+
+\section{Результаты эксперимента}
+
+\subsection{Метрики}
+
+\begin{table}[H]
+\centering
+\caption{<<таблица метрик>>}
+\begin{tabular}{lrrr}
+\toprule
+Набор & <<метод 1>> & <<метод 2>> & $\Delta$ [95\% ДИ] \\
+\midrule
+<<набор>> & <<NMAD / выбросы>> & <<…>> & <<…>> \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Статистические тесты}
+\begin{itemize}
+  \item <<бутстрэп: что ресэмплируется, B, seed; решение по предрегистрации>>
+\end{itemize}
+
+\subsection{Графики}
+% рассеяние, моды по бинам + ломаная, NMAD по бинам z и VIS, forest-plot ΔNMAD
+
+\end{document}

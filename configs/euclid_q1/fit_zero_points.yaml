@@ -1,0 +1,6 @@
+labels: datasets/euclid_q1/translation/inputs/f_labels.npz
+f_train_photometry: datasets/euclid_q1/native/F_TRAIN_native_photometry.npz
+f_valid_photometry: datasets/euclid_q1/native/F_VALID_native_photometry.npz
+grids_dir: datasets/euclid_q1/translation/grids
+out_dir: datasets/euclid_q1/translation/zero_points
+nested: 200
