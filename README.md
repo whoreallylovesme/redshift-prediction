@@ -14,4 +14,5 @@ uv run python runtime/pipeline.py --config configs/flows/fast_test.yaml
 | Протокол экспериментов | `docs/experiment_setup.md` |
 | Правила GPU-сервера | `docs/gpu_server_manifest.md` |
 | Отчёты научным руководителям и кафедре | `reports/weekly/`, `reports/monthly/` |
+| Курсовая: PDF, исходники LaTeX, презентация | `z-files/coursework/` |
 | Инструкции и скиллы агентов | `ai/` |

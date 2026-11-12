@@ -52,6 +52,8 @@ uv run python runtime/pipeline.py --config configs/flows/<flow>.yaml
 - `reports/weekly/<YYYY-MM-DD>/`, `reports/monthly/<YYYY-MM-DD>/` — отчёты научным руководителям
   и кафедре (TeX, PDF, рисунки, метрики).
 - `ai/skills/` — скиллы агентов: отчёт по эксперименту, месячный отчёт и календарный план.
+- `z-files/` — тексты работы: `coursework/` — курсовая (сданный PDF, `coursework.tex`, рисунки,
+  презентация); дальше сюда же ВКР.
 
 ## Стандарты кода
 
@@ -86,6 +88,8 @@ uv run python runtime/pipeline.py --config configs/flows/<flow>.yaml
 ## Отчёты и тексты
 
 - LaTeX собирается XeLaTeX/tectonic (`fontspec` + `polyglossia`); `pdflatex` не подходит.
+  Курсовая: `cd z-files/coursework && tectonic -X compile coursework.tex`. Текст держится одним
+  файлом, рисунки не правятся руками — их генерирует код.
 - Кавычки только «ёлочки», `<<` и `>>` рендерятся буквально; тире — `—`.
 - Числа в отчётах берутся из артефактов (`facts.json`, `metrics/*.json`), а не переписываются руками.
 - В отчётах и планах ИИ-агенты не упоминаются, кроме задач, где это предмет работы.
