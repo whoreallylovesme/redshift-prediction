@@ -72,6 +72,10 @@ uv run python runtime/pipeline.py --config configs/flows/<flow>.yaml
 
 ## GPU-сервер
 
+**Вычисления — только на GPU-сервере.** Обучение, прогноз, оценка, Phosphoros, сборка данных
+и вырезки на Mac не запускаются; на Mac — агенты, правка кода и текстов, git, просмотр, копирование
+результатов. Порядок запуска опыта — скилл `ai/skills/run_experiment/`.
+
 `ssh gpu`: 4× RTX A6000, сервер общий. Перед запуском — свободная карта по `nvidia-smi`
 (GPU 0 обычно занята), `CUDA_VISIBLE_DEVICES=N`, долгие прогоны в `tmux` с `nice`, без `pkill -f`.
 Все правила — `docs/gpu_server_manifest.md`.
