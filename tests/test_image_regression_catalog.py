@@ -13,6 +13,7 @@ from lib.config.schemas import ImageCatalogConfig, PytorchTrainConfig
 from lib.dataloaders.images import catalog
 from lib.inference.images import predict_catalog
 from lib.models.registry import NN_FACTORIES
+from lib.utils.artifacts import verify_artifact_manifest
 from lib.utils.utils import load_yaml_as
 from runtime.pipeline import pipeline
 
@@ -80,6 +81,18 @@ class ImageRegressionTests(TestCase):
                 method["details"]["image_split_overlap"], {"train": 0, "validation": 0}
             )
             recipe = run / "config_snapshot/resolved/tiny.yaml"
+            artifact = verify_artifact_manifest(output)
+            self.assertEqual((artifact.kind, artifact.estimator), ("lightning", "tiny_fixture"))
+            self.assertEqual(
+                {entry.path for entry in artifact.files},
+                {
+                    "best_model.pt",
+                    "last_model.pt",
+                    "history.json",
+                    "image_normalization.npz",
+                    "predictions_held.parquet",
+                },
+            )
             cfg = load_yaml_as(recipe, PytorchTrainConfig)
             with self.assertRaisesRegex(ValueError, "overlap model development IDs"):
                 predict_catalog(

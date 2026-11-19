@@ -174,10 +174,20 @@ class Lightning(ModelMethod):
 MethodConfig = Annotated[Tabular | Saved | External | Lightning, Field(discriminator="kind")]
 
 
+class PreparationStep(Config):
+    action: Plugin
+    params: dict[str, Any] = Field(default_factory=dict)
+    needs: list[Identifier] = Field(default_factory=list)
+    inputs: list[Path] = Field(default_factory=list)
+    outputs: list[Path] = Field(min_length=1)
+    cache: bool = True
+
+
 class Experiment(Config):
     name: str
     output: Path
     task: str = "regression"
+    preparation: dict[Identifier, PreparationStep] = Field(default_factory=dict)
     dataset: Dataset | None = None
     methods: dict[Identifier, MethodConfig] = Field(min_length=1)
     bootstrap_replicates: int = Field(default=0, ge=0)
@@ -185,6 +195,30 @@ class Experiment(Config):
     threads_per_method: int = Field(default=1, ge=1)
     cache: bool = True
     tracking_uri: str | None = None
+
+    @model_validator(mode="after")
+    def preparation_graph(self) -> Self:
+        outputs = [path for step in self.preparation.values() for path in step.outputs]
+        if len(outputs) != len(set(outputs)):
+            raise ValueError("Preparation outputs must be unique across steps")
+        for step in self.preparation.values():
+            if unknown := set(step.needs).difference(self.preparation):
+                raise ValueError(f"Unknown preparation dependencies: {sorted(unknown)}")
+        states: dict[str, int] = {}
+
+        def visit(name: str) -> None:
+            if states.get(name) == 1:
+                raise ValueError("Preparation dependency graph contains a cycle")
+            if states.get(name) == 2:
+                return
+            states[name] = 1
+            for dependency in self.preparation[name].needs:
+                visit(dependency)
+            states[name] = 2
+
+        for name in self.preparation:
+            visit(name)
+        return self
 
     @model_validator(mode="after")
     def methods_and_data(self, info: ValidationInfo) -> Self:

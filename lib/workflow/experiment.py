@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from contextlib import nullcontext
 from pathlib import Path
 from tempfile import gettempdir
@@ -9,6 +10,7 @@ from uuid import UUID
 
 import joblib
 from filelock import FileLock
+from hydra.utils import instantiate
 from prefect import flow, task, unmapped
 from prefect.artifacts import create_table_artifact
 from prefect.cache_policies import INPUTS, NO_CACHE, TASK_SOURCE
@@ -28,6 +30,7 @@ from lib.config.experiment import (
     ImageSplit,
     Lightning,
     MethodConfig,
+    PreparationStep,
     Saved,
     Tabular,
     image_splits,
@@ -41,11 +44,18 @@ from lib.config.snapshot import (
 from lib.report.task import metric_suite, scores
 from lib.tracking.mlflow import Tracker, bind_run, finish_with_snapshots
 from lib.train.sklearn import fit_regressor
+from lib.utils.artifacts import (
+    input_fingerprints,
+    sha256_path,
+    verify_artifact_manifest,
+    write_artifact_manifest,
+)
 from lib.utils.utils import load_yaml_as
 from lib.workflow.data import code_version, digest, prepare_dataset, symbol, table
 
 _ACCELERATOR = Path(gettempdir()) / "astro-lightning"
 _FIT_CACHE = TASK_SOURCE + (INPUTS - "data" - "recipe")
+_PREPARATION_CACHE = TASK_SOURCE + (INPUTS - "snapshot")
 
 
 def accelerator_lock() -> FileLock:
@@ -58,6 +68,50 @@ def accelerator_lock() -> FileLock:
 def prepare(cfg: Dataset, out: Path, snapshot: Path | None = None) -> dict[str, Any]:
     with recording_configs(snapshot):
         return prepare_dataset(cfg, out)
+
+
+@task(cache_policy=NO_CACHE)
+def prepare_resource(
+    step: PreparationStep,
+    fingerprints: dict[str, str],
+    version: str,
+    snapshot: Path | None = None,
+) -> dict[str, str]:
+    with recording_configs(snapshot):
+        kwargs = instantiate(step.params)
+        if not isinstance(kwargs, Mapping):
+            raise TypeError("Preparation params must instantiate to a mapping")
+        symbol(step.action)(**kwargs)
+    return {str(path): sha256_path(path) for path in step.outputs}
+
+
+def run_preparation(
+    config: Experiment, version: str, snapshot: Path
+) -> dict[str, dict[str, str]]:
+    pending = set(config.preparation)
+    futures: dict[str, PrefectFuture[Any]] = {}
+    results: dict[str, dict[str, str]] = {}
+    while pending:
+        ready = [
+            name
+            for name in config.preparation
+            if name in pending
+            and all(dependency in results for dependency in config.preparation[name].needs)
+        ]
+        if not ready:
+            raise ValueError("Preparation dependency graph cannot make progress")
+        for name in ready:
+            step = config.preparation[name]
+            cached = config.cache and step.cache
+            futures[name] = prepare_resource.with_options(
+                task_run_name=f"prepare-{name}",
+                cache_policy=_PREPARATION_CACHE if cached else NO_CACHE,
+                persist_result=cached,
+            ).submit(step, input_fingerprints(step.inputs), version, snapshot)
+            pending.remove(name)
+        for name in ready:
+            results[name] = futures[name].result()
+    return {name: results[name] for name in config.preparation}
 
 
 @task(cache_policy=NO_CACHE)
@@ -353,6 +407,67 @@ def stage_history(flow_id: str) -> list[dict[str, Any]]:
     ]
 
 
+def finalize_artifacts(
+    config: Experiment,
+    directory: Path,
+    data: dict[str, Any],
+    version: str,
+    records: list[dict[str, Any]],
+) -> dict[str, dict[str, str]]:
+    result: dict[str, dict[str, str]] = {}
+    for name, method in config.methods.items():
+        if isinstance(method, Saved):
+            continue
+        rows = [
+            row
+            for row in records
+            if row["name"] == name and row["status"] == "completed"
+        ]
+        if not rows:
+            continue
+        out = directory / "methods" / name
+        rows = [row for row in rows if Path(row["predictions"]).is_relative_to(out)]
+        if not rows:
+            continue
+        names = {
+            "tabular": ("model.pkl", "train_report.json"),
+            "lightning": (
+                "best_model.pt",
+                "last_model.pt",
+                "image_normalization.npz",
+                "history.json",
+            ),
+            "external": ("provenance.json",),
+        }
+        paths = [out / item for item in names[method.kind]]
+        paths.extend(Path(row["predictions"]) for row in rows)
+        for row in rows:
+            history = row.get("history")
+            if history and Path(history).is_relative_to(out):
+                paths.append(Path(history))
+        write_artifact_manifest(
+            out,
+            [path for path in paths if path.is_file()],
+            method=name,
+            kind=method.kind,
+            estimator=method.model,
+            task=config.task,
+            code_sha256=version,
+            dataset_sha256=data.get("source_sha256"),
+            features=data.get("features", []),
+            id_column=data.get("id_column"),
+            target=data.get("target"),
+            config=public_config(method.model_dump(mode="json")),
+        )
+        verify_artifact_manifest(out)
+        manifest = out / "artifact.json"
+        result[name] = {
+            "path": manifest.relative_to(directory).as_posix(),
+            "sha256": digest(manifest),
+        }
+    return result
+
+
 @flow(name="regression-experiment", flow_run_name="{config.name}")
 def experiment(config: Experiment) -> Path:
     directory = config.output.resolve() / str(flow_run.id)
@@ -365,6 +480,7 @@ def experiment(config: Experiment) -> Path:
     plugins = [
         config.task,
         *(m.model for m in config.methods.values() if isinstance(m, External)),
+        *(step.action for step in config.preparation.values()),
     ]
     if config.dataset:
         plugins.extend(x for x in (config.dataset.reader, config.dataset.cleaner) if x)
@@ -376,7 +492,9 @@ def experiment(config: Experiment) -> Path:
     tracker = Tracker(config.tracking_uri, config.name) if config.tracking_uri else None
     finished = False
     failures: list[str] = []
+    preparation_results: dict[str, dict[str, str]] = {}
     try:
+        preparation_results = run_preparation(config, version, configuration)
         uses_catalog = any(
             isinstance(m, (Tabular, Lightning))
             for m in config.methods.values()
@@ -416,6 +534,7 @@ def experiment(config: Experiment) -> Path:
             except Exception as exc:
                 row = {"name": name, "split": split, "status": "failed", "reason": str(exc)}
             records.append(row)
+        artifact_manifests = finalize_artifacts(config, directory, data, version, records)
         sources: dict[str, str] = {}
         for row in records:
             for field in ("predictions", "reference", "history"):
@@ -433,6 +552,8 @@ def experiment(config: Experiment) -> Path:
             "mlflow_runs": run_ids,
             "code_sha256": version,
             "configuration": snapshot,
+            "preparation": preparation_results,
+            "artifacts": artifact_manifests,
             "data": data if dataset_error is None else {"error": str(dataset_error)},
             "sources": sources,
         }
@@ -461,6 +582,9 @@ def experiment(config: Experiment) -> Path:
                     for parameter, value in fitted.get("best_params", {}).items():
                         tracker.client.log_param(run_id, f"best.{parameter}", value)
                 tracker.client.log_artifact(run_id, str(directory / "metrics.csv"), "evaluation")
+                manifest = directory / "methods" / method_name / "artifact.json"
+                if manifest.is_file():
+                    tracker.client.log_artifact(run_id, str(manifest), "evaluation")
             for row in report["rows"]:
                 tracker.log_metrics(run_ids[row["name"]], row["split"], row["metrics"])
         failures = [r["name"] for r in report["rows"] if r["status"] == "failed"]

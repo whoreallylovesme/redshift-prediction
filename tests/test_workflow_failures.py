@@ -7,8 +7,11 @@ from unittest.mock import patch
 
 import pandas as pd
 from prefect.testing.utilities import prefect_test_harness
+from pydantic import ValidationError
 
+from lib.config import PytorchTrainConfig
 from lib.config.experiment import Experiment
+from lib.config.schemas import ImageCatalogConfig
 from lib.workflow.data import code_version
 from lib.workflow.experiment import run
 
@@ -63,3 +66,43 @@ class WorkflowFailuresTest(TestCase):
             self.assertEqual(rows["published"]["status"], "completed")
             self.assertEqual(rows["published"]["metrics"]["mae"], 0.0)
             self.assertTrue((report_path.parent / "report.html").is_file())
+
+
+    def test_neural_configs_reject_unknown_fields(self) -> None:
+        with self.assertRaises(ValidationError):
+            ImageCatalogConfig.model_validate(
+                {"id_column": "id", "target_column": "y", "unknown": True}
+            )
+        with self.assertRaises(ValidationError):
+            PytorchTrainConfig.model_validate({
+                "model_type": "lightning",
+                "estimator": "capsnet",
+                "data_dir": ".",
+                "catalog": ".",
+                "image_catalog": {"id_column": "id", "target_column": "y"},
+                "epochs": 1,
+                "batch_size": 1,
+                "lr": 0.1,
+                "unknown": True,
+            })
+
+
+    def test_preparation_graph_rejects_cycles(self) -> None:
+        with self.assertRaisesRegex(ValidationError, "cycle"):
+            Experiment.model_validate({
+                "name": "cycle",
+                "output": ".",
+                "preparation": {
+                    "a": {
+                        "action": "example:action",
+                        "needs": ["b"],
+                        "outputs": ["a"],
+                    },
+                    "b": {
+                        "action": "example:action",
+                        "needs": ["a"],
+                        "outputs": ["b"],
+                    },
+                },
+                "methods": {"saved": {"kind": "saved", "predictions": "predictions.parquet"}},
+            })

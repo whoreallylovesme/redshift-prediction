@@ -16,9 +16,16 @@ from prefect.testing.utilities import prefect_test_harness
 from pydantic import ValidationError
 
 from lib.config.experiment import Experiment
+from lib.utils.artifacts import verify_artifact_manifest
 from lib.workflow.experiment import rebuild_report, run
 
 rendezvous = Barrier(2)
+preparation_calls: list[str] = []
+
+
+def prepare_text(source: str, output: str, label: str) -> None:
+    preparation_calls.append(label)
+    Path(output).write_text(Path(source).read_text() + label)
 
 
 def simultaneous(config_path: Path, out_dir: Path) -> Path:
@@ -114,6 +121,14 @@ class WorkflowTest(TestCase):
                     return next(t.state_name for t in tasks if t.name == "ridge-fit")
 
             first = run(config)
+            artifact = verify_artifact_manifest(first / "methods/ridge")
+            self.assertEqual((artifact.kind, artifact.estimator), ("tabular", "ridge"))
+            self.assertEqual((artifact.id_column, artifact.target), ("id", "y"))
+            self.assertEqual(artifact.features, ["x"])
+            self.assertEqual(
+                {entry.path for entry in artifact.files},
+                {"model.pkl", "train_report.json", "predictions.parquet"},
+            )
             second = run(config)
             self.assertEqual(fit_state(first), "Completed")
             self.assertEqual(fit_state(second), "Cached")
@@ -152,3 +167,57 @@ class WorkflowTest(TestCase):
             pred.unlink()
             rebuild_report(second)
             self.assertEqual(json.loads(metrics_path.read_text()), metrics)
+
+
+    def test_preparation_dag_is_content_cached(self) -> None:
+        with (
+            TemporaryDirectory() as tmp,
+            temporary_settings({PREFECT_RESULTS_LOCAL_STORAGE_PATH: Path(tmp) / "cache"}),
+            prefect_test_harness(),
+        ):
+            root = Path(tmp)
+            source = root / "source.txt"
+            source.write_text("start")
+            first, second = root / "first.txt", root / "second.txt"
+            predictions = root / "predictions.parquet"
+            pd.DataFrame({"id": [1], "y_true": [1.0], "y_pred": [1.0]}).to_parquet(predictions)
+            action = f"{__name__}:prepare_text"
+            config = Experiment.model_validate({
+                "name": "preparation-cache",
+                "output": root / "runs",
+                "workers": 2,
+                "preparation": {
+                    "first": {
+                        "action": action,
+                        "params": {"source": str(source), "output": str(first), "label": "first"},
+                        "inputs": [source],
+                        "outputs": [first],
+                    },
+                    "second": {
+                        "action": action,
+                        "params": {"source": str(first), "output": str(second), "label": "second"},
+                        "needs": ["first"],
+                        "inputs": [first],
+                        "outputs": [second],
+                    },
+                },
+                "methods": {
+                    "saved": {
+                        "kind": "saved",
+                        "predictions": predictions,
+                        "report": {"id_column": "id"},
+                    }
+                },
+            })
+            preparation_calls.clear()
+            initial = run(config)
+            self.assertEqual(second.read_text(), "startfirstsecond")
+            self.assertEqual(preparation_calls, ["first", "second"])
+            metadata = json.loads((initial / "report-data.json").read_text())["metadata"]
+            self.assertEqual(set(metadata["preparation"]), {"first", "second"})
+            run(config)
+            self.assertEqual(preparation_calls, ["first", "second"])
+            source.write_text("changed")
+            run(config)
+            self.assertEqual(second.read_text(), "changedfirstsecond")
+            self.assertEqual(preparation_calls, ["first", "second", "first", "second"])

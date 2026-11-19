@@ -51,7 +51,7 @@ class SklearnTrainConfig(TabularTraining):
     estimator_params: dict[str, Any] = Field(default_factory=dict)
 
 
-class ImageCatalogConfig(BaseModel):
+class ImageCatalogConfig(BaseModel, extra="forbid"):
     features: list[str] = Field(default_factory=list)
     id_column: str
     target_column: str
@@ -85,7 +85,7 @@ class ImageTraining(BaseModel):
 
 
 class PytorchTrainConfig(ImageTraining):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
     estimator_params: dict[str, Any] = Field(default_factory=dict)
     image_catalog: ImageCatalogConfig
@@ -105,8 +105,11 @@ class PytorchTrainConfig(ImageTraining):
     @classmethod
     def training_fields(cls, raw: Any) -> Any:
         if isinstance(raw, dict) and isinstance(raw.get("train"), dict):
+            train = raw["train"]
+            if unknown := set(train).difference(ImageTraining.model_fields):
+                raise ValueError(f"Unknown training fields: {sorted(unknown)}")
             return {
-                **raw,
-                **{k: v for k, v in raw["train"].items() if k in ImageTraining.model_fields},
+                **{k: v for k, v in raw.items() if k != "train"},
+                **train,
             }
         return raw
