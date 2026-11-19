@@ -1,0 +1,3 @@
+estimator: rf
+split: {val_size: 0}
+estimator_params: {model__n_estimators: 500, model__max_depth: 9, model__min_samples_leaf: 3, model__max_features: sqrt}

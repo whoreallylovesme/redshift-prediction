@@ -1,0 +1,12 @@
+name: Masked native flux reconstruction
+output: runs/masked_photometry
+methods:
+  masked_transformer:
+    kind: external
+    predictor: photoz.training.masked_photometry:run_method
+    resource: accelerator
+    recipe: configs/nn/masked_photometry.yaml
+    split: validation
+    report:
+      id_column: measurement_id
+      role: validation

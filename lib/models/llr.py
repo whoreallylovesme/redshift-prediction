@@ -8,7 +8,7 @@ from sklearn.neighbors import NearestNeighbors
 from sklearn.utils.validation import check_array, check_is_fitted
 
 
-class LocalLinearRegression(BaseEstimator, RegressorMixin):
+class LocalLinearRegression(RegressorMixin, BaseEstimator):
     def __init__(self, k: int = 50) -> None:
         self.k = k
 

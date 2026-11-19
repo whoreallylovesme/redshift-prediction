@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import math
 from pathlib import Path
 
 import lightning as L
@@ -13,47 +15,48 @@ from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader
 
 from lib.config import PytorchTrainConfig
-from lib.metrics import bias, nmad, outlier_percent
+from lib.tracking import lightning_logger
+from lib.train.regression import RegressionTask, scalar_predictions
 from lib.utils.log import get_logger
 from lib.utils.utils import pick_device
+
+type ModelInput = torch.Tensor | dict[str, torch.Tensor]
 
 logger = get_logger()
 
 
 class RegressionModule(L.LightningModule):
-    def __init__(self, cfg: PytorchTrainConfig, model: nn.Module) -> None:
+    def __init__(
+        self, cfg: PytorchTrainConfig, model: nn.Module, task: RegressionTask | None = None
+    ) -> None:
         super().__init__()
         self.cfg = cfg
         self.model = model
+        task = task or RegressionTask()
+        self.criterion = task.criterion
+        self.epoch_metrics = task.epoch_metrics
+        self.history: list[dict[str, float | None]] = []
+        self.epoch_lr = 0.0
         self._unfrozen = cfg.freeze_epochs == 0
         self._val_true: list[np.ndarray] = []
         self._val_pred: list[np.ndarray] = []
         self._train_true: list[np.ndarray] = []
         self._train_pred: list[np.ndarray] = []
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, x: ModelInput) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
         result: torch.Tensor | tuple[torch.Tensor, torch.Tensor] = self.model(x)
         return result
 
-    @property
-    def criterion(self) -> nn.Module:
-        if self.cfg.z_weight_alpha > 0:
-            from lib.train.utils import WeightedHuberLoss
-
-            return WeightedHuberLoss(delta=0.1, alpha=self.cfg.z_weight_alpha)
-        return nn.HuberLoss(delta=0.1)
-
     def _step(
-        self, batch: tuple[torch.Tensor, torch.Tensor],
+        self, batch: tuple[ModelInput, torch.Tensor],
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         x, y = batch
-        x = x.to(self.device, non_blocking=True)
-        y = y.to(self.device, non_blocking=True)
         if self.cfg.label_noise > 0 and self.training:
             y = y + torch.randn_like(y) * self.cfg.label_noise
         out = self.model(x)
         pred = out[0] if isinstance(out, tuple) else out
-        pred = pred.squeeze(-1)
+        y = scalar_predictions(y, len(y))
+        pred = scalar_predictions(pred, len(y))
         if isinstance(out, tuple):
             loss = self.criterion(pred, y) + out[1]
         else:
@@ -67,9 +70,10 @@ class RegressionModule(L.LightningModule):
             self._unfrozen = True
             self.trainer.strategy.setup_optimizers(self.trainer)
             logger.info(">>> Backbone unfrozen!")
+        self.epoch_lr = float(self.trainer.optimizers[0].param_groups[0]["lr"])
 
     def training_step(
-        self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int,
+        self, batch: tuple[ModelInput, torch.Tensor], batch_idx: int,
     ) -> torch.Tensor:
         loss, pred, y = self._step(batch)
         self.log("train/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
@@ -78,7 +82,7 @@ class RegressionModule(L.LightningModule):
         return loss
 
     def validation_step(
-        self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int,
+        self, batch: tuple[ModelInput, torch.Tensor], batch_idx: int,
     ) -> None:
         loss, pred, y = self._step(batch)
         self.log("val/loss", loss, on_step=False, on_epoch=True)
@@ -90,23 +94,28 @@ class RegressionModule(L.LightningModule):
         self._val_pred = []
 
     def on_validation_epoch_end(self) -> None:
-        self._log_z_metrics("val")
+        self._log_metrics("val")
 
     def on_train_epoch_end(self) -> None:
-        self._log_z_metrics("train")
+        self._log_metrics("train")
+        record: dict[str, float | None] = {"epoch": self.current_epoch + 1, "lr": self.epoch_lr}
+        for name, metric in self.trainer.callback_metrics.items():
+            if name.startswith(("train/", "val/")) and metric.numel() == 1:
+                value = float(metric.detach())
+                record[name] = value if math.isfinite(value) else None
+        self.history.append(record)
         self._train_true = []
         self._train_pred = []
 
-    def _log_z_metrics(self, prefix: str) -> None:
+    def _log_metrics(self, prefix: str) -> None:
         t_list = self._val_true if prefix == "val" else self._train_true
         p_list = self._val_pred if prefix == "val" else self._train_pred
         if not t_list:
             return
         y_true = pd.Series(np.concatenate(t_list).astype(np.float64))
         y_pred = np.concatenate(p_list).astype(np.float64)
-        self.log(f"{prefix}/nmad", float(nmad(y_true, y_pred)))
-        self.log(f"{prefix}/bias", float(bias(y_true, y_pred)))
-        self.log(f"{prefix}/outlier_pct", float(outlier_percent(y_true, y_pred)))
+        for key, value in self.epoch_metrics(y_true, y_pred).items():
+            self.log(f"{prefix}/{key}", value)
 
     def configure_optimizers(  # type: ignore[override]
         self,
@@ -144,15 +153,18 @@ def run_regression(
     train_loader: DataLoader,
     val_loader: DataLoader,
     outdir: str,
+    task: RegressionTask | None = None,
+    device: torch.device | None = None,
 ) -> Path:
     torch.manual_seed(cfg.seed)
     np.random.seed(cfg.seed)
     out = Path(outdir)
     weights_dir = out / "weights"
     weights_dir.mkdir(parents=True, exist_ok=True)
-    accelerator = "mps" if pick_device("auto").type == "mps" else "auto"
+    device = device or pick_device("auto")
 
-    module = RegressionModule(cfg, model)
+    task = task or RegressionTask()
+    module = RegressionModule(cfg, model, task)
     n_total = sum(p.numel() for p in module.model.parameters())
     n_train = sum(p.numel() for p in module.model.parameters() if p.requires_grad)
     logger.info(f"[train] params: {n_total:,} total, {n_train:,} trainable")
@@ -160,26 +172,25 @@ def run_regression(
     ckpt = ModelCheckpoint(
         dirpath=weights_dir,
         filename="best",
-        monitor="val/nmad",
-        mode="min",
+        monitor=task.monitor,
+        mode=task.mode,
         save_top_k=1,
         save_last=True,
     )
     trainer = L.Trainer(
         max_epochs=cfg.epochs,
-        accelerator=accelerator,
-        devices=1,
+        accelerator=device.type,
+        devices=[device.index or 0] if device.type == "cuda" else 1,
         callbacks=[ckpt],
-        logger=False,
+        logger=lightning_logger(default=False),
         enable_progress_bar=False,
         num_sanity_val_steps=0,
     )
     trainer.fit(module, train_dataloaders=train_loader, val_dataloaders=val_loader)
 
-    best = weights_dir / "best.ckpt"
-    if best.exists():
-        _extract_model_state(best, out / "best_model.pt")
-    last = weights_dir / "last.ckpt"
-    if last.exists():
-        _extract_model_state(last, out / "last_model.pt")
+    (out / "history.json").write_text(json.dumps(module.history, indent=2, allow_nan=False))
+    if ckpt.best_model_path:
+        _extract_model_state(Path(ckpt.best_model_path), out / "best_model.pt")
+    if ckpt.last_model_path:
+        _extract_model_state(Path(ckpt.last_model_path), out / "last_model.pt")
     return out / "best_model.pt"

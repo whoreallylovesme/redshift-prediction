@@ -1,0 +1,22 @@
+name: Euclid F validation on native tabular photometry
+output: runs/euclid_table_neural
+task: photoz.report:PHOTOZ
+methods:
+  resmlp:
+    kind: external
+    predictor: photoz.training.tabular:run_method
+    resource: accelerator
+    recipe: configs/nn/euclid_table_resmlp.yaml
+    split: F_VALID
+    report:
+      id_column: object_id
+      role: validation
+  table_transformer:
+    kind: external
+    predictor: photoz.training.tabular:run_method
+    resource: accelerator
+    recipe: configs/nn/euclid_table_transformer.yaml
+    split: F_VALID
+    report:
+      id_column: object_id
+      role: validation

@@ -1,13 +1,31 @@
-from lib.metrics.bootstrap import arm_summary as arm_summary
-from lib.metrics.bootstrap import metric_record as metric_record
-from lib.metrics.bootstrap import photoz_stats as photoz_stats
-from lib.metrics.bootstrap import seed_summary as seed_summary
-from lib.metrics.bootstrap import seed_tile_boot as seed_tile_boot
-from lib.metrics.bootstrap import stats_record as stats_record
-from lib.metrics.bootstrap import tile_boot as tile_boot
-from lib.metrics.metrics import bias as bias
-from lib.metrics.metrics import delta as delta
-from lib.metrics.metrics import evaluate_regression as evaluate_regression
-from lib.metrics.metrics import nmad as nmad
-from lib.metrics.metrics import outlier_fraction as outlier_fraction
-from lib.metrics.metrics import outlier_percent as outlier_percent
+from importlib import import_module
+from typing import Any
+
+from .regression import mae, r2, rmse
+
+_BOOTSTRAP = {
+    "arm_summary",
+    "metric_record",
+    "seed_summary",
+    "seed_tile_boot",
+    "stats_record",
+    "tile_boot",
+}
+_LEGACY = {
+    "bias",
+    "delta",
+    "evaluate_regression",
+    "nmad",
+    "outlier_fraction",
+    "outlier_percent",
+    "photoz_stats",
+}
+__all__ = ["mae", "r2", "rmse", *sorted(_BOOTSTRAP | _LEGACY)]
+
+
+def __getattr__(name: str) -> Any:
+    if name in _BOOTSTRAP:
+        return getattr(import_module("photoz.bootstrap"), name)
+    if name in _LEGACY:
+        return getattr(import_module("photoz.metrics"), name)
+    raise AttributeError(name)

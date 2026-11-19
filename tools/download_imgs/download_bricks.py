@@ -13,10 +13,10 @@ from __future__ import annotations
 
 import asyncio
 import json
-import shutil
 import time
 from io import StringIO
 from pathlib import Path
+from typing import TYPE_CHECKING
 from urllib.parse import urlencode
 from urllib.request import urlopen
 
@@ -29,6 +29,11 @@ from astropy.coordinates import SkyCoord
 from astropy.io import fits
 from astropy.nddata import Cutout2D
 from astropy.wcs import WCS
+
+if TYPE_CHECKING or __package__:
+    from tools.download_imgs.workspace import brick_workspace
+else:
+    from workspace import brick_workspace
 
 # ── Config ────────────────────────────────────────────────────────────────────
 STAMP_SIZE = 224
@@ -319,18 +324,18 @@ async def _process_one_brick(
     brick_dir: Path,
 ) -> tuple[int, int, list[int], list[int]]:
     """Download one brick, extract cutouts, delete brick."""
-    brick_path = await download_one_brick(session, semaphore, brickname, brick_dir)
+    with brick_workspace(brick_dir) as scratch:
+        brick_path = await download_one_brick(session, semaphore, brickname, scratch)
 
-    if brick_path is None:
-        missing = [oid for oid, _, _ in objects]
-        return 0, len(objects), [], missing
+        if brick_path is None:
+            missing = [oid for oid, _, _ in objects]
+            return 0, len(objects), [], missing
 
-    loop = asyncio.get_event_loop()
-    saved, failed, failed_ids = await loop.run_in_executor(
-        None, extract_cutouts_from_brick, brick_path, brickname, objects, objid_to_dest
-    )
-    shutil.rmtree(brick_path, ignore_errors=True)
-    return saved, failed, failed_ids, []
+        loop = asyncio.get_event_loop()
+        saved, failed, failed_ids = await loop.run_in_executor(
+            None, extract_cutouts_from_brick, brick_path, brickname, objects, objid_to_dest
+        )
+        return saved, failed, failed_ids, []
 
 
 async def streaming_pipeline(
@@ -531,23 +536,18 @@ def main(
         return
 
     # ── Step 3: Stream download + extract ─────────────────────────────────────
-    brick_dir = outdir / "_tmp_bricks"
-    brick_dir.mkdir(parents=True, exist_ok=True)
-
-    print("\n[3/3] Streaming: download → extract → delete...")
-    total_saved, total_failed, failed_ids, missing_ids = asyncio.run(
-        streaming_pipeline(
-            brick_map,
-            objid_to_dest,
-            brick_dir,
-            concurrency,
-            brick_parallel,
-            timeout,
+    with brick_workspace(outdir) as brick_dir:
+        print("\n[3/3] Streaming: download → extract → delete...")
+        total_saved, total_failed, failed_ids, missing_ids = asyncio.run(
+            streaming_pipeline(
+                brick_map,
+                objid_to_dest,
+                brick_dir,
+                concurrency,
+                brick_parallel,
+                timeout,
+            )
         )
-    )
-
-    # Cleanup temp dir
-    shutil.rmtree(brick_dir, ignore_errors=True)
 
     # ── Report ────────────────────────────────────────────────────────────────
     report = {

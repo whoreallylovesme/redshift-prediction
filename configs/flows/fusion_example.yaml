@@ -1,0 +1,13 @@
+name: Image and tabular regression example
+output: runs/fusion_example
+methods:
+  fusion:
+    kind: lightning
+    recipe: configs/nn/fusion_example.yaml
+    predict_on:
+      held:
+        role: held-out
+        images: tests/fixtures/fusion/images
+        catalog: tests/fixtures/fusion/held.csv
+    report:
+      id_column: sample

@@ -1,0 +1,4 @@
+architecture: table_transformer
+projection: datasets/euclid/F_ONLY_DATA.npz
+seed: 20261025
+device: cpu

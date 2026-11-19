@@ -1,3 +1,4 @@
+dataset: teddy
 images_dir: teddyA_grizw1w2
 catalog_path: datasets/teddy_happy_orig/Teddy/teddy_A
 gz1_parquet: datasets/galaxy_zoo/teddy_A_gz1.parquet

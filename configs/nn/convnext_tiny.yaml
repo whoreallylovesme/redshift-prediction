@@ -1,17 +1,8 @@
 model_type: lightning
+training_task: photoz.training.regression:photoz_regression_task
 
-estimator: |
-  import timm
-
-  model = timm.create_model(
-      "convnext_tiny", pretrained=True, in_chans=4, num_classes=1, drop_rate=0.2,
-  )
-
-  for name, param in model.named_parameters():
-      if not name.startswith("head"):
-          param.requires_grad = False
-
-  estimator = model
+estimator: convnext_tiny
+estimator_params: {image_channels: 4}
 
 data_dir: teddyA_imgs
 catalog: datasets/teddy_happy_orig/Teddy/teddy_A

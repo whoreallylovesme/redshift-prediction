@@ -1,4 +1,4 @@
-model_type: torch
+model_type: lightning
 model: euclid_clip
 
 tag: P_final

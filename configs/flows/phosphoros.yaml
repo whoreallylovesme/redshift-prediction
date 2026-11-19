@@ -1,0 +1,24 @@
+name: Public Phosphoros on F validation
+task: photoz.report:PHOTOZ
+output: runs/phosphoros
+methods:
+  phosphoros_public:
+    kind: external
+    predictor: photoz.methods.phosphoros:predict
+    recipe: configs/euclid_q1/phosphoros.yaml
+    options: {set_name: F_VALID, include_posterior: true}
+    report_from_predictor: true
+    split: F_VALID
+    report:
+      id_column: object_id
+      truth_column: null
+      # Optional report-only reference parquet can be built from datasets/euclid_q1/packets/dataset.h5
+      # using object_id[valid_indices] and valid_z. Set reference, reference_id_column and
+      # reference_truth_column here. The native engine receives photometry only.
+      admitted_column: engine_present
+      lower_column: ppub_lo68
+      upper_column: ppub_hi68
+      status_column: pdf_status
+      ok_statuses: [0]
+      nominal_coverage: 0.68
+      role: validation

@@ -1,0 +1,3 @@
+estimator: imputed_catboost
+split: {val_size: 0}
+estimator_params: {model__iterations: 500, model__depth: 12, model__learning_rate: 0.05, model__l2_leaf_reg: 1}

@@ -1,0 +1,15 @@
+name: Inductive prototype graph density regression
+output: runs/prototype_graph
+task: photoz.report:PHOTOZ
+methods:
+  graph:
+    kind: external
+    predictor: photoz.training.prototype_graph:run_method
+    resource: accelerator
+    recipe: configs/nn/prototype_graph.yaml
+    split: validation
+    report:
+      id_column: object_id
+      lower_column: q16
+      upper_column: q84
+      role: validation

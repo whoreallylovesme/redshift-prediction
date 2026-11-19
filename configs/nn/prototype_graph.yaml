@@ -1,0 +1,5 @@
+projection: data/prototype_graph.npz
+context: graph
+epochs: 20
+batch_size: 128
+device: cpu

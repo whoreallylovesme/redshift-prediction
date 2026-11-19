@@ -1,0 +1,15 @@
+checkpoint_root: ../../datasets/euclid_q1/frozen/morph/checkpoints
+reference_dir: ../../datasets/euclid_q1/frozen/morph/stamps
+device: cpu
+batch_size: 16
+sets:
+  original_test:
+    manifest:
+      path: ../../datasets/euclid_q1/frozen/morph/manifest.parquet
+      sha256: 16943ac1068434b0238546aefd86fdd1588b37621c172015f3a4df2844147cda
+    split: test
+    shards:
+      - path: ../../datasets/euclid_q1/frozen/morph/stamps/102157954.npz
+        sha256: 048fd6d2b56f4287de731614ceb1405386beab7b67249993d812c8fe20929bfd
+      - path: ../../datasets/euclid_q1/frozen/morph/stamps/102160336.npz
+        sha256: 93b90001c4ec836cefcb90a58ab7ae41df793f8312f585399317c10c9fc2c219

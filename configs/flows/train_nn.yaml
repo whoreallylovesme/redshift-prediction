@@ -1,22 +1,25 @@
-pipeline: nn
-runs_root: nn_runs
-models:
-  - name: efficientnet_b0
-    config: configs/nn/efficientnet_b0.yaml
-  - name: vit_tiny
-    config: configs/nn/vit_tiny.yaml
-splits:
-  - name: B
-    data_dir: teddyB_imgs
-    catalog: datasets/teddy_happy_orig/Teddy/teddy_B
-    metric_suffix: teddyB
-  - name: C
-    data_dir: teddyC_imgs
-    catalog: datasets/teddy_happy_orig/Teddy/teddy_C
-    metric_suffix: teddyC
-  - name: D
-    data_dir: teddyD_imgs
-    catalog: datasets/teddy_happy_orig/Teddy/teddy_D
-    metric_suffix: teddyD
-summaries:
-  enabled: true
+name: train_nn
+output: runs/train_nn
+task: photoz.report:PHOTOZ
+methods:
+  efficientnet_b0:
+    kind: lightning
+    recipe: configs/nn/efficientnet_b0.yaml
+    predict_on: &teddy_splits
+      B:
+        images: teddyB_imgs
+        catalog: datasets/teddy_happy_orig/Teddy/teddy_B
+      C:
+        images: teddyC_imgs
+        catalog: datasets/teddy_happy_orig/Teddy/teddy_C
+      D:
+        images: teddyD_imgs
+        catalog: datasets/teddy_happy_orig/Teddy/teddy_D
+    report:
+      id_column: object_id
+  vit_tiny:
+    kind: lightning
+    recipe: configs/nn/vit_tiny.yaml
+    predict_on: *teddy_splits
+    report:
+      id_column: object_id

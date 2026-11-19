@@ -1,14 +1,11 @@
-pipeline: tabular
-runs_root: runs
-prepared_root: prepared
+name: CatBoost smoke test
+task: photoz.report:PHOTOZ
+output: runs/fast_test
 dataset:
-  input_csv: datasets/dsat.csv
-  data_config: configs/data/dataset.yaml
-  features: configs/features/features.yaml
-models:
-  - name: catboost_fast_test
-    config: configs/tabular/catboost_fast_test.yaml
-    feature_set: set1
-summaries:
-  enabled: true
-  title: main
+  source: datasets/dsat.csv
+  split_config: configs/data/dataset.yaml
+  feature_catalog: configs/features/features.yaml
+  feature_set: set1
+  cleaner: photoz.data.tabular:clean_dataset
+methods:
+  catboost: {kind: tabular, recipe: configs/tabular/catboost_fast_test.yaml}

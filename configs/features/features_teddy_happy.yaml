@@ -8,4 +8,4 @@ feature_sets:
     - "feat4"
     - "feat5"
 
-default_set: "set1"
+default_set: "set3"

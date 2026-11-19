@@ -25,3 +25,8 @@ mashinki_download.txt
 *.log
 
 external/
+
+build/
+dist/
+mlruns/
+mlartifacts/

@@ -16,13 +16,19 @@ def subsample_indices(n: int, size: int, seed: int) -> np.ndarray:
     return np.sort(rng.choice(n, size=size, replace=False))
 
 
-def z_sample_weights(z: npt.NDArray[np.floating], n_bins: int = 20) -> npt.NDArray[np.float64]:
-    bins = np.linspace(z.min(), z.max() + 1e-8, n_bins + 1)
-    bin_idx = np.clip(np.digitize(z, bins) - 1, 0, n_bins - 1)
+def inverse_bin_weights(
+    target: npt.NDArray[np.floating], n_bins: int = 20
+) -> npt.NDArray[np.float64]:
+    bins = np.linspace(target.min(), target.max() + 1e-8, n_bins + 1)
+    bin_idx = np.clip(np.digitize(target, bins) - 1, 0, n_bins - 1)
     counts = np.bincount(bin_idx, minlength=n_bins).astype(np.float64)
     counts[counts == 0] = 1.0
     weights: npt.NDArray[np.float64] = (1.0 / counts)[bin_idx]
     return weights
+
+
+def z_sample_weights(z: npt.NDArray[np.floating], n_bins: int = 20) -> npt.NDArray[np.float64]:
+    return inverse_bin_weights(z, n_bins)
 
 
 def random_rot90_flip(

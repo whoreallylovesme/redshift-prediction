@@ -6,7 +6,7 @@ from pygam import LinearGAM
 from sklearn.base import BaseEstimator, RegressorMixin
 
 
-class GAMRegressor(BaseEstimator, RegressorMixin):
+class GAMRegressor(RegressorMixin, BaseEstimator):
     def __init__(
         self,
         n_splines: int = 20,

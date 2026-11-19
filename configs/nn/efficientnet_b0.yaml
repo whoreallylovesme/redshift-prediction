@@ -1,33 +1,8 @@
 model_type: lightning
+training_task: photoz.training.regression:photoz_regression_task
 
-estimator: |
-  import torch
-  import torch.nn as nn
-  from torchvision.models import EfficientNet_B0_Weights, efficientnet_b0
-
-  model = efficientnet_b0(weights=EfficientNet_B0_Weights.DEFAULT)
-
-  old_conv = model.features[0][0]
-  new_conv = nn.Conv2d(4, 32, kernel_size=3, stride=2, padding=1, bias=False)
-  with torch.no_grad():
-      new_conv.weight[:, :3] = old_conv.weight
-      new_conv.weight[:, 3] = old_conv.weight.mean(dim=1)
-  model.features[0][0] = new_conv
-
-  in_features = model.classifier[1].in_features
-  model.classifier = nn.Sequential(
-      nn.Dropout(0.2),
-      nn.Linear(in_features, 256),
-      nn.ReLU(),
-      nn.Dropout(0.3),
-      nn.Linear(256, 1),
-  )
-
-  for name, param in model.named_parameters():
-      if not name.startswith("classifier"):
-          param.requires_grad = False
-
-  estimator = model
+estimator: efficientnet_b0
+estimator_params: {image_channels: 4}
 
 data_dir: teddyA_imgs
 catalog: datasets/teddy_happy_orig/Teddy/teddy_A

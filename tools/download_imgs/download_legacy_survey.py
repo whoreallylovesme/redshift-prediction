@@ -13,10 +13,10 @@ Output: {outdir}/{dataset}/{split}/{objid}.npz  →  image: (224, 224, 6) float3
 
 import asyncio
 import json
-import shutil
 import time
 from io import StringIO
 from pathlib import Path
+from typing import TYPE_CHECKING
 from urllib.parse import urlencode
 from urllib.request import urlopen
 
@@ -29,6 +29,11 @@ from astropy.coordinates import SkyCoord
 from astropy.io import fits
 from astropy.nddata import Cutout2D
 from astropy.wcs import WCS
+
+if TYPE_CHECKING or __package__:
+    from tools.download_imgs.workspace import brick_workspace
+else:
+    from workspace import brick_workspace
 
 # ── Config ────────────────────────────────────────────────────────────────────
 STAMP_SIZE = 224
@@ -475,66 +480,59 @@ def main(
 
     # ── Step 4: Download bricks & extract cutouts ─────────────────────────────
     print(f"\n[4/4] Downloading {len(brick_map)} bricks from NERSC & extracting cutouts...")
-    brick_dir = outdir / "bricks"
-    brick_dir.mkdir(parents=True, exist_ok=True)
-
-    brick_paths = asyncio.run(
-        download_bricks(list(brick_map.keys()), brick_dir, concurrency, timeout)
-    )
-    print(f"  Downloaded {len(brick_paths)}/{len(brick_map)} bricks successfully")
-
-    # ── Extract cutouts ───────────────────────────────────────────────────────
-    print("\nExtracting cutouts...")
-    total_saved = 0
-    total_failed = 0
-    all_failed_ids: list[int] = []
-    missing_brick_ids: list[int] = []
-    t0 = time.time()
-
-    for bi, (brickname, objects) in enumerate(brick_map.items()):
-        brick_path = brick_paths.get(brickname)
-        if brick_path is None:
-            total_failed += len(objects)
-            missing_brick_ids.extend([oid for oid, _, _ in objects])
-            continue
-
-        saved, failed, failed_ids = process_brick_cutouts(
-            brick_path,
-            brickname,
-            objects,
-            objid_to_dest,
+    with brick_workspace(outdir, keep=keep_bricks) as brick_dir:
+        brick_paths = asyncio.run(
+            download_bricks(list(brick_map.keys()), brick_dir, concurrency, timeout)
         )
-        total_saved += saved
-        total_failed += failed
-        all_failed_ids.extend(failed_ids)
+        print(f"  Downloaded {len(brick_paths)}/{len(brick_map)} bricks successfully")
 
-        if (bi + 1) % 50 == 0 or (bi + 1) == len(brick_map):
-            elapsed = time.time() - t0
-            rate = (total_saved + total_failed) / elapsed if elapsed > 0 else 0
-            print(
-                f"  bricks: {bi + 1}/{len(brick_map)} | "
-                f"saved={total_saved} failed={total_failed} | "
-                f"rate={rate:.0f}obj/s | "
-                f"elapsed={elapsed:.0f}s",
-                flush=True,
+        # ── Extract cutouts ───────────────────────────────────────────────────────
+        print("\nExtracting cutouts...")
+        total_saved = 0
+        total_failed = 0
+        all_failed_ids: list[int] = []
+        missing_brick_ids: list[int] = []
+        t0 = time.time()
+
+        for bi, (brickname, objects) in enumerate(brick_map.items()):
+            brick_path = brick_paths.get(brickname)
+            if brick_path is None:
+                total_failed += len(objects)
+                missing_brick_ids.extend([oid for oid, _, _ in objects])
+                continue
+
+            saved, failed, failed_ids = process_brick_cutouts(
+                brick_path,
+                brickname,
+                objects,
+                objid_to_dest,
             )
+            total_saved += saved
+            total_failed += failed
+            all_failed_ids.extend(failed_ids)
 
-    # ── Save report ──────────────────────────────────────────────────────────
-    report = {
-        "total_objects": len(all_objids),
-        "saved": total_saved,
-        "failed_cutout": all_failed_ids,
-        "failed_missing_brick": missing_brick_ids,
-        "failed_total": total_failed,
-    }
-    report_path = outdir / "report.json"
-    report_path.write_text(json.dumps(report, indent=2))
-    print(f"\nReport saved to {report_path}", flush=True)
+            if (bi + 1) % 50 == 0 or (bi + 1) == len(brick_map):
+                elapsed = time.time() - t0
+                rate = (total_saved + total_failed) / elapsed if elapsed > 0 else 0
+                print(
+                    f"  bricks: {bi + 1}/{len(brick_map)} | "
+                    f"saved={total_saved} failed={total_failed} | "
+                    f"rate={rate:.0f}obj/s | "
+                    f"elapsed={elapsed:.0f}s",
+                    flush=True,
+                )
 
-    # ── Cleanup ───────────────────────────────────────────────────────────────
-    if not keep_bricks and brick_dir.exists():
-        print("\nCleaning up brick files...")
-        shutil.rmtree(brick_dir)
+        # ── Save report ──────────────────────────────────────────────────────────
+        report = {
+            "total_objects": len(all_objids),
+            "saved": total_saved,
+            "failed_cutout": all_failed_ids,
+            "failed_missing_brick": missing_brick_ids,
+            "failed_total": total_failed,
+        }
+        report_path = outdir / "report.json"
+        report_path.write_text(json.dumps(report, indent=2))
+        print(f"\nReport saved to {report_path}", flush=True)
 
     elapsed = time.time() - t0
     print(f"\nDone! saved={total_saved} failed={total_failed} time={elapsed:.0f}s")

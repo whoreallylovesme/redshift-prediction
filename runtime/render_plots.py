@@ -6,9 +6,10 @@ import re
 from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
+from plotly.offline import get_plotlyjs
 
 from lib.dataloaders.dataset import read_dataset
-from lib.visual.plots import redshift_scatter
+from photoz.legacy_plots import redshift_scatter
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 
@@ -61,7 +62,7 @@ def summary_plots(runs_dir: str, out: str, title: str = "main") -> None:
         autoescape=select_autoescape(["html", "j2"]),
     )
     html_text = env.get_template("summary_plots.html.j2").render(
-        title=title, charts=charts,
+        title=title, charts=charts, plotly=get_plotlyjs(),
     )
 
     out_path.parent.mkdir(parents=True, exist_ok=True)

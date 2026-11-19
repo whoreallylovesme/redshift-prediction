@@ -1,23 +1,15 @@
-pipeline: tabular
-runs_root: runs
-prepared_root: prepared
+name: Tabular photo-z
+task: photoz.report:PHOTOZ
+output: runs/tabular
 dataset:
-  input_csv: datasets/dsat.csv
-  data_config: configs/data/dataset.yaml
-  features: configs/features/features.yaml
-models:
-  - name: catboost
-    config: configs/tabular/catboost.yaml
-    feature_set: set2
-  - name: llr
-    config: configs/tabular/llr.yaml
-    feature_set: set2
-  - name: mlp
-    config: configs/tabular/mlp.yaml
-    feature_set: set2
-  - name: rf
-    config: configs/tabular/rf.yaml
-    feature_set: set2
-summaries:
-  enabled: true
-  title: main
+  source: datasets/dsat.csv
+  split_config: configs/data/dataset.yaml
+  feature_catalog: configs/features/features.yaml
+  feature_set: set2
+  cleaner: photoz.data.tabular:clean_dataset
+workers: 2
+methods:
+  catboost: {kind: tabular, recipe: configs/tabular/catboost.yaml}
+  llr: {kind: tabular, recipe: configs/tabular/llr.yaml}
+  mlp: {kind: tabular, recipe: configs/tabular/mlp.yaml}
+  rf: {kind: tabular, recipe: configs/tabular/rf.yaml}

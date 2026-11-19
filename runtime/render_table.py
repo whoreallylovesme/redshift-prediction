@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -9,10 +10,13 @@ from typing import Any
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
+from photoz.report import PHOTOZ
+
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 
-LOWER_IS_BETTER: set[str] = {"rmse", "sigma_nmad", "f_outlier_percent"}
-CLOSER_TO_ZERO_IS_BETTER: set[str] = {"bias"}
+LOWER_IS_BETTER = {k for k, m in PHOTOZ.metrics.items() if m.direction == "min"}
+HIGHER_IS_BETTER = {k for k, m in PHOTOZ.metrics.items() if m.direction == "max"}
+CLOSER_TO_ZERO_IS_BETTER = {k for k, m in PHOTOZ.metrics.items() if m.direction == "zero"}
 
 DISPLAY_SCALE: dict[str, float] = {"bias": 1e2}
 DISPLAY_SUFFIX: dict[str, str] = {"bias": "10^-2"}
@@ -72,19 +76,21 @@ def all_metrics(rows: list[Row]) -> list[str]:
     for r in rows:
         keys |= set(r.test.keys())
 
-    ordered = [k for k in ["rmse", "sigma_nmad", "f_outlier_percent", "bias"] if k in keys]
-    return ordered
+    ordered = [k for k in PHOTOZ.metrics if k in keys]
+    return [*ordered, *sorted(keys.difference(ordered))]
 
 
 def best_map(rows: list[Row], metrics: list[str]) -> dict[str, float]:
     best: dict[str, float] = {}
     for m in metrics:
-        vals: list[float] = [r.test[m] for r in rows if m in r.test]
+        vals: list[float] = [r.test[m] for r in rows if m in r.test and math.isfinite(r.test[m])]
         if not vals:
             continue
         if m in CLOSER_TO_ZERO_IS_BETTER:
             best[m] = min(abs(v) for v in vals)
-        else:
+        elif m in HIGHER_IS_BETTER:
+            best[m] = max(vals)
+        elif m in LOWER_IS_BETTER:
             best[m] = min(vals)
     return best
 
@@ -93,6 +99,8 @@ def is_best(value: float, best_value: float, metric: str) -> bool:
     eps = 1e-12
     if metric in CLOSER_TO_ZERO_IS_BETTER:
         return abs(value) <= best_value + eps
+    if metric in HIGHER_IS_BETTER:
+        return value >= best_value - eps
     return value <= best_value + eps
 
 

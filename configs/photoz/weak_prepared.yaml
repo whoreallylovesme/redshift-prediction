@@ -1,0 +1,9 @@
+cohort: weak
+observed: ../../datasets/euclid_q1/frozen/euclid_q1_data_expansion_2026_10_14/assembled/fit_observed.parquet
+provenance: ../../datasets/euclid_q1/frozen/euclid_q1_data_expansion_2026_10_14/assembled/fit_observed.provenance.json
+provenance_sha256: d05c9403afe5cb40ed98a073a7019aaf509af9e0cd1667da4fa8255ee9fc81a6
+protocol: ../../datasets/euclid_q1/frozen/euclid_q1_data_expansion_2026_10_14/frozen_protocol_v2/protocol.json
+protocol_sha256: 040f8be8cbc9bbc56fdefd1dfd4cde766ea14e2910bde781b5b11c255fac1002
+manifest: ../../datasets/euclid_q1/frozen/euclid_q1_data_expansion_2026_10_14/assembled/manifest.parquet
+validation: ../../datasets/euclid_q1/frozen/euclid_q1_data_expansion_2026_10_14/frozen_protocol_v2/valid_memberships.parquet
+exclusions: ../../datasets/euclid_q1/frozen/euclid_q1_data_expansion_2026_10_14/frozen_protocol_v2/test_exclusions.parquet

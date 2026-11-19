@@ -1,0 +1,21 @@
+model_type: lightning
+estimator: fusion_cnn
+estimator_params: {image_channels: 1, features: 2, width: 8}
+device: cpu
+data_dir: tests/fixtures/fusion/images
+catalog: tests/fixtures/fusion/train.csv
+image_catalog:
+  id_column: sample
+  target_column: response
+  features: [time, density]
+out_size: 4
+train:
+  epochs: 2
+  batch_size: 3
+  lr: 0.001
+  weight_decay: 0.0001
+  freeze_epochs: 0
+  head_prefix: head
+  train_ratio: 0.75
+  num_workers: 0
+  seed: 194

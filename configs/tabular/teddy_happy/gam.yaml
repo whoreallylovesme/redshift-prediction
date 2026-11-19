@@ -1,0 +1,3 @@
+estimator: gam
+split: {val_size: 0}
+estimator_params: {model__lam: 1000.0, model__max_iter: 200}

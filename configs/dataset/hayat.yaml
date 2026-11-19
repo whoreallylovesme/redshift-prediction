@@ -1,3 +1,4 @@
+dataset: hayat
 h5_path: datasets/sdss_w_specz_train.h5
 morph_parquet: datasets/hayat_train_morph_generated.parquet
 out_dir: nn_capsnet_runs/hayat
