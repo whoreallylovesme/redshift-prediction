@@ -10,7 +10,6 @@ from io import StringIO
 from itertools import batched
 from pathlib import Path
 from shutil import copyfileobj
-from typing import TYPE_CHECKING
 from urllib.parse import urlencode
 from urllib.request import urlopen
 
@@ -20,10 +19,7 @@ import pandas as pd
 from astropy.io import fits
 from tqdm import tqdm
 
-if TYPE_CHECKING or __package__:
-    from tools.download_imgs.workspace import download_destination
-else:
-    from workspace import download_destination
+from tools.download_imgs.workspace import download_destination
 
 STAMP_SIZE = 224
 

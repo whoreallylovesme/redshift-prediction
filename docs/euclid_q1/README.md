@@ -73,6 +73,7 @@
 | `labels/{t1,d2,d3,d4,d5,da}/`, `labels/exclusions/`, `labels/edfn_catalog_accuracy.parquet` | наборы меток D2–D5 (`<набор>_ids.npy`, `<набор>_labels.parquet`) и наборы для исключения из HETDEX | внешний вход |
 | `hetdex/hetdex_sc2_v1.5.fits` | каталог HETDEX HPSC-2 (Zenodo 10.5281/zenodo.19581262) | публичный каталог |
 | `packets/*.h5`, `packets/normalizers.json` | пакеты модели и замороженные нормировки | шаг 3 |
+| `pretrain/stage/` | сохранённые 181 164 старые строки SSL | внешний вход |
 
 «Внешний вход» — артефакт, который этот MR не строит: он получен раньше (скачивание вырезок,
 сбор меток DESI/SDSS/MUSE, реестр объектов). Его кладут по указанному пути как есть.
@@ -160,8 +161,7 @@ uv run python $T/download_mosaics.py discover --config $C/download_mosaics.yaml
 uv run python $T/download_mosaics.py fetch --config $C/download_mosaics.yaml
 uv run python $T/cut_stamps.py prepare --config $C/cut_stamps.yaml
 uv run python $T/cut_stamps.py cut --config $C/cut_stamps.yaml
-uv run python $T/build_pretrain_store.py index --config $C/build_pretrain_store.yaml
-uv run python $T/build_pretrain_store.py stage-old --config $C/build_pretrain_store.yaml
+uv run python $T/build_pretrain_store.py --config $C/build_pretrain_store.yaml
 ```
 
 Что делают эти команды:
@@ -176,12 +176,12 @@ uv run python $T/build_pretrain_store.py stage-old --config $C/build_pretrain_st
   шарда float16. `cut` можно запускать по частям: `--key <ключ>` (повторяемый), готовые шарды
   пропускаются. Флаговые плоскости не читаются (`read_flags: false`). Это эквивалентно исходному
   прогону: бит INVALID в Q1 не выставлен.
-- `index` индексирует шарды и считает `ssl_keep`. Из предобучения исключаются тайлы F VALID,
+- `build_pretrain_store` индексирует шарды и считает `ssl_keep`. Из предобучения исключаются тайлы F VALID,
   отложенные тайлы пилота, объекты HO и объекты, которые уже есть в старых источниках.
-- `stage-old` выгружает 181 164 старые строки SSL в `pretrain/stage`: 27 219 из пилота, 53 449 из
-  `extra.h5` и 100 496 из `extra2.h5`.
 
-В итоге для предобучения доступно 1 181 164 строки.
+Старые 181 164 строки SSL должны уже находиться во внешнем каталоге `pretrain/stage`: 27 219 из
+пилота, 53 449 из `extra.h5` и 100 496 из `extra2.h5`. Исторический одноразовый экспорт этих строк
+из репозитория удалён. Вместе с ними для предобучения доступно 1 181 164 строки.
 
 ### 6. Тестовая выборка HETDEX (H6)
 

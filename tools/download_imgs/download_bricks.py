@@ -5,9 +5,9 @@ For each brick: download 6 FITS → extract cutouts → delete FITS.
 Disk usage: only .npz outputs + 1 brick at a time (~72 MB).
 
 Usage:
-  python download_bricks.py --dataset teddy --split A
-  python download_bricks.py --dataset happy --split A,B
-  python download_bricks.py --dataset teddy,happy --split A,B,C,D
+  python -m tools.download_imgs.download_bricks --dataset teddy --split A
+  python -m tools.download_imgs.download_bricks --dataset happy --split A,B
+  python -m tools.download_imgs.download_bricks --dataset teddy,happy --split A,B,C,D
 """
 from __future__ import annotations
 
@@ -16,7 +16,6 @@ import json
 import sys
 from itertools import batched
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import aiohttp
 import astropy.units as u
@@ -28,23 +27,12 @@ from astropy.nddata import Cutout2D
 from astropy.wcs import WCS
 from tqdm import tqdm
 
-if TYPE_CHECKING or __package__:
-    from tools.download_imgs import survey
-    from tools.download_imgs.workspace import brick_workspace, download_destination
-else:
-    import survey
-    from workspace import brick_workspace, download_destination
+from tools.download_imgs import survey
+from tools.download_imgs.workspace import brick_workspace, download_destination
 
-# Historical imports used by callers of the standalone download scripts.
 BANDS = survey.BANDS
 STAMP_SIZE = survey.STAMP_SIZE
-_brick_url = survey._brick_url
 SDSS_BATCH = survey.SDSS_BATCH
-fetch_coordinates = survey.fetch_coordinates
-find_brick = survey.find_brick
-load_brick_index = survey.load_brick_index
-map_objects_to_bricks = survey.map_objects_to_bricks
-_download_file = survey._download_file
 
 _OUT = click.Path(file_okay=False, dir_okay=True, path_type=Path)
 
@@ -62,9 +50,9 @@ async def download_one_brick(
 
     tasks = []
     for band in BANDS:
-        url = _brick_url(brickname, band)
+        url = survey._brick_url(brickname, band)
         dest = dest_dir / f"legacysurvey-{brickname}-image-{band}.fits.fz"
-        tasks.append(_download_file(session, url, dest, semaphore))
+        tasks.append(survey._download_file(session, url, dest, semaphore))
 
     results = await asyncio.gather(*tasks)
     if all(results):
@@ -280,7 +268,7 @@ def main(
     # ── Step 1: Coordinates ───────────────────────────────────────────────────
     print("\n[1/3] Fetching coordinates from SDSS...")
     cache_path = outdir / "coords.parquet"
-    coords = fetch_coordinates(list(objid_to_dest.keys()), cache_path)
+    coords = survey.fetch_coordinates(list(objid_to_dest.keys()), cache_path)
     if coords.empty:
         print("No coordinates found!")
         return
@@ -293,8 +281,8 @@ def main(
 
     # ── Step 2: Brick mapping ─────────────────────────────────────────────────
     print("\n[2/3] Mapping objects to bricks...")
-    bricks = load_brick_index(outdir)
-    brick_map = map_objects_to_bricks(coords, bricks)
+    bricks = survey.load_brick_index(outdir)
+    brick_map = survey.map_objects_to_bricks(coords, bricks)
     if not brick_map:
         print("No coordinates matched the survey brick index.")
         return
