@@ -41,6 +41,14 @@ class RegressionModule(L.LightningModule):
         self.history: list[dict[str, float | None]] = []
         self.epoch_lr = 0.0
         self._unfrozen = cfg.freeze_epochs == 0
+        if cfg.head_prefix is None:
+            self._head_names = {
+                name for name, parameter in model.named_parameters() if parameter.requires_grad
+            }
+        else:
+            self._head_names = {
+                name for name, _ in model.named_parameters() if name.startswith(cfg.head_prefix)
+            }
         self._val_true: list[np.ndarray] = []
         self._val_pred: list[np.ndarray] = []
         self._train_true: list[np.ndarray] = []
@@ -123,14 +131,15 @@ class RegressionModule(L.LightningModule):
     def configure_optimizers(  # type: ignore[override]
         self,
     ) -> tuple[list[AdamW], list[dict[str, object]]]:
-        hp = self.cfg.head_prefix
-        head = [p for n, p in self.model.named_parameters() if n.startswith(hp)]
+        named = list(self.model.named_parameters())
+        head = [p for name, p in named if name in self._head_names]
+        if not head:
+            raise ValueError("The regression head has no parameters; check head_prefix")
         if self._unfrozen:
-            rest = [p for n, p in self.model.named_parameters() if not n.startswith(hp)]
-            params = [
-                {"params": head, "lr": self.cfg.lr},
-                {"params": rest, "lr": self.cfg.lr / 10},
-            ]
+            rest = [p for name, p in named if name not in self._head_names]
+            params = [{"params": head, "lr": self.cfg.lr}]
+            if rest:
+                params.append({"params": rest, "lr": self.cfg.lr / 10})
             t_max = max(self.cfg.epochs - self.cfg.freeze_epochs, 1)
         else:
             params = [{"params": head, "lr": self.cfg.lr}]

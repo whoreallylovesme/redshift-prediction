@@ -37,7 +37,7 @@ def fit_best(
     epochs: int, *, monitor: str, mode: Literal["min", "max"] = "min",
     gradient_clip: float | None = None, export_dir: Path | None = None,
 ) -> tuple[int, float]:
-    """Fit and restore the selected epoch, optionally exporting legacy raw model weights."""
+    """Fit and restore the selected epoch, optionally exporting native model weights."""
     with TemporaryDirectory(dir=export_dir) as directory:
         best = ModelCheckpoint(
             dirpath=directory, filename="best", monitor=monitor, mode=mode,
@@ -60,7 +60,7 @@ def fit_best(
 
 
 def export_weights(checkpoint_path: Path, output: Path, prefix: str) -> None:
-    """Preserve pre-Lightning state_dict names when publishing native checkpoints."""
+    """Export the wrapped model's native state_dict from a Lightning checkpoint."""
     checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
     state = {k.removeprefix(prefix): v for k, v in checkpoint["state_dict"].items()
              if k.startswith(prefix)}

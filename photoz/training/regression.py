@@ -19,6 +19,6 @@ def epoch_metrics(truth: pd.Series, prediction: NDArray[np.float64]) -> dict[str
 
 def photoz_regression_task(cfg: PytorchTrainConfig) -> RegressionTask:
     criterion: nn.Module = nn.HuberLoss(delta=0.1)
-    if cfg.z_weight_alpha > 0:
-        criterion = WeightedHuberLoss(delta=0.1, alpha=cfg.z_weight_alpha)
+    if cfg.target_weight_alpha > 0:
+        criterion = WeightedHuberLoss(delta=0.1, alpha=cfg.target_weight_alpha)
     return RegressionTask(criterion=criterion, epoch_metrics=epoch_metrics, monitor="val/nmad")

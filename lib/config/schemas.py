@@ -72,16 +72,16 @@ class ImageTraining(BaseModel):
     epochs: int = Field(ge=1)
     batch_size: int = Field(ge=1)
     lr: float = Field(ge=0)
-    weight_decay: float = 0.0
-    freeze_epochs: int = 0
+    weight_decay: float = Field(default=0.0, ge=0)
+    freeze_epochs: int = Field(default=0, ge=0)
     train_ratio: float = Field(default=0.8, gt=0, lt=1)
     seed: int = 42
     num_workers: int = Field(default=4, ge=0)
     weighted_sampling: bool = False
-    z_weight_alpha: float = 0.0
-    label_noise: float = 0.0
-    head_prefix: str = "classifier"
-    max_samples: int | None = None
+    target_weight_alpha: float = Field(default=0.0, ge=0)
+    label_noise: float = Field(default=0.0, ge=0)
+    head_prefix: str | None = None
+    max_samples: int | None = Field(default=None, gt=0)
 
 
 class PytorchTrainConfig(ImageTraining):

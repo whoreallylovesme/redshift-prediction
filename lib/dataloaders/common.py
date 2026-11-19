@@ -86,10 +86,6 @@ def inverse_bin_weights(
     return weights
 
 
-def z_sample_weights(z: npt.NDArray[np.floating], n_bins: int = 20) -> npt.NDArray[np.float64]:
-    return inverse_bin_weights(z, n_bins)
-
-
 def random_rot90_flip(
     img: np.ndarray, rot90_prob: float, flip_prob: float,
 ) -> np.ndarray:

@@ -272,12 +272,11 @@ class CapsuleNetwork(nn.Module):
         nn.init.kaiming_normal_(out_lin.weight, nonlinearity="relu")
         nn.init.zeros_(out_lin.bias)
         regressor_layers.append(out_lin)
-        # Preserve the registered submodule name used by existing state_dict checkpoints.
-        self.redshift = nn.Sequential(*regressor_layers)
+        self.regressor = nn.Sequential(*regressor_layers)
 
     @property
     def regression_head(self) -> nn.Sequential:
-        return self.redshift
+        return self.regressor
 
     def encode(self, x: torch.Tensor) -> torch.Tensor:
         h = F.relu(self.conv1(x))

@@ -13,7 +13,7 @@ from torch.utils.data import DataLoader, TensorDataset
 from lib.config import PytorchTrainConfig
 from lib.models.nn.capsnet import CapsNet
 from lib.train.regression import RegressionTask
-from lib.train.regression_lightning import run_regression
+from lib.train.regression_lightning import RegressionModule, run_regression
 from photoz.training import euclid_classical, labels
 from photoz.training.clip_epochs import ShuffledRowBatches
 from photoz.training.regression import photoz_regression_task
@@ -54,6 +54,31 @@ class TrainingTests(TestCase):
             ckpt = torch.load(Path(directory) / "weights/best.ckpt", weights_only=True)
             selections = [v for v in ckpt["callbacks"].values() if v.get("monitor")]
             self.assertEqual([v["monitor"] for v in selections], ["val/rmse"])
+
+    def test_trainable_head_and_unfreeze_without_name_prefix(self) -> None:
+        data = torch.arange(-4, 4, dtype=torch.float32)[:, None]
+        loader = DataLoader(TensorDataset(data, data[:, 0] * 2), batch_size=4)
+        cfg = PytorchTrainConfig.model_construct(
+            epochs=2, freeze_epochs=1, weight_decay=0.0, lr=0.01, seed=8,
+        )
+        backbone, head = nn.Linear(1, 4), nn.Linear(4, 1)
+        model = nn.Sequential(backbone, head)
+        backbone.requires_grad_(False)
+        module = RegressionModule(cfg, model)
+        optimizers, _ = module.configure_optimizers()
+        self.assertEqual(len(optimizers[0].param_groups), 1)
+        self.assertEqual(
+            {id(p) for p in optimizers[0].param_groups[0]["params"]},
+            {id(p) for p in head.parameters()},
+        )
+        frozen_weight = backbone.weight.detach().clone()
+        with TemporaryDirectory() as directory:
+            run_regression(
+                cfg, model, loader, loader, directory, device=torch.device("cpu"),
+            )
+            history = json.loads((Path(directory) / "history.json").read_text())
+        self.assertEqual([row["epoch"] for row in history], [1, 2])
+        self.assertFalse(torch.allclose(frozen_weight, backbone.weight))
 
     def test_morphology_predictions_keep_order_in_partial_last_batch(self) -> None:
         class TinyProbabilities(nn.Module):

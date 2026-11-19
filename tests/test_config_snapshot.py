@@ -14,13 +14,7 @@ from prefect.testing.utilities import prefect_test_harness
 
 from lib.config import load_flow
 from lib.config.experiment import Experiment
-from lib.config.snapshot import (
-    create_snapshot,
-    record_config,
-    recording_configs,
-    restore_snapshot,
-    seal_snapshot,
-)
+from lib.config.snapshot import create_snapshot, record_config, recording_configs, seal_snapshot
 from lib.tracking.mlflow import Tracker, finish_with_snapshots
 from photoz.methods.phosphoros import VariantConfig, config_values, variant_factors
 from runtime.pipeline import pipeline
@@ -93,17 +87,9 @@ class SnapshotTests(TestCase):
             for file in archive.rglob("*"):
                 if file.is_file():
                     self.assertNotIn(b"sensitive.invalid", file.read_bytes())
-            restored = root / "restored"
-            restore_snapshot(archive, restored)
-            self.assertEqual((restored / dust).read_bytes(), dust.read_bytes())
-            self.assertEqual((restored / factors).read_bytes(), factors.read_bytes())
-            (restored / cfg).write_text("different")
-            with self.assertRaises(FileExistsError):
-                restore_snapshot(archive, restored)
-            del manifest["sha256"]["flow.yaml"]
-            (archive / "manifest.json").write_text(json.dumps(manifest))
-            with self.assertRaisesRegex(ValueError, "missing the flow configuration"):
-                restore_snapshot(archive, restored)
+            native_files = archive / "files/workspace/cfg"
+            self.assertEqual((native_files / dust.name).read_bytes(), dust.read_bytes())
+            self.assertEqual((native_files / factors.name).read_bytes(), factors.read_bytes())
 
     def test_finalization_attempts_every_run_even_after_failure(self) -> None:
         tracker = MagicMock(spec=Tracker)
@@ -155,7 +141,7 @@ class SnapshotTests(TestCase):
             archive = first / "config_snapshot"
             original_predictions = pd.read_parquet(first / "methods/ridge/predictions.parquet")
             flow.unlink()
-            replay = pipeline(str(restore_snapshot(archive, root)))
+            replay = pipeline(str(archive / "flow.yaml"))
             assert isinstance(replay, Path)
             pd.testing.assert_frame_equal(
                 original_predictions, pd.read_parquet(replay / "methods/ridge/predictions.parquet")

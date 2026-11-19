@@ -14,7 +14,7 @@ from lib.train.regression_lightning import fit_images
 
 
 class CapsuleRegressorTest(TestCase):
-    def test_generic_one_channel_fit_predict_and_native_state_compatibility(self) -> None:
+    def test_generic_one_channel_fit_predict_and_capsnet_forward(self) -> None:
         previous = torch.get_num_threads()
         self.addCleanup(torch.set_num_threads, previous)
         torch.set_num_threads(1)

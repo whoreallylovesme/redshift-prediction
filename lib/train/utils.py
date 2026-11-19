@@ -14,7 +14,3 @@ class WeightedHuberLoss(nn.Module):
         weights = 1.0 + self.alpha * target
         result: torch.Tensor = (loss * weights).mean()
         return result
-
-def unfreeze_backbone(model: nn.Module) -> None:
-
-    model.requires_grad_(True)

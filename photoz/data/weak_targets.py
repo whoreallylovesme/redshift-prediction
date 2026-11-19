@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import argparse
 import os
 from pathlib import Path
 from tempfile import NamedTemporaryFile
@@ -134,20 +133,3 @@ def prepare_targets(recipe: Path, sources: Path, output: Path) -> Path:
         tmp.flush()
         os.link(tmp.name, output)
     return output
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--recipe", type=Path, required=True, help="Frozen weak or large protocol YAML"
-    )
-    parser.add_argument(
-        "--sources", type=Path, required=True, help="Paths and SHA256 of candidate tables"
-    )
-    parser.add_argument("--output", type=Path, required=True, help="New manifest parquet")
-    args = parser.parse_args()
-    prepare_targets(args.recipe, args.sources, args.output)
-
-
-if __name__ == "__main__":
-    main()

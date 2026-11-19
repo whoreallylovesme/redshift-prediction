@@ -1,8 +1,7 @@
-"""Capture and restore the text configuration used by an experiment."""
+"""Capture the text configuration used by an experiment."""
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 from collections.abc import Iterator
@@ -180,47 +179,3 @@ def seal_snapshot(directory: Path) -> None:
             os.replace(temporary, manifest)
         finally:
             temporary.unlink(missing_ok=True)
-
-
-def restore_snapshot(
-    directory: Path, workspace: Path, *, absolute_roots: tuple[Path, ...] = ()
-) -> Path:
-    """Restore configs in their original layout. Existing files must already match the snapshot."""
-    workspace = workspace.resolve()
-    allowed = tuple(p.resolve() for p in absolute_roots)
-    manifest = json.loads((directory / "manifest.json").read_text())
-    if manifest["version"] != 1:
-        raise ValueError("Unsupported configuration snapshot version")
-    if not {"flow.yaml", "effective.json"} <= manifest["sha256"].keys():
-        raise ValueError("Snapshot manifest is missing the flow configuration")
-    pending: list[tuple[Path, bytes]] = []
-    for stored, expected in manifest["sha256"].items():
-        key = Path(stored)
-        if key.is_absolute() or ".." in key.parts:
-            raise ValueError(f"Invalid snapshot path {key}")
-        source = (directory / key).resolve()
-        if not source.is_relative_to(directory.resolve()):
-            raise ValueError(f"Invalid snapshot source {source}")
-        content = source.read_bytes()
-        if hashlib.sha256(content).hexdigest() != expected:
-            raise ValueError(f"Configuration digest mismatch at {key}")
-        if stored in {"flow.yaml", "effective.json"} or key.parts[:1] == ("resolved",):
-            continue
-        if key.parts[:2] == ("files", "workspace"):
-            target = (workspace / key.relative_to("files/workspace")).resolve()
-            if not target.is_relative_to(workspace):
-                raise ValueError(f"Destination outside workspace: {target}")
-        elif key.parts[:2] == ("files", "absolute"):
-            target = (Path("/") / key.relative_to("files/absolute")).resolve()
-            if not any(target.is_relative_to(root) for root in (workspace, *allowed)):
-                raise ValueError(
-                    f"Restoring {target} requires an allowed absolute root"
-                )
-        else:
-            raise ValueError(f"Unknown snapshot path {key}")
-        if target.exists() and target.read_bytes() != content:
-            raise FileExistsError(f"Different configuration already exists at {target}")
-        pending.append((target, content))
-    for path, content in pending:
-        _create(path, content)
-    return directory.resolve() / "flow.yaml"
