@@ -1,6 +1,7 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase
+from unittest.mock import Mock, patch
 
 import numpy as np
 import pandas as pd
@@ -10,10 +11,29 @@ import yaml
 from lib.inference import inference
 from lib.models.capsnet import CapsNet
 from lib.models.factories import capsnet
+from lib.utils.registry import TORCH_PREDICTORS, TORCH_TRAINERS
 from runtime.train import train
 
 
 class CapsuleRegressorTest(TestCase):
+    def test_registered_capsnet_handlers_take_precedence(self) -> None:
+        fit, predict = Mock(), Mock()
+        with (
+            TemporaryDirectory() as tmp,
+            patch.dict(TORCH_TRAINERS, {"capsnet": fit}),
+            patch.dict(TORCH_PREDICTORS, {"capsnet": predict}),
+        ):
+            recipe = Path(tmp) / "custom.yaml"
+            for spec in ({}, {"image_catalog": {"id_column": "id", "target_column": "mass"}}):
+                recipe.write_text(
+                    yaml.safe_dump({"model_type": "lightning", "model": "capsnet", **spec})
+                )
+                train(str(recipe))
+                inference(config_path=str(recipe))
+                self.assertEqual(fit.call_args.args, (str(recipe),))
+                self.assertEqual(predict.call_args.args, (str(recipe),))
+            self.assertEqual((fit.call_count, predict.call_count), (2, 2))
+
     def test_generic_one_channel_fit_predict_and_native_state_compatibility(self) -> None:
         previous = torch.get_num_threads()
         self.addCleanup(torch.set_num_threads, previous)
@@ -39,6 +59,7 @@ class CapsuleRegressorTest(TestCase):
                 yaml.safe_dump(
                     dict(
                         model_type="lightning",
+                        model="capsnet",
                         estimator="capsnet",
                         estimator_params=params,
                         device="cpu",

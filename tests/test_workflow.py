@@ -10,6 +10,7 @@ from unittest import TestCase
 import pandas as pd
 from prefect.client.orchestration import get_client
 from prefect.client.schemas.filters import FlowRunFilter, FlowRunFilterId
+from prefect.settings import PREFECT_RESULTS_LOCAL_STORAGE_PATH, temporary_settings
 from prefect.testing.utilities import prefect_test_harness
 from pydantic import ValidationError
 
@@ -33,7 +34,11 @@ class WorkflowTest(TestCase):
         from importlib.util import find_spec
         from uuid import UUID
 
-        with TemporaryDirectory() as tmp, prefect_test_harness():
+        with (
+            TemporaryDirectory() as tmp,
+            temporary_settings({PREFECT_RESULTS_LOCAL_STORAGE_PATH: Path(tmp) / "cache"}),
+            prefect_test_harness(),
+        ):
             root = Path(tmp)
             source = root / "data.parquet"
             frame = pd.DataFrame(

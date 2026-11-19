@@ -6,7 +6,7 @@ from lib.config import FeaturesConfig, PytorchTrainConfig, SklearnTrainConfig
 from lib.dataloaders.dataset import read_dataset
 from lib.utils.hydra_utils import run_recipe_cli
 from lib.utils.log import get_logger
-from lib.utils.registry import TORCH_TRAINERS, register_torch_trainer
+from lib.utils.registry import TORCH_TRAINERS
 from lib.utils.utils import load_yaml, load_yaml_as, pick_device
 
 logger = get_logger()
@@ -44,7 +44,7 @@ def _train_sklearn(
 
 
 def _train_capsnet(config_path: str, **_: object) -> None:
-    from lib.train.capsnet import run_train
+    from photoz.training.capsnet import run_train
 
     run_train(Path(config_path))
 
@@ -125,27 +125,29 @@ def _train_sklearn_entry(
 
 
 def _train_euclid_clip(config_path: str, **_: object) -> None:
-    from lib.train.euclid_clip_finetune import run_train
+    from photoz.training.euclid_clip_finetune import run_train
 
     run_train(Path(config_path))
 
 
 def _train_euclid_clip_pretrain(config_path: str, **_: object) -> None:
-    from lib.train.euclid_clip_pretrain import run_train
+    from photoz.training.euclid_clip_pretrain import run_train
 
     run_train(Path(config_path))
 
 
 def _train_euclid_classical(config_path: str, **_: object) -> None:
-    from lib.train.euclid_classical import run_train
+    from photoz.training.euclid_classical import run_train
 
     run_train(Path(config_path))
 
 
-register_torch_trainer("capsnet", _train_capsnet)
-register_torch_trainer("euclid_clip", _train_euclid_clip)
-register_torch_trainer("euclid_clip_pretrain", _train_euclid_clip_pretrain)
-register_torch_trainer("euclid_classical", _train_euclid_classical)
+_ARCHIVED_TRAINERS = {
+    "capsnet": _train_capsnet,
+    "euclid_clip": _train_euclid_clip,
+    "euclid_clip_pretrain": _train_euclid_clip_pretrain,
+    "euclid_classical": _train_euclid_classical,
+}
 
 
 def train(
@@ -156,12 +158,17 @@ def train(
     feature_set: str | None = None,
 ) -> None:
     raw_cfg = load_yaml(config_path)
-    model_type = raw_cfg.get("model_type", "sklearn") if isinstance(raw_cfg, dict) else "sklearn"
-    model = str(raw_cfg.get("model", "")) if isinstance(raw_cfg, dict) else ""
+    recipe = raw_cfg if isinstance(raw_cfg, dict) else {}
+    model_type = recipe.get("model_type", "sklearn")
+    model = str(recipe.get("model", ""))
+    trainers = (
+        _ARCHIVED_TRAINERS | TORCH_TRAINERS if recipe.get("image_catalog") is None
+        else TORCH_TRAINERS
+    )
     if model_type == "lightning":
-        trainer: Callable[..., object] = TORCH_TRAINERS.get(model, _train_lightning_default)
-    elif model_type in ("torch", "classical") and model in TORCH_TRAINERS:
-        trainer = TORCH_TRAINERS[model]
+        trainer: Callable[..., object] = trainers.get(model, _train_lightning_default)
+    elif model_type in ("torch", "classical") and model in trainers:
+        trainer = trainers[model]
     elif model_type == "sklearn":
         trainer = _train_sklearn_entry
     else:

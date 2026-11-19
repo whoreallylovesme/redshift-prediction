@@ -18,11 +18,11 @@ from lib.config.snapshot import (
     recording_configs,
     seal_snapshot,
 )
-from lib.inference import inference
 from lib.tracking import Tracker, bind_run
 from lib.utils.log import get_logger
 from lib.utils.utils import load_yaml, load_yaml_as
 from runtime.evaluate import calc_metrics
+from runtime.inference import inference
 from runtime.render_plots import summary_plots
 from runtime.render_table import summary_table
 from runtime.split_tabular import prepare

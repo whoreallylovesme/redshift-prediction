@@ -11,12 +11,12 @@ from scipy.stats import pearsonr, spearmanr
 from torch.utils.data import DataLoader
 
 from lib.dataloaders.common import subsample_indices
-from lib.metrics import evaluate_regression
 from lib.train.lightning import predict_batches
 from lib.utils.log import get_logger
 from lib.utils.utils import pick_device
-from photoz.data.hdf5 import HDF5Dataset
+from photoz.data.hayat import HayatDataset
 from photoz.data.teddy_capsnet import TeddyCapsnetDataset, _scan
+from photoz.metrics import evaluate_regression
 
 logger = get_logger()
 
@@ -89,7 +89,7 @@ def _infer_h5(
     if max_samples is not None and n > int(max_samples):
         idx = subsample_indices(n, int(max_samples), int(raw.get("seed", 200)))
     nan_morph = np.full(len(idx), np.nan, dtype=np.float32)
-    ds = HDF5Dataset(
+    ds = HayatDataset(
         h5, idx, z_spec[idx], nan_morph,
         image_scale=float(raw.get("image_scale", 10.0)),
         crop_size=int(raw.get("crop_size", 64)), augment=False,

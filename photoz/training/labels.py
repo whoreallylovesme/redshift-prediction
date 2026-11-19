@@ -20,7 +20,7 @@ from lib.models.capsnet import CapsNet, margin_loss
 from lib.train.lightning import fit_best, predict_batches
 from lib.utils.log import get_logger
 from lib.utils.utils import pick_device
-from photoz.data.hdf5 import HDF5Dataset
+from photoz.data.hayat import HayatDataset
 
 logger = get_logger()
 
@@ -177,7 +177,7 @@ def run_generate(config_path: Path) -> None:
 
     def loader_for(pos: np.ndarray, augment: bool) -> DataLoader:
         lab = labels[pos].astype(np.float32)
-        ds = HDF5Dataset(
+        ds = HayatDataset(
             h5_path, indices[pos], lab, lab,
             image_scale=scale, crop_size=crop, augment=augment,
         )

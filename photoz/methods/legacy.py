@@ -1,9 +1,6 @@
 from pathlib import Path
 from typing import Any
 
-from lib.inference.regression import predict_images
-from lib.utils.registry import register_torch_predictor
-
 
 def build_predictor(raw: dict[str, Any], weights: Path) -> Any:
     from photoz.methods.capsnet import build_predictor as build
@@ -27,7 +24,4 @@ def predict_clip(config_path: str, **_: object) -> None:
     run(Path(config_path))
 
 
-def register_predictors() -> None:
-    register_torch_predictor("", predict_images)
-    register_torch_predictor("capsnet", predict_capsnet)
-    register_torch_predictor("euclid_clip", predict_clip)
+NAMED_PREDICTORS = {"capsnet": predict_capsnet, "euclid_clip": predict_clip}

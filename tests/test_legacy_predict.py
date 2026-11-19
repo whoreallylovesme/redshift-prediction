@@ -10,6 +10,7 @@ import yaml
 from torch.utils.data import DataLoader, TensorDataset
 
 from lib.config import PytorchTrainConfig
+from lib.inference import inference
 from photoz.methods.capsnet import _predict
 from photoz.methods.teddy_images import predict_teddy
 from photoz.models.capsnet import CapsNet
@@ -44,6 +45,15 @@ class LegacyPredictTest(TestCase):
             self.assertAlmostEqual(prediction.y_pred.iloc[0], 2.0)
             self.assertTrue(np.isnan(prediction.y_pred.iloc[1]))
             self.assertNotEqual(prediction.status.iloc[1], "ok")
+
+    def test_archived_euclid_recipe_uses_its_predictor(self) -> None:
+        with TemporaryDirectory() as tmp, patch("photoz.methods.euclid_clip.run_inference") as run:
+            path = Path(tmp) / "euclid.yaml"
+            for kind in ("torch", "lightning"):
+                path.write_text(yaml.safe_dump({"model_type": kind, "model": "euclid_clip"}))
+                inference(config_path=str(path))
+                run.assert_called_once_with(path)
+                run.reset_mock()
 
     def test_capsnet_predict_matches_single_batch_api(self) -> None:
         with TemporaryDirectory() as temp:

@@ -8,7 +8,7 @@ import yaml
 from torch.utils.data import DataLoader
 
 from lib.utils.log import get_logger
-from photoz.data.hdf5 import get_hdf5_dataloaders
+from photoz.data.hayat import get_hayat_dataloaders
 from photoz.data.teddy_capsnet import get_teddy_capsnet_dataloaders
 from photoz.training.capsnet_lightning import CapsNetModule, TrainConfig, run_staged
 
@@ -78,9 +78,9 @@ def _build_hayat(
     )
     train_a, val_a = None, None
     if cfg.stage_a_epochs > 0:
-        train_a, val_a = get_hdf5_dataloaders(**common, labeled_only=True)
+        train_a, val_a = get_hayat_dataloaders(**common, labeled_only=True)
     logger.info("[cli] building Hayat stage-B loaders (full set)")
-    train_b, val_b = get_hdf5_dataloaders(**common, labeled_only=False)
+    train_b, val_b = get_hayat_dataloaders(**common, labeled_only=False)
     return train_a, val_a, train_b, val_b
 
 def _build_teddy(

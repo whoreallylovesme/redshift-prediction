@@ -1,3 +1,4 @@
+import sys
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase
@@ -39,6 +40,7 @@ class ImageRegressionTests(TestCase):
                 yaml.safe_dump(
                     {
                         "model_type": "lightning",
+                        "model": "sensor_regressor",
                         "device": "cpu",
                         "estimator": "tiny_fixture",
                         "data_dir": str(training),
@@ -75,14 +77,17 @@ class ImageRegressionTests(TestCase):
             by_id = root / "predict.parquet"
             pd.DataFrame({"sample": ["099", "088"]}).to_parquet(by_id, index=False)
             pred = root / "predictions.parquet"
-            inference(
-                str(output / "best_model.pt"),
-                str(pred),
-                str(yaml_path),
-                data_dir=str(testing),
-                catalog=str(by_id),
-                held_out=True,
-            )
+            with patch.dict(
+                sys.modules, {"photoz.methods.legacy": None, "photoz.methods.teddy_images": None}
+            ):
+                inference(
+                    str(output / "best_model.pt"),
+                    str(pred),
+                    str(yaml_path),
+                    data_dir=str(testing),
+                    catalog=str(by_id),
+                    held_out=True,
+                )
             result = pd.read_parquet(pred)
             self.assertEqual(list(result.columns), ["sample", "y_pred"])
             self.assertEqual(list(result["sample"]), ["099", "088"])

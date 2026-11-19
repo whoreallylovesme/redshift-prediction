@@ -39,6 +39,20 @@ uv run python -m runtime.pipeline --config configs/flows/capsnet_teddy.yaml --ch
 
 В `photoz/` находятся адаптеры каталогов и изображений, правила отбора и нормализации для астрономии, целевые преобразования и протоколы обучения CapsNet и Euclid, физические метрики, научные рисунки и адаптер Phosphoros. Старые импорты из `lib/` и вспомогательные CLI делегируют этим модулям. Добавление другого эксперимента начинается с рецепта. Новый критерий оценки подключается через поле `task`, которое принимает `module:symbol` с экземпляром `ReportTask`.
 
+Для собственного PyTorch-датасета `lib.dataloaders.hdf5_rows.HDF5Rows` даёт доступ к строкам массива по пути внутри HDF5. Ключ выбирает вызывающий код. Например, признаки и цель разной размерности из одного файла можно подать в стандартный `DataLoader` следующим образом.
+
+```python
+from torch.utils.data import DataLoader, StackDataset
+
+from lib.dataloaders.hdf5_rows import HDF5Rows
+
+features = HDF5Rows("measurements.h5", "sensors/features")
+target = HDF5Rows("measurements.h5", "sensors/temperature")
+batches = DataLoader(StackDataset(features, target), batch_size=32)
+```
+
+Адаптер `photoz.data.hayat.HayatDataset` использует этот же ридер для массива `images`. Он задаёт порядок каналов, масштабирование и соответствие между изображением и метками. Старые импорты `HDF5Dataset` и `get_hdf5_dataloaders` по-прежнему открывают адаптер Hayat.
+
 ## Схема конфига
 
 ```yaml
