@@ -5,11 +5,11 @@ from typing import Any
 
 import torch
 import yaml
-from torch.utils.data import DataLoader
+from hydra.utils import instantiate
 
+from lib.dataloaders.staged import StagedLoaders
 from lib.utils.log import get_logger
-from photoz.data.hayat import get_hayat_dataloaders
-from photoz.data.teddy_capsnet import get_teddy_capsnet_dataloaders
+from lib.utils.utils import plugin
 from photoz.training.capsnet_lightning import CapsNetModule, TrainConfig, run_staged
 
 logger = get_logger()
@@ -21,95 +21,44 @@ def run_train(config_path: Path) -> None:
     with config_path.open() as f:
         raw = yaml.safe_load(f)
 
-    if isinstance(raw.get("labels"), dict) and raw["labels"].get("enabled"):
-        from photoz.training.labels import run_generate
+    labels = raw.pop("labels", None)
+    if isinstance(labels, dict) and labels.get("enabled"):
+        generator = labels.get("generator")
+        if not isinstance(generator, str):
+            raise ValueError("Enabled labels require a generator plugin")
+        plugin(generator)(config_path)
 
-        run_generate(config_path)
-
-    dataset = raw.pop("dataset", "hayat")
-    raw.pop("model_type", None)
+    data_config = raw.pop("data", None)
+    if not isinstance(data_config, dict) or "_target_" not in data_config:
+        raise ValueError("CapsNet data requires a loader factory in data._target_")
     augment_cfg: dict[str, Any] = raw.pop("augment", {})
-    inference_cfg: dict[str, Any] = raw.pop("inference", {})
-    max_samples = inference_cfg.get("max_samples")
+    raw.pop("inference", None)
 
     train_kwargs = {k: v for k, v in raw.items() if k in _TRAIN_CFG_FIELDS}
     loader_kwargs = {k: v for k, v in raw.items() if k not in _TRAIN_CFG_FIELDS}
     cfg = TrainConfig(**train_kwargs)
-    rot90_prob = float(augment_cfg.get("rot90_prob", 0.67))
-    flip_prob = float(augment_cfg.get("flip_prob", 0.33))
-
-    logger.info(f"[train] config: {config_path}  dataset={dataset}  out_dir={cfg.out_dir}")
-    if max_samples is not None:
-        logger.info(f"[train] max_samples: {max_samples}")
-
-    if dataset == "hayat":
-        train_a, val_a, train_b, val_b = _build_hayat(
-            loader_kwargs, cfg, max_samples, rot90_prob, flip_prob,
-        )
-    elif dataset == "teddy":
-        train_a, val_a, train_b, val_b = _build_teddy(
-            loader_kwargs, cfg, max_samples, rot90_prob, flip_prob,
-        )
-    else:
-        raise ValueError(f"Unknown dataset: {dataset!r}")
-
-    torch.manual_seed(cfg.seed)
-    module = CapsNetModule(cfg)
-    final_ckpt = run_staged(module, train_a, val_a, train_b, val_b, cfg)
-    logger.info(f"[train] done. final checkpoint: {final_ckpt}")
-
-def _build_hayat(
-    lk: dict[str, Any], cfg: TrainConfig, max_samples: int | None,
-    rot90_prob: float, flip_prob: float,
-) -> tuple[DataLoader[Any] | None, DataLoader[Any] | None, DataLoader[Any], DataLoader[Any]]:
-    common = dict(
-        h5_path=lk["h5_path"],
-        morph_parquet=lk["morph_parquet"],
-        batch_size=lk.get("batch_size", 400),
-        num_workers=lk.get("num_workers", 4),
-        train_ratio=lk.get("train_ratio", 0.8),
+    loaders = instantiate(
+        data_config,
+        **loader_kwargs,
         seed=cfg.seed,
-        max_samples=max_samples,
-        weighted_sampling=lk.get("weighted_sampling", False),
-        crop_size=cfg.crop_size,
-        image_scale=lk.get("image_scale", 10.0),
-        rot90_prob=rot90_prob,
-        flip_prob=flip_prob,
-    )
-    train_a, val_a = None, None
-    if cfg.stage_a_epochs > 0:
-        train_a, val_a = get_hayat_dataloaders(**common, labeled_only=True)
-    logger.info("[cli] building Hayat stage-B loaders (full set)")
-    train_b, val_b = get_hayat_dataloaders(**common, labeled_only=False)
-    return train_a, val_a, train_b, val_b
-
-def _build_teddy(
-    lk: dict[str, Any], cfg: TrainConfig, max_samples: int | None,
-    rot90_prob: float, flip_prob: float,
-) -> tuple[DataLoader[Any] | None, DataLoader[Any] | None, DataLoader[Any], DataLoader[Any]]:
-    common = dict(
-        images_dir=lk["images_dir"],
-        catalog_path=lk["catalog_path"],
-        gz1_parquet=lk["gz1_parquet"],
-        batch_size=lk.get("batch_size", 256),
-        num_workers=lk.get("num_workers", 4),
-        train_ratio=lk.get("train_ratio", 0.85),
-        seed=cfg.seed,
-        max_samples=max_samples,
         crop_size=cfg.crop_size,
         in_channels=cfg.in_channels,
-        image_scale=lk.get("image_scale", 10.0),
-        per_channel_norm=lk.get("per_channel_norm", False),
-        rot90_prob=rot90_prob,
-        flip_prob=flip_prob,
+        rot90_prob=float(augment_cfg.get("rot90_prob", 0.67)),
+        flip_prob=float(augment_cfg.get("flip_prob", 0.33)),
+        include_stage_a=cfg.stage_a_epochs > 0,
     )
-    train_a, val_a = None, None
-    if cfg.stage_a_epochs > 0:
-        train_a, val_a = get_teddy_capsnet_dataloaders(
-            **common, weighted_sampling=True, labeled_only=True,
-        )
-    logger.info("[cli] building Teddy stage-B loaders (full set, z-balanced)")
-    train_b, val_b = get_teddy_capsnet_dataloaders(
-        **common, weighted_sampling=lk.get("weighted_sampling", True), labeled_only=False,
+    if not isinstance(loaders, StagedLoaders):
+        raise TypeError("CapsNet data factory must return StagedLoaders")
+
+    logger.info(f"[train] config: {config_path}  out_dir={cfg.out_dir}")
+    torch.manual_seed(cfg.seed)
+    module = CapsNetModule(cfg)
+    final_ckpt = run_staged(
+        module,
+        loaders.train_a,
+        loaders.val_a,
+        loaders.train_b,
+        loaders.val_b,
+        cfg,
     )
-    return train_a, val_a, train_b, val_b
+    logger.info(f"[train] done. final checkpoint: {final_ckpt}")

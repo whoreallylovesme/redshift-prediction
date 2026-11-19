@@ -5,15 +5,10 @@ from pathlib import Path
 from typing import Any
 
 import h5py
-import lightning as L
 import numpy as np
-import torch
 from numpy.typing import NDArray
-from torch import Tensor, nn
 
-from lib.dataloaders.common import d4 as d4
 from lib.utils.utils import check
-from photoz.models.nn.euclid_clip import CLIPModel, ITNetwork
 
 KEYS = (
     "image",
@@ -34,28 +29,11 @@ IT_ARGS = (
     "image_available",
     "table_available",
 )
-SSL_EPOCHS = 12
-FINE_EPOCHS = 40
-SSL_BATCH = 256
-FINE_BATCH = 128
-INFER_BATCH = 512
-LR = 3e-4
-WD = 1e-4
-CLIP_NORM = 5.0
-WARMUP_EPOCHS = 5
 HOLDOUT_SEED = 20261027
 HOLDOUT_FRAC = 0.10
 TABLE_SLOTS = 14
 
 type Rows = NDArray[np.integer] | Sequence[int]
-
-
-def reset_rng(seed: int) -> None:
-    L.seed_everything(seed, workers=False, verbose=False)
-
-
-def state_copy(model: nn.Module) -> dict[str, Tensor]:
-    return {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
 
 
 def select_rows(dataset: h5py.Dataset, indices: Rows) -> NDArray[Any]:
@@ -146,27 +124,3 @@ def holdout_tiles(
         held += rng.choice(tiles, n_held, replace=False).tolist()
     mask = np.isin(owner[ssl], held)
     return ssl[~mask], ssl[mask], sorted(int(t) for t in held), owner
-
-
-def schedule_lr(
-    epoch: int, epochs: int, base_lr: float = LR, warmup: int = WARMUP_EPOCHS
-) -> float:
-    if not 1 <= epoch <= epochs or warmup < 0:
-        raise ValueError("schedule epoch outside bounds")
-    if epoch <= warmup:
-        return base_lr * epoch / warmup
-    return float(base_lr * 0.5 * (1 + np.cos(np.pi * (epoch - warmup) / (epochs - warmup))))
-
-
-def masked(b: dict[str, Tensor], keep: Tensor) -> dict[str, Tensor]:
-    m = b["table_mask"] & keep
-    b["table_mask"] = m
-    b["table_available"] = b["table_available"] & (m.sum(1) >= 2)
-    return b
-
-
-def load_it_from_clip(path: Path) -> ITNetwork:
-    state = torch.load(path, map_location="cpu", weights_only=True)
-    clip = CLIPModel(ITNetwork())
-    clip.load_state_dict(state, strict=True)
-    return clip.it_network

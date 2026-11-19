@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from functools import cached_property
 from pathlib import Path
+from typing import Any
 
 import h5py
 import numpy as np
@@ -17,6 +18,7 @@ from lib.dataloaders.common import (
     subsample_indices,
 )
 from lib.dataloaders.hdf5_rows import HDF5Rows
+from lib.dataloaders.staged import StagedLoaders
 from lib.utils.log import get_logger
 
 logger = get_logger()
@@ -179,3 +181,82 @@ def get_hayat_dataloaders(
         persistent_workers=num_workers > 0,
     )
     return train_loader, val_loader
+
+
+def staged_capsnet_loaders(
+    h5_path: str | Path,
+    morph_parquet: str | Path,
+    batch_size: int = 400,
+    num_workers: int = 4,
+    train_ratio: float = 0.8,
+    seed: int = 200,
+    max_samples: int | None = None,
+    weighted_sampling: bool = False,
+    crop_size: int = 64,
+    in_channels: int = 5,
+    image_scale: float = 10.0,
+    rot90_prob: float = 0.67,
+    flip_prob: float = 0.33,
+    include_stage_a: bool = True,
+) -> StagedLoaders:
+    if in_channels != 5:
+        raise ValueError("Hayat CapsNet data provides five image channels")
+    common: dict[str, Any] = dict(
+        h5_path=h5_path,
+        morph_parquet=morph_parquet,
+        batch_size=batch_size,
+        num_workers=num_workers,
+        train_ratio=train_ratio,
+        seed=seed,
+        max_samples=max_samples,
+        weighted_sampling=weighted_sampling,
+        crop_size=crop_size,
+        image_scale=image_scale,
+        rot90_prob=rot90_prob,
+        flip_prob=flip_prob,
+    )
+    train_a, val_a = None, None
+    if include_stage_a:
+        train_a, val_a = get_hayat_dataloaders(**common, labeled_only=True)
+    train_b, val_b = get_hayat_dataloaders(**common, labeled_only=False)
+    return StagedLoaders(train_a, val_a, train_b, val_b)
+
+
+def capsnet_inference_data(
+    h5_path: str | Path,
+    batch_size: int = 256,
+    num_workers: int = 3,
+    seed: int = 200,
+    max_samples: int | None = None,
+    crop_size: int = 64,
+    in_channels: int = 5,
+    image_scale: float = 10.0,
+) -> tuple[pd.DataFrame, DataLoader[tuple[torch.Tensor, torch.Tensor, torch.Tensor]]]:
+    if in_channels != 5:
+        raise ValueError("Hayat CapsNet data provides five image channels")
+    h5_path = Path(h5_path)
+    with h5py.File(h5_path, "r") as f:
+        n = f["images"].shape[0]
+        objids = np.array([int(x) for x in f["ObjID"][:].astype(str)], dtype=np.int64)
+        specids = np.array([int(x) for x in f["specObjID"][:].astype(str)], dtype=np.int64)
+        z_spec = f["specz_redshift"][:].astype(np.float32)
+    indices = np.arange(n)
+    if max_samples is not None and n > max_samples:
+        indices = subsample_indices(n, max_samples, seed)
+    morph = np.full(len(indices), np.nan, dtype=np.float32)
+    dataset = HayatDataset(
+        h5_path,
+        indices,
+        z_spec[indices],
+        morph,
+        image_scale=image_scale,
+        crop_size=crop_size,
+        augment=False,
+    )
+    loader = DataLoader(dataset, batch_size=batch_size, num_workers=num_workers)
+    frame = pd.DataFrame({
+        "objid": objids[indices],
+        "specobjid": specids[indices],
+        "z_spec": z_spec[indices],
+    })
+    return frame, loader

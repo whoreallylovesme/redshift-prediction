@@ -9,7 +9,7 @@ from torch.optim import AdamW
 from torch.optim.lr_scheduler import LambdaLR
 
 from lib.dataloaders.batches import ShuffledRowBatches as ShuffledRowBatches
-from photoz.data.euclid_packet import WARMUP_EPOCHS, schedule_lr
+from photoz.training.euclid_clip_recipe import WARMUP_EPOCHS, schedule_lr
 
 type OptimizerSchedule = tuple[list[AdamW], list[LambdaLR]]
 

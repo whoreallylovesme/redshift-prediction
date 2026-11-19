@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -14,6 +15,7 @@ from lib.dataloaders.common import (
     random_rot90_flip,
     subsample_indices,
 )
+from lib.dataloaders.staged import StagedLoaders
 from lib.utils.log import get_logger
 from photoz.data.npz import _resolve_w1w2_path, parse_catalog, read_bands
 
@@ -216,3 +218,89 @@ def get_teddy_capsnet_dataloaders(
         num_workers=num_workers, pin_memory=True, persistent_workers=num_workers > 0,
     )
     return train_loader, val_loader
+
+
+def staged_capsnet_loaders(
+    images_dir: str | Path,
+    catalog_path: str | Path,
+    gz1_parquet: str | Path,
+    batch_size: int = 256,
+    num_workers: int = 4,
+    train_ratio: float = 0.85,
+    seed: int = 200,
+    max_samples: int | None = None,
+    weighted_sampling: bool = True,
+    crop_size: int = 64,
+    in_channels: int = 4,
+    image_scale: float = 10.0,
+    per_channel_norm: bool = False,
+    rot90_prob: float = 0.67,
+    flip_prob: float = 0.33,
+    include_stage_a: bool = True,
+) -> StagedLoaders:
+    common: dict[str, Any] = dict(
+        images_dir=images_dir,
+        catalog_path=catalog_path,
+        gz1_parquet=gz1_parquet,
+        batch_size=batch_size,
+        num_workers=num_workers,
+        train_ratio=train_ratio,
+        seed=seed,
+        max_samples=max_samples,
+        crop_size=crop_size,
+        in_channels=in_channels,
+        image_scale=image_scale,
+        per_channel_norm=per_channel_norm,
+        rot90_prob=rot90_prob,
+        flip_prob=flip_prob,
+    )
+    train_a, val_a = None, None
+    if include_stage_a:
+        train_a, val_a = get_teddy_capsnet_dataloaders(
+            **common, weighted_sampling=True, labeled_only=True,
+        )
+    train_b, val_b = get_teddy_capsnet_dataloaders(
+        **common, weighted_sampling=weighted_sampling, labeled_only=False,
+    )
+    return StagedLoaders(train_a, val_a, train_b, val_b)
+
+
+def capsnet_inference_data(
+    images_dir: str | Path,
+    catalog_path: str | Path,
+    gz1_parquet: str | Path,
+    w1w2_dir: str | Path | None = None,
+    batch_size: int = 256,
+    num_workers: int = 3,
+    seed: int = 200,
+    max_samples: int | None = None,
+    crop_size: int = 64,
+    in_channels: int = 4,
+    image_scale: float = 10.0,
+    per_channel_norm: bool = False,
+) -> tuple[pd.DataFrame, DataLoader[tuple[torch.Tensor, torch.Tensor, torch.Tensor]]]:
+    wise = Path(w1w2_dir) if w1w2_dir is not None else None
+    files, z_all, morph_all = _scan(
+        Path(images_dir), Path(catalog_path), Path(gz1_parquet), w1w2_dir=wise,
+    )
+    if max_samples is not None and len(files) > max_samples:
+        selected = subsample_indices(len(files), max_samples, seed)
+        files = [files[i] for i in selected]
+        z_all, morph_all = z_all[selected], morph_all[selected]
+    dataset = TeddyCapsnetDataset(
+        files,
+        z_all,
+        morph_all,
+        in_channels=in_channels,
+        crop_size=crop_size,
+        image_scale=image_scale,
+        augment=False,
+        per_channel_norm=per_channel_norm,
+        w1w2_dir=wise,
+    )
+    loader = DataLoader(dataset, batch_size=batch_size, num_workers=num_workers)
+    frame = pd.DataFrame({
+        "objid": [int(path.stem) for path in files],
+        "z_spec": z_all,
+    })
+    return frame, loader

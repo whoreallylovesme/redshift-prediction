@@ -6,10 +6,11 @@ from unittest.mock import patch
 import numpy as np
 import torch
 
-from photoz.data.euclid_packet import IT_ARGS, Rows, load_it_from_clip, masked
+from photoz.data.euclid_packet import IT_ARGS, Rows
 from photoz.models.nn.euclid_clip import BinNet, ITNetwork, bin_summary
 from photoz.training import euclid_clip_finetune as fine
 from photoz.training import euclid_clip_pretrain as ssl
+from photoz.training.euclid_clip_recipe import load_it_from_clip, masked
 
 
 class TinySource:
@@ -42,7 +43,7 @@ class TinySource:
 
 class ClipTrainingTests(TestCase):
     def test_short_native_debug_run_uses_the_original_warmup(self) -> None:
-        from photoz.data.euclid_packet import LR, schedule_lr
+        from photoz.training.euclid_clip_recipe import LR, schedule_lr
 
         for epoch in (1, 2):
             self.assertEqual(schedule_lr(epoch, 2), schedule_lr(epoch, 40))

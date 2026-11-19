@@ -18,23 +18,21 @@ from lib.utils.log import log_event
 from lib.utils.torch_utils import configure_torch
 from lib.utils.utils import check, load_yaml_as, pick_device
 from photoz.artifacts import HISTORY_NAME as HISTORY_NAME
-from photoz.data.euclid_packet import (
-    CLIP_NORM,
-    KEYS,
-    LR,
-    SSL_BATCH,
-    SSL_EPOCHS,
-    WD,
-    Packet,
-    Rows,
-    reset_rng,
-    state_copy,
-)
+from photoz.data.euclid_packet import KEYS, Packet, Rows
 from photoz.models.nn.euclid_clip import CLIPModel, ITNetwork
 from photoz.training.clip_epochs import (
     ClipTrainingEpoch,
     OptimizerSchedule,
     scheduled_adamw,
+)
+from photoz.training.euclid_clip_recipe import (
+    CLIP_NORM,
+    LR,
+    SSL_BATCH,
+    SSL_EPOCHS,
+    WD,
+    reset_rng,
+    state_copy,
 )
 
 STATE_NAME = "clip_state.pt"

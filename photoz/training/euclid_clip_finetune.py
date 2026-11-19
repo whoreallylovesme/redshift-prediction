@@ -24,27 +24,25 @@ from lib.train.lightning import predict_batches, single_device_trainer
 from lib.utils.log import log_event
 from lib.utils.torch_utils import configure_torch
 from lib.utils.utils import check, load_yaml_as, pick_device
-from photoz.data.euclid_packet import (
-    CLIP_NORM,
-    FINE_BATCH,
-    FINE_EPOCHS,
-    INFER_BATCH,
-    IT_ARGS,
-    LR,
-    TABLE_SLOTS,
-    WD,
-    Packet,
-    load_it_from_clip,
-    masked,
-    reset_rng,
-    state_copy,
-)
+from photoz.data.euclid_packet import IT_ARGS, TABLE_SLOTS, Packet
 from photoz.metrics import bias, delta, nmad, outlier_fraction
 from photoz.models.nn.euclid_clip import BinNet, ITNetwork, bin_summary, soft_target
 from photoz.training.clip_epochs import (
     ClipTrainingEpoch,
     OptimizerSchedule,
     scheduled_adamw,
+)
+from photoz.training.euclid_clip_recipe import (
+    CLIP_NORM,
+    FINE_BATCH,
+    FINE_EPOCHS,
+    INFER_BATCH,
+    LR,
+    WD,
+    load_it_from_clip,
+    masked,
+    reset_rng,
+    state_copy,
 )
 
 TRAIN_KEYS = ("image", "image_available", "table_values", "table_mask", "table_available")

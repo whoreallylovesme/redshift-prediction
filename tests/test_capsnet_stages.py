@@ -1,18 +1,29 @@
 import json
+from collections.abc import Sized
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Any
+from typing import Any, cast
 from unittest import TestCase
+from unittest.mock import patch
 
 import h5py
 import numpy as np
 import pandas as pd
 import torch
 import yaml
+from torch.utils.data import DataLoader, TensorDataset
 
 from lib.models.nn.capsnet import CapsNet
 from photoz.data.hayat import HayatDataset, get_hayat_dataloaders
+from photoz.data.teddy_capsnet import staged_capsnet_loaders
 from photoz.training.capsnet import run_train
+
+
+def inference_fixture() -> tuple[pd.DataFrame, DataLoader]:
+    values = torch.zeros(2, 5, 16, 16)
+    targets = torch.zeros(2)
+    loader = DataLoader(TensorDataset(values, targets, targets), batch_size=2)
+    return pd.DataFrame({"objid": [2, 1], "z_spec": [0.1, 0.2]}), loader
 
 
 class CapsNetStagesTest(TestCase):
@@ -52,6 +63,7 @@ class CapsNetStagesTest(TestCase):
                 stage_a_epochs=1,
                 stage_b_epochs=1,
                 out_dir=str(root / "out"),
+                data={"_target_": "photoz.data.hayat.staged_capsnet_loaders"},
                 **{**args, "h5_path": str(images), "morph_parquet": str(morph)},
             )
             recipe = root / "stages.yaml"
@@ -80,3 +92,76 @@ class CapsNetStagesTest(TestCase):
             run_train(recipe)
             self.assertTrue((root / "b/weights/stage_b_best.pt").is_file())
             self.assertFalse((root / "b/weights/stage_a_last.pt").exists())
+
+
+    def test_teddy_factory_builds_both_stages(self) -> None:
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            images = root / "images"
+            images.mkdir()
+            rows = []
+            for index in range(12):
+                np.savez(images / f"{index}.npz", image=np.ones((16, 16, 4), dtype=np.float32))
+                rows.append(f"{index} 0 0 0 0 0 {0.03 + index * 0.02}")
+            catalog = root / "catalog.txt"
+            catalog.write_text("\n".join(rows))
+            morph = root / "morph.parquet"
+            pd.DataFrame({
+                "objid": [str(i) for i in range(12)],
+                "gz_spiral": [i % 2 for i in range(12)],
+                "gz_elliptical": [(i + 1) % 2 for i in range(12)],
+            }).to_parquet(morph)
+            loaders = staged_capsnet_loaders(
+                images,
+                catalog,
+                morph,
+                batch_size=4,
+                num_workers=0,
+                train_ratio=0.75,
+                seed=9,
+                crop_size=16,
+                in_channels=4,
+            )
+            assert loaders.train_a is not None and loaders.val_a is not None
+            self.assertEqual(
+                len(cast(Sized, loaders.train_a.dataset))
+                + len(cast(Sized, loaders.val_a.dataset)),
+                12,
+            )
+            self.assertEqual(
+                len(cast(Sized, loaders.train_b.dataset))
+                + len(cast(Sized, loaders.val_b.dataset)),
+                12,
+            )
+            for loader in (loaders.train_a, loaders.val_a, loaders.train_b, loaders.val_b):
+                image, _, _ = next(iter(loader))
+                self.assertEqual(image.shape[1:], (4, 16, 16))
+
+
+    def test_inference_uses_configured_data_factory(self) -> None:
+        from photoz.methods import capsnet as method
+
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            output = root / "predictions.parquet"
+            recipe = root / "inference.yaml"
+            recipe.write_text(yaml.safe_dump({
+                "out_dir": str(root),
+                "inference": {
+                    "out": str(output),
+                    "data": {"_target_": "test_capsnet_stages.inference_fixture"},
+                },
+            }))
+            predictions = {
+                "z_pred": np.array([0.11, 0.21]),
+                "p_spiral": np.array([0.4, 0.6]),
+            }
+            with (
+                patch.object(method, "build_predictor", return_value=object()),
+                patch.object(method, "_predict", return_value=predictions),
+            ):
+                method.run_inference(recipe)
+            result = pd.read_parquet(output)
+            self.assertEqual(result.objid.tolist(), [2, 1])
+            np.testing.assert_allclose(result.z_pred, predictions["z_pred"])
+            np.testing.assert_allclose(result.p_spiral, predictions["p_spiral"])
