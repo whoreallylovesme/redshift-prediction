@@ -39,7 +39,12 @@ from photoz.data.euclid_packet import (
 )
 from photoz.metrics import bias, delta, nmad, outlier_fraction
 from photoz.models.euclid_clip import BinNet, ITNetwork, bin_summary, soft_target
-from photoz.training.clip_epochs import ClipTrainingEpoch, ShuffledRowBatches
+from photoz.training.clip_epochs import (
+    ClipTrainingEpoch,
+    OptimizerSchedule,
+    ShuffledRowBatches,
+    scheduled_adamw,
+)
 
 TRAIN_KEYS = ("image", "image_available", "table_values", "table_mask", "table_available")
 TABLE_KEYS = ("table_values", "table_mask", "table_available")
@@ -553,8 +558,8 @@ class BinnedFineTuning(ClipTrainingEpoch):
         self.weights = torch.as_tensor(wt.astype("f4"))
         self.target = torch.as_tensor(soft_target(np.log1p(z)))
 
-    def configure_optimizers(self) -> torch.optim.AdamW:
-        return torch.optim.AdamW(self.model.parameters(), lr=LR, weight_decay=WD)
+    def configure_optimizers(self) -> OptimizerSchedule:
+        return scheduled_adamw(self.model.parameters(), self.epochs, lr=LR, weight_decay=WD)
 
     def training_step(self, batch: Tensor, batch_idx: int) -> Tensor:
         loc = batch.numpy()
@@ -579,7 +584,7 @@ class BinnedFineTuning(ClipTrainingEpoch):
             median, _ = bin_statistics(self.model, get, batch, self.keep)
             self.validation_medians.append(median)
 
-    def on_validation_epoch_end(self) -> None:
+    def on_train_epoch_end(self) -> None:
         if not self.validation_medians:
             return
         epoch = self.current_epoch + 1
@@ -587,7 +592,8 @@ class BinnedFineTuning(ClipTrainingEpoch):
         self.validation_medians.clear()
         valid = photoz_metrics(self.z_val, np.expm1(mu))
         self.history.append({
-            "epoch": epoch, "lr": self.lr, "train_nll": self.loss_sum / self.examples,
+            "epoch": epoch, "lr": self.lr,
+            "train_nll": float(self.trainer.callback_metrics["train/loss"]),
             "valid": valid,
         })
         self.log("val/nmad", valid["nmad"])
@@ -595,10 +601,6 @@ class BinnedFineTuning(ClipTrainingEpoch):
             phase="finetune", tag=self.cfg.tag, seed=self.cfg.seed, epoch=epoch,
             valid_nmad=round(valid["nmad"], 4), valid_out=round(valid["outliers"], 4),
         )
-
-    def on_train_epoch_start(self) -> None:
-        super().on_train_epoch_start()
-        self.model.train()
 
 
 def fine_tune(

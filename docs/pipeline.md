@@ -1,12 +1,12 @@
 # Запуск эксперимента
 
-Пути в рецептах отсчитываются от корня checkout. Два маленьких примера запускаются со свежего клона. Для научных рецептов требуются каталоги, указанные в YAML.
+В YAML один блок `dataset` задаёт входы всех методов. Пути к данным отсчитываются от рабочего каталога. Примеры отличаются набором данных и используют одну схему.
 
-| Пример | Что делает |
+| Эксперимент | Источник и результат |
 | --- | --- |
-| [regression.yaml](../examples/configs/regression.yaml) | Обучает Ridge и случайный лес по включённой в Git таблице, сравнивает прогнозы для общих ID |
-| [fusion.yaml](../examples/configs/fusion.yaml) | Обучает Lightning-модель на снимках NPZ и двух числовых признаках, оценивает её на отдельном каталоге |
-| [phosphoros.yaml](../examples/configs/phosphoros.yaml) | Вызывает Phosphoros Core для F_VALID. В рецепте модели укажите пути к локальной установке и подготовленным ресурсам |
+| [Табличная регрессия](../examples/configs/regression.yaml) | 442 наблюдения из scikit-learn, доступны офлайн. Ridge и CatBoost предсказывают числовую цель на одной отложенной выборке |
+| [TEDDY](../examples/configs/teddy.yaml) | Фотометрия из каталога A, проверка на B. CatBoost использует признаки, CapsNet получает соответствующие им изображения. Укажите подготовленные Parquet с ID `id` и каталоги шестиканальных NPZ, названных по SDSS ObjID. [Описание исходных каталогов](https://github.com/COINtoolbox/photoz_catalogues/blob/master/Teddy/README.md) |
+| [Euclid F_VALID](../examples/configs/euclid.yaml) | Секция данных указывает корень подготовленной фотометрии, секция метода задаёт рабочий каталог Phosphoros, конфиг Core и способ получения PDF |
 
 Свой эксперимент можно хранить в любом каталоге и передавать в `--config`. Для повторного использования групп в YAML поддерживаются Hydra `defaults`, интерполяции OmegaConf и переопределения аргументами `key=value`. Например, `uv run python -m runtime.pipeline --config examples/configs/regression.yaml workers=1`. Команда `--check` собирает тот же flow, применяет переопределения CLI и проверяет схемы Pydantic, ссылки на рецепты и подключённые функции. Ей не нужны GPU и научные наборы данных.
 
@@ -31,6 +31,8 @@ git archive 1f752b82a7f1f54ca74280ae4d85e1264105fdf6 configs tests/fixtures/fore
 uv run python -m runtime.pipeline --config configs/flows/capsnet_teddy.yaml --check
 ```
 
+Примеры первой редакции PR с раздельными файлами для моделей сохранены в [ревизии 8929bdc](https://github.com/whoreallylovesme/redshift-prediction/tree/8929bdcd24b43eaf5e049100105e3b1917c99609/examples/configs). Для запуска такого flow из снимка по-прежнему поддерживаются поля `recipe` и `predict_on`.
+
 ## Границы модулей
 
 В `lib/workflow/` лежат подготовка таблиц, оркестрация, оценка и публикация результатов. В `lib/train/`, `lib/models/` и `lib/inference/` лежат CapsNet, табличные и визуальные энкодеры, модули регрессии, sklearn и Lightning. В `lib/report/` находятся расчёт покрытия, парные сравнения и HTML. По умолчанию задача использует MAE, RMSE и R².
@@ -40,22 +42,32 @@ uv run python -m runtime.pipeline --config configs/flows/capsnet_teddy.yaml --ch
 ## Схема конфига
 
 ```yaml
-name: Regression example
-output: runs/regression_example
-workers: 2
+name: Photometry benchmark
+output: runs/photometry
 dataset:
-  source: tests/fixtures/regression.csv
-  id_column: sample
-  target: response
-  features: [length, width]
-  split_column: split
+  source: catalogs/train.parquet
+  evaluation_files: {held: catalogs/held.parquet}
+  id_column: object_id
+  target: z_spec
+  features: [g, r, i]
+  images: stamps
+  image_size: 64
 methods:
-  ridge: {kind: tabular, recipe: examples/configs/models/ridge.yaml}
-  forest: {kind: tabular, recipe: examples/configs/models/forest.yaml}
+  catboost:
+    kind: tabular
+    model: catboost
+    params: {depth: 4, iterations: 100}
+  capsnet:
+    kind: lightning
+    model: capsnet
+    params: {image_channels: 3, input_size: 64}
+    train: {epochs: 10, batch_size: 32, lr: 0.0005}
 ```
 
-- `dataset` задаёт источник, цель, признаки, ID, при необходимости вес и названия выборок. Можно сослаться на каталог признаков через `feature_catalog` и `feature_set`. Поле `evaluation_files` принимает именованные внешние таблицы, в том числе без столбца цели. CSV-идентификаторы по умолчанию сохраняются строками, включая ведущие нули. Для числового внешнего эталона укажите `csv_id_type: int64`. Без исходного ID встроенный табличный загрузчик помечает строки хешем источника и номером строки.
-- `kind: tabular` подключает sklearn-рецепт. `kind: lightning` задаёт тренировочный рецепт и отображение `predict_on` для отдельных каталогов и сплитов. `kind: external` вызывает явно настроенный Python-адаптер, которому передаются рецепт, директория результата и параметры. `kind: saved` подключает готовые прогнозы через `predictions`.
+- `dataset.source` принимает CSV, Parquet или Hydra-фабрику с полем `_target_`, возвращающую DataFrame либо объект с атрибутом `.frame`. Фабрику можно использовать с уже установленным поставщиком данных. Для файлов с собственным форматом задайте `reader: module:function`. В выборе обучающей и оценочной частей участвуют `evaluation_files`, `split_column` или параметры случайного разбиения. Табличные и нейросетевые методы с встроенными параметрами читают одинаковые подготовленные строки. Для изображений нужны ID, совпадающие с именами NPZ.
+- `dataset.images` может быть общей директорией или отображением `{train: ..., held: ...}`. Совместной модели изображений и таблиц задайте `use_features: true`. Если требуется исходный целочисленный тип ID при чтении CSV, используйте `csv_id_type: int64`.
+- В каждом методе `kind` выбирает способ исполнения, `model` указывает реализацию, `params` задаёт её параметры. У Lightning блок `train` задаёт число эпох, размер батча и оптимизацию. У внешнего адаптера `options` определяет конкретный вызов, например набор объектов и выдачу PDF. Нативный `.conf` Phosphoros читает сам Core. Источник из секции данных можно подставить через `${dataset.source}`.
+- Для сравнения готовых прогнозов укажите `kind: saved` и `predictions`. При сравнении с внешним методом свяжите тот же сплит через `report.reference: ${dataset.evaluation_files.held}`, указав ID и столбец эталона.
 - `methods.<имя>.report` сопоставляет поля прогноза, ID, эталона, статуса, интервала, истории и срезов. Если метки живут отдельно, задайте `reference`, `reference_id_column` и `reference_truth_column`. При сравнении двух методов проверяются уникальность ID и согласованность эталона. Разные выборки сравниваются отдельно.
 - `--check` проверяет схему, ссылки на рецепты, имена фабрик и подключаемые функции без запуска обучения. Нативные ресурсы, веса, содержимое наборов данных и научные условия допуска проверяются адаптерами во время работы.
 
@@ -76,7 +88,7 @@ MLflow включается параметром `--tracking-uri`, полем `t
 `metrics.csv` и `metrics.json` содержат результаты для анализа, `report-data.json` позволяет заново собрать HTML без обучения, исходных каталогов и MLflow.
 
 ```bash
-uv run python -m runtime.pipeline --render runs/regression_example/<flow-run-id>
+uv run python -m runtime.pipeline --render runs/diabetes/<flow-run-id>
 ```
 
 ## Назначение слабых меток Euclid
@@ -96,7 +108,7 @@ uv run python -m photoz.data.weak_targets \
 
 ## Phosphoros
 
-В рецепте `phosphoros.yaml` опция `include_posterior` добавляет распределение каждого успешно обработанного объекта в Parquet, а `report_from_predictor` передаёт его отчёту с осью из заголовка FITS. В HTML доступны примеры распределений. Если подключён эталон, отчёт также показывает эмпирическое покрытие интервалов.
+В примере `euclid.yaml` опция `include_posterior` добавляет распределение каждого успешно обработанного объекта в Parquet, а `report_from_predictor` передаёт его отчёту с осью из заголовка FITS. В HTML доступны примеры распределений. Если подключён эталон, отчёт также показывает эмпирическое покрытие интервалов.
 
 [Phosphoros Core](https://phosphoros.readthedocs.io/) — отдельная программа на C++ для подбора спектральных шаблонов. Python-адаптер `photoz.methods.phosphoros:predict` выбирает профиль полушария и вариант калибровки, проверяет входной FITS, таблицу запрошенных ID и сетки, вызывает `PhosphorosComputeRedshifts` и читает результат. В общей таблице сохраняются ID, применимость, статус PDF, точечный прогноз и границы интервала. Полный вывод Core остаётся в каталоге метода.
 

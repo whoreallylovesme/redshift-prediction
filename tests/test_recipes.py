@@ -19,7 +19,7 @@ from runtime.pipeline import main
 class RecipesTest(TestCase):
     def test_all_shipped_flows(self) -> None:
         flows = sorted(Path("examples/configs").glob("*.yaml"))
-        self.assertEqual({p.stem for p in flows}, {"fusion", "phosphoros", "regression"})
+        self.assertEqual({p.stem for p in flows}, {"teddy", "euclid", "regression"})
         for path in flows:
             with self.subTest(path=str(path)):
                 load_flow(path, check=True)
@@ -79,11 +79,23 @@ class RecipesTest(TestCase):
                     self.assertNotEqual(result.exit_code, 0)
                     self.assertIn(error, result.output)
 
+    def test_plain_flow_inside_active_hydra_and_image_only_feature_validation(self) -> None:
+        with initialize_config_dir(
+            config_dir=str(Path("examples/configs").resolve()), version_base="1.3"
+        ):
+            config = load_flow(Path("examples/configs/regression.yaml"), check=True)
+            self.assertIsInstance(config, Experiment)
+        image = yaml.safe_load(Path("examples/configs/teddy.yaml").read_text())
+        del image["methods"]["catboost"]
+        image["dataset"]["features"] = [image["dataset"]["target"]]
+        with self.assertRaisesRegex(ValueError, "exclude target"):
+            Experiment.model_validate(image, context={"check": True})
+
     def test_hydra_preserves_ids_and_training_overrides(self) -> None:
-        folder = Path("examples/configs/hydra").resolve()
+        folder = Path("tests/fixtures/legacy/hydra").resolve()
         with initialize_config_dir(config_dir=str(folder), version_base="1.3"):
             cfg = compose("hydra", overrides=["model=fusion", "dataset=synthetic", "train.lr=0.3"])
-            path = hydra_to_yaml(cfg)
+            path = hydra_to_yaml(cfg, folder)
             try:
                 recipe = load_yaml_as(path, PytorchTrainConfig)
                 self.assertEqual(recipe.lr, 0.3)

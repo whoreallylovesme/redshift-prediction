@@ -136,9 +136,15 @@ class PhosphorosMethodTests(TestCase):
         self.assertEqual(self.catalog.read_bytes(), original)
 
     def test_native_posterior_reaches_the_report_with_and_without_truth(self) -> None:
-        manifest = Path(__file__).resolve().parents[1] / "examples/configs/phosphoros.yaml"
-        (options,) = yaml.safe_load(manifest.read_text())["methods"].values()
-        method = External.model_validate(options)
+        from lib.config import Experiment, load_flow
+
+        experiment = load_flow(Path("examples/configs/euclid.yaml"), check=True)
+        assert isinstance(experiment, Experiment)
+        method = experiment.methods["phosphoros"]
+        assert isinstance(method, External)
+        method = method.model_copy(
+            update={"report": method.report.model_copy(update={"id_column": "object_id"})}
+        )
         with patch.object(phosphoros, "call", self.fake_core):
             path = phosphoros.predict(
                 self.config,

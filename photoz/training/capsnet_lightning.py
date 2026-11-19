@@ -17,7 +17,7 @@ from torch.optim.lr_scheduler import ExponentialLR
 from torch.utils.data import DataLoader
 
 from lib.models.capsnet import CapsNet, margin_loss
-from lib.tracking import lightning_logger
+from lib.train.lightning import export_weights, single_device_trainer
 from lib.utils.log import get_logger
 from lib.utils.utils import pick_device
 from photoz.metrics import bias, nmad, outlier_fraction
@@ -223,13 +223,7 @@ class CapsNetModule(L.LightningModule):
 
 
 def _extract_net_state(ckpt_path: Path, out_path: Path) -> None:
-    ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=True)
-    sd = {
-        k.removeprefix("net."): v
-        for k, v in ckpt["state_dict"].items()
-        if k.startswith("net.")
-    }
-    torch.save(sd, out_path)
+    export_weights(ckpt_path, out_path, "net.")
 
 
 def _export_stage(trainer: L.Trainer, directory: Path, stage: str) -> None:
@@ -249,8 +243,7 @@ def run_staged(
     val_b: DataLoader,
     cfg: TrainConfig,
 ) -> Path:
-    torch.manual_seed(cfg.seed)
-    np.random.seed(cfg.seed)
+    L.seed_everything(cfg.seed, workers=False, verbose=False)
     out_dir = Path(cfg.out_dir)
     weights_dir = out_dir / "weights"
     weights_dir.mkdir(parents=True, exist_ok=True)
@@ -274,16 +267,8 @@ def run_staged(
                     save_last=True,
                 ),
             )
-        return L.Trainer(
-            max_epochs=(cfg.stage_a_epochs if stage == "A" else cfg.stage_b_epochs),
-            accelerator=device.type,
-            devices=[device.index or 0] if device.type == "cuda" else 1,
-            callbacks=callbacks,
-            logger=lightning_logger(default=False),
-            enable_progress_bar=False,
-            num_sanity_val_steps=0,
-            deterministic=False,
-        )
+        epochs = cfg.stage_a_epochs if stage == "A" else cfg.stage_b_epochs
+        return single_device_trainer(device, epochs, callbacks=callbacks)
 
     if cfg.stage_a_epochs > 0 and train_a is not None and val_a is not None:
         module.stage = "A"

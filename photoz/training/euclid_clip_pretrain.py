@@ -30,7 +30,12 @@ from photoz.data.euclid_packet import (
     state_copy,
 )
 from photoz.models.euclid_clip import CLIPModel, ITNetwork
-from photoz.training.clip_epochs import ClipTrainingEpoch, ShuffledRowBatches
+from photoz.training.clip_epochs import (
+    ClipTrainingEpoch,
+    OptimizerSchedule,
+    ShuffledRowBatches,
+    scheduled_adamw,
+)
 
 STATE_NAME = "clip_state.pt"
 OLD_IMAGES = "old_images_f16.npy"
@@ -147,8 +152,8 @@ class ContrastivePretraining(ClipTrainingEpoch):
         self.pairs: dict[str, int] = {}
         self.t0 = 0.0
 
-    def configure_optimizers(self) -> torch.optim.AdamW:
-        return torch.optim.AdamW(self.clip.ssl_parameters(), lr=LR, weight_decay=WD)
+    def configure_optimizers(self) -> OptimizerSchedule:
+        return scheduled_adamw(self.clip.ssl_parameters(), self.epochs, lr=LR, weight_decay=WD)
 
     def on_train_epoch_start(self) -> None:
         super().on_train_epoch_start()
@@ -172,7 +177,7 @@ class ContrastivePretraining(ClipTrainingEpoch):
         record = {
             "epoch": self.current_epoch + 1,
             "lr": self.lr,
-            "loss": self.loss_sum / self.examples,
+            "loss": float(self.trainer.callback_metrics["train/loss"]),
             "examples": self.examples,
             "pair_examples": dict(self.pairs),
             "seconds": time.monotonic() - self.t0,

@@ -11,10 +11,49 @@ from lib.config.experiment import Dataset
 from lib.config.schemas import ImageCatalogConfig, PytorchTrainConfig
 from lib.dataloaders.images import catalog
 from lib.train.regression_lightning import RegressionModule
-from lib.workflow.data import prepare_dataset
+from lib.workflow.data import prepare_dataset, read_source
 
 
 class RegressionIntegrityTests(TestCase):
+    def test_bundled_measurements_keep_source_ids_and_factory_options(self) -> None:
+        from sklearn.datasets import load_diabetes
+
+        source = {"_target_": "sklearn.datasets.load_diabetes", "as_frame": True, "scaled": False}
+        cfg = Dataset.model_validate(
+            {"source": source, "features": ["age", "bmi"], "target": "target"},
+            context={"check": True},
+        )
+        self.assertEqual(cfg.model_dump(mode="json", exclude_unset=True)["source"], source)
+        with TemporaryDirectory() as tmp:
+            result = prepare_dataset(cfg, Path(tmp))
+            self.assertEqual((result["train_rows"], result["test_rows"]), (353, 89))
+            joined = pd.concat([pd.read_parquet(result[k]) for k in ("train", "test")])
+            self.assertTrue(joined["__source_row"].is_unique)
+            self.assertEqual(
+                joined["__source_row"].str.split(":").str[0].unique().tolist(),
+                [result["source_sha256"]],
+            )
+            joined.index = joined["__source_row"].str.split(":").str[1].astype(int)
+            np.testing.assert_array_equal(joined.sort_index().target, load_diabetes().target)
+
+    def test_factory_digest_depends_on_returned_data_and_arguments(self) -> None:
+        with TemporaryDirectory() as tmp:
+            csv = Path(tmp) / "data.csv"
+            csv.write_text("id,x,y\n1,3,8\n2,2,4\n")
+            source = {"_target_": "pandas.read_csv", "filepath_or_buffer": str(csv)}
+            cfg = Dataset.model_validate(
+                {"source": source, "features": ["x"], "target": "y", "id_column": "id"}
+            )
+            self.assertEqual(read_source(cfg, cfg.source)[0].id.tolist(), [1, 2])
+            first = read_source(cfg, cfg.source)[1]
+            csv.write_text("id,x,y\n1,3,9\n2,2,4\n")
+            second = read_source(cfg, cfg.source)[1]
+            with_encoding = Dataset.model_validate(
+                {**cfg.model_dump(), "source": {**source, "encoding": "utf-8"}}
+            )
+            third = read_source(with_encoding, with_encoding.source)[1]
+            self.assertEqual(len({first, second, third}), 3)
+
     def test_table_ids_survive_cleaning_and_export(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)

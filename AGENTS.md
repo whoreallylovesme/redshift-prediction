@@ -44,7 +44,7 @@ uv run --extra tracking python -m unittest discover -s tests
 ## Архитектура
 
 - `runtime/pipeline.py` — публичный вход Prefect, проверка рецепта и повторный рендер отчёта.
-- `lib/config/experiment.py` задаёт схему `dataset` и `methods`; тип метода определяет необходимые поля.
+- `lib/config/experiment.py` задаёт схему `dataset` и `methods`; поля model и params задают метод, единый dataset описывает входы таблиц и изображений.
 - `lib/workflow/`, `lib/train/`, `lib/inference/`, `lib/report/` — граф, классический ML, Lightning, расчёт общих метрик и интерактивный HTML.
 - `photoz/` содержит предметные правила каталогов, моделей, метрик и Phosphoros. Исторические формы `pipeline:` обрабатывает `photoz/legacy_flow.py`.
 - `tools/` готовит данные и ресурсы для методов. Форматы научных результатов описаны в `docs/euclid_q1/README.md`.

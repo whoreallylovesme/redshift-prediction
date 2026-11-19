@@ -3,10 +3,11 @@ from __future__ import annotations
 from collections.abc import Callable
 from functools import partial
 from pathlib import Path
-from typing import Annotated, Any, Literal, Self
+from typing import Annotated, Any, Literal, Self, TypedDict
 
 from pydantic import (
     AfterValidator,
+    AliasChoices,
     BaseModel,
     ConfigDict,
     Field,
@@ -14,9 +15,17 @@ from pydantic import (
     TypeAdapter,
     ValidationInfo,
     model_validator,
+    with_config,
 )
 
-from lib.config.schemas import DatasetConfig, FeaturesConfig, PytorchTrainConfig, SklearnTrainConfig
+from lib.config.schemas import (
+    DatasetConfig,
+    Estimator,
+    FeaturesConfig,
+    ImageTraining,
+    PytorchTrainConfig,
+    SklearnTrainConfig,
+)
 from lib.utils.utils import load_yaml_as, plugin
 
 
@@ -49,14 +58,25 @@ class Config(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+@with_config(extra="allow")
+class DatasetFactory(TypedDict):
+    """A Hydra callable with its native keyword arguments."""
+
+    _target_: Plugin
+
+
 class Dataset(Config):
-    source: Path
+    source: Path | DatasetFactory
     reader: Plugin | None = None
     target: str | None = None
     features: list[str] = Field(default_factory=list)
     feature_catalog: Path | None = None
     feature_set: str | None = None
     id_column: str | None = None
+    images: Path | dict[Identifier, Path] | None = None
+    image_size: int = Field(default=224, gt=0)
+    crop_size: int | None = Field(default=None, gt=0)
+    array_key: str = "image"
     csv_id_type: Literal["string", "int64"] = "string"
     weight_column: str | None = None
     split_column: str | None = None
@@ -82,7 +102,7 @@ class Dataset(Config):
         id_column = self.id_column or "__source_row"
         if target == id_column:
             raise ValueError("Dataset identifier and target must be distinct")
-        if not features:
+        if not features and self.images is None:
             raise ValueError("A regression dataset requires at least one feature")
         reserved = {target, id_column, self.split_column, self.weight_column}
         if len(set(features)) != len(features) or reserved.intersection(features):
@@ -92,11 +112,11 @@ class Dataset(Config):
         return target, features
 
     @model_validator(mode="after")
-    def columns(self, info: ValidationInfo) -> Self:
+    def columns(self) -> Self:
+        if not isinstance(self.source, Path) and self.reader and not self.evaluation_files:
+            raise ValueError("reader applies to files; the dataset factory reads its own inputs")
         if self.id_column in {"y_true", "y_pred"}:
             raise ValueError("Dataset identifier conflicts with canonical prediction columns")
-        if self.feature_catalog is None and (not self.target or not self.features):
-            raise ValueError("Specify target and features, or feature_catalog and feature_set")
         if self.feature_catalog is not None and (
             not self.feature_set or self.features or self.target
         ):
@@ -108,8 +128,6 @@ class Dataset(Config):
             raise ValueError("A split config supplies test_size, shuffle and seed")
         if self.train_label == self.test_label:
             raise ValueError("Train and test labels must differ")
-        if info.context and info.context.get("check"):
-            self.target_features()
         return self
 
 
@@ -145,9 +163,31 @@ class Method(Config):
     report: PredictionColumns = Field(default_factory=PredictionColumns)
 
 
-class Tabular(Method):
+class RecipeMethod(Method):
+    # A file reference is supported for previously saved experiments.
+    recipe: Path | None = None
+    model: str | None = None
+    params: dict[str, Any] = Field(default_factory=dict)
+
+    @property
+    def recipe_path(self) -> Path:
+        if self.recipe is None:
+            raise ValueError("Inline model parameters have not been resolved for this run")
+        return self.recipe
+
+    @model_validator(mode="after")
+    def parameter_source(self) -> Self:
+        if self.recipe and self.params:
+            raise ValueError("Choose inline params or a recipe file")
+        if not self.recipe and not self.model:
+            raise ValueError("A model implementation or an existing recipe is required")
+        return self
+
+
+class Tabular(RecipeMethod):
+    model: Estimator | None = None
     kind: Literal["tabular"]
-    recipe: Annotated[Path, recipe_schema(SklearnTrainConfig)]
+    recipe: Annotated[Path, recipe_schema(SklearnTrainConfig)] | None = None
 
 
 class Saved(Method):
@@ -155,13 +195,21 @@ class Saved(Method):
     predictions: Path
 
 
-class External(Method):
+class External(RecipeMethod):
     kind: Literal["external"]
-    predictor: Plugin
+    model: Plugin = Field(
+        alias="predictor",
+        validation_alias=AliasChoices("model", "predictor"),
+        serialization_alias="model",
+    )
     report_from_predictor: bool = False
     resource: Literal["cpu", "accelerator"] = "cpu"
-    recipe: Annotated[Path, preflight(TypeAdapter(FilePath).validate_python)]
+    recipe: Annotated[Path, preflight(TypeAdapter(FilePath).validate_python)] | None = None
     options: dict[str, Any] = Field(default_factory=dict)
+
+    @property
+    def predictor(self) -> str:
+        return self.model
 
 
 class ImageSplit(Config):
@@ -170,10 +218,14 @@ class ImageSplit(Config):
     role: str | None = None
 
 
-class Lightning(Method):
+class Lightning(RecipeMethod):
+    model: Estimator | None = None
     kind: Literal["lightning"]
-    recipe: Annotated[Path, recipe_schema(PytorchTrainConfig)]
-    predict_on: dict[Identifier, ImageSplit] = Field(min_length=1)
+    recipe: Annotated[Path, recipe_schema(PytorchTrainConfig)] | None = None
+    predict_on: dict[Identifier, ImageSplit] = Field(default_factory=dict)
+    train: ImageTraining | None = None
+    device: str = "auto"
+    use_features: bool = False
 
 
 MethodConfig = Annotated[Tabular | Saved | External | Lightning, Field(discriminator="kind")]
@@ -197,8 +249,51 @@ class Experiment(Config):
             from lib.report.task import metric_suite
 
             metric_suite(self.task)
-        if self.dataset is None and any(
-            isinstance(method, Tabular) for method in self.methods.values()
+        for method in self.methods.values():
+            if isinstance(method, Tabular):
+                if self.dataset is None or not (
+                    self.dataset.feature_catalog or (self.dataset.target and self.dataset.features)
+                ):
+                    raise ValueError("Tabular methods require a dataset with a target and features")
+            if isinstance(method, (Lightning, Tabular)) and method.recipe and method.model:
+                raise ValueError("Choose model or a historical recipe")
+            if isinstance(method, Lightning) and method.recipe:
+                if not method.predict_on or (
+                    {"train", "device", "use_features"} & method.model_fields_set
+                ):
+                    raise ValueError("File-based Lightning methods use their recipe and predict_on")
+            if isinstance(method, Lightning) and method.recipe is None:
+                ds = self.dataset
+                if ds is None or not ds.id_column or not (ds.target or ds.feature_catalog):
+                    raise ValueError(
+                        "Image data requires id_column and a target or feature_catalog"
+                    )
+                if not method.train or method.predict_on:
+                    raise ValueError(
+                        "Inline Lightning methods use train and the shared dataset splits"
+                    )
+                if method.use_features and not (ds.feature_catalog or ds.features):
+                    raise ValueError("use_features requires dataset features")
+                image_splits(ds, method.split)
+        if (
+            self.dataset
+            and info.context
+            and info.context.get("check")
+            and any(
+                isinstance(m, Tabular) or (isinstance(m, Lightning) and m.recipe is None)
+                for m in self.methods.values()
+            )
         ):
-            raise ValueError("A tabular method requires a dataset")
+            self.dataset.target_features()
         return self
+
+
+def image_splits(dataset: Dataset, split: str) -> dict[str, Path]:
+    labels = {"train", *(dataset.evaluation_files or [split])}
+    if "train" in dataset.evaluation_files:
+        raise ValueError("The train image split name is reserved")
+    if isinstance(dataset.images, Path):
+        return dict.fromkeys(labels, dataset.images)
+    if dataset.images is None or dataset.images.keys() != labels:
+        raise ValueError(f"Image directories must cover the configured splits: {sorted(labels)}")
+    return dataset.images

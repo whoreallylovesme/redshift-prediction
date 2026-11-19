@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from torch import Tensor
 from torch.utils.data import DataLoader, Dataset, Subset
 
-from lib.train.lightning import single_device_trainer
+from lib.train.lightning import fit_best
 from lib.utils.utils import pick_device
 
 
@@ -56,8 +56,6 @@ class LikelihoodModule(L.LightningModule):
         self.model = model
         self.recipe = recipe
         self.history: list[dict[str, float]] = []
-        self.best_nll = math.inf
-        self.selected_epoch = 0
 
     def configure_optimizers(self) -> torch.optim.AdamW:
         return torch.optim.AdamW(
@@ -67,32 +65,21 @@ class LikelihoodModule(L.LightningModule):
     def nll(self, batch: list[Tensor], *, training: bool) -> Tensor:
         raise NotImplementedError
 
-    def on_train_epoch_start(self) -> None:
-        self.train_total = self.val_total = 0.0
-        self.train_rows = self.val_rows = 0
-
     def training_step(self, batch: list[Tensor], batch_idx: int) -> Tensor:
         loss = self.nll(batch, training=True)
-        self.train_total += float(loss.detach()) * len(batch[0])
-        self.train_rows += len(batch[0])
+        self.log("train/nll", loss.detach().double(), on_epoch=True, on_step=False,
+                 batch_size=len(batch[0]))
         return loss
 
     def validation_step(self, batch: list[Tensor], batch_idx: int) -> None:
-        loss = self.nll(batch, training=False)
-        self.val_total += float(loss) * len(batch[0])
-        self.val_rows += len(batch[0])
+        self.log("val/nll", self.nll(batch, training=False).double(), batch_size=len(batch[0]))
 
-    def on_validation_epoch_end(self) -> None:
-        train, val = self.train_total / self.train_rows, self.val_total / self.val_rows
+    def on_train_epoch_end(self) -> None:
+        metrics = self.trainer.callback_metrics
+        train, val = float(metrics["train/nll"]), float(metrics["val/nll"])
         if not (math.isfinite(train) and math.isfinite(val)):
             raise ValueError("Nonfinite training or validation likelihood")
-        epoch = self.current_epoch + 1
-        self.log("train/nll", train)
-        self.log("val/nll", val)
-        self.history.append({"epoch": epoch, "train/nll": train, "val/nll": val})
-        if val < self.best_nll:
-            self.best_nll, self.selected_epoch = val, epoch
-            torch.save(self.model.state_dict(), self.out / "selected_state.pt")
+        self.history.append({"epoch": self.current_epoch + 1, "train/nll": train, "val/nll": val})
 
     def fit_selected(
         self, out: Path, train: DataLoader, valid: DataLoader, metadata: dict[str, Any]
@@ -101,17 +88,15 @@ class LikelihoodModule(L.LightningModule):
         if device.type not in {"cpu", "cuda"}:
             raise ValueError("The float64 likelihood requires a CPU or CUDA device")
         out.mkdir(parents=True, exist_ok=False)
-        self.out = out
-        single_device_trainer(device, self.recipe.epochs, gradient_clip=1.0).fit(self, train, valid)
-        torch.save(self.model.state_dict(), out / "last_state.pt")
-        self.model.load_state_dict(
-            torch.load(out / "selected_state.pt", map_location="cpu", weights_only=True)
+        epoch, score = fit_best(
+            self, train, valid, device, self.recipe.epochs, monitor="val/nll",
+            gradient_clip=1.0, export_dir=out,
         )
         self.to(device).eval()
         report = {
             **metadata,
-            "selected_epoch": self.selected_epoch,
-            "validation_nll": self.best_nll,
+            "selected_epoch": epoch,
+            "validation_nll": score,
             "history": self.history,
         }
         (out / "train_report.json").write_text(json.dumps(report, indent=2, allow_nan=False))

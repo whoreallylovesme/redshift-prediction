@@ -6,6 +6,7 @@ from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
 from pathlib import Path
+from time import time_ns
 from typing import Any
 
 _active: ContextVar[tuple[str, str] | None] = ContextVar("mlflow_run", default=None)
@@ -59,6 +60,8 @@ class Tracker:
             self.experiment_id = info.experiment_id
 
     def start(self, name: str, params: Mapping[str, Any], flow_id: str) -> str:
+        from mlflow.entities import Param
+
         prior = self.client.search_runs(
             [self.experiment_id],
             filter_string=f"tags.`prefect.flow_run_id` = '{flow_id}' AND tags.method = '{name}'",
@@ -75,17 +78,32 @@ class Tracker:
             )
             run_id = run.info.run_id
         try:
-            for key, value in params.items():
-                self.client.log_param(run_id, key, json.dumps(value, default=str)[:6000])
+            self.client.log_batch(
+                run_id,
+                params=[
+                    Param(key, json.dumps(value, default=str)[:6000])
+                    for key, value in params.items()
+                ],
+                synchronous=True,
+            )
         except Exception:
             self.client.set_terminated(run_id, status="FAILED")
             raise
         return run_id
 
     def log_metrics(self, run_id: str, split: str, metrics: Mapping[str, Any]) -> None:
-        for key, value in metrics.items():
-            if isinstance(value, (int, float)):
-                self.client.log_metric(run_id, f"{split}/{key}", float(value))
+        from mlflow.entities import Metric
+
+        timestamp = time_ns() // 1_000_000
+        self.client.log_batch(
+            run_id,
+            metrics=[
+                Metric(f"{split}/{key}", float(value), timestamp, step=0)
+                for key, value in metrics.items()
+                if isinstance(value, (int, float))
+            ],
+            synchronous=True,
+        )
 
     def log_snapshot(self, run_id: str, snapshot: Path, attempt: int = 1) -> None:
         path = "config_snapshot" if attempt <= 1 else f"attempt-{attempt}/config_snapshot"

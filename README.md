@@ -2,7 +2,9 @@
 
 В этом репозитории на одном пайплайне сравниваются классические и нейросетевые модели. Основная прикладная задача — оценка фотометрического красного смещения на SDSS Teddy/Happy и Euclid Q1. Обычная регрессия, совместная модель изображений и таблиц, а также сравнение готовых прогнозов используют ту же точку входа.
 
-Из корня репозитория можно запустить полностью локальный пример с Ridge и случайным лесом. Для него все входные данные включены в Git.
+Один YAML описывает датасет и все методы эксперимента. В [примере TEDDY](examples/configs/teddy.yaml) CatBoost и CapsNet обучаются по каталогу A и оцениваются на одних и тех же объектах B. В [примере Euclid](examples/configs/euclid.yaml) Phosphoros получает подготовленную фотометрию. Для этих запусков нужны локальные научные данные.
+
+Для знакомства с пайплайном выполните из корня репозитория:
 
 ```bash
 uv sync --frozen
@@ -10,14 +12,16 @@ uv run python -m runtime.pipeline --config examples/configs/regression.yaml --ch
 uv run python -m runtime.pipeline --config examples/configs/regression.yaml
 ```
 
-Команда печатает путь к интерактивному автономному `report.html`. Для примера со снимками и числовыми признаками замените рецепт на `examples/configs/fusion.yaml`. Для записи параметров, метрик и истории эпох в локальный MLflow выполните
+Пример обучает Ridge и CatBoost на 442 реальных наблюдениях из комплекта scikit-learn. После установки зависимостей он работает офлайн и печатает путь к интерактивному HTML. Описание целевой величины и признаков приведено в [паспорте датасета](https://scikit-learn.org/stable/modules/generated/sklearn.datasets.load_diabetes.html).
+
+Чтобы сохранить параметры и метрики в локальный MLflow, добавьте `--tracking-uri`:
 
 ```bash
 uv run --extra tracking python -m runtime.pipeline \
-  --config examples/configs/fusion.yaml --tracking-uri sqlite:///runs/mlflow.db
+  --config examples/configs/regression.yaml --tracking-uri sqlite:///runs/mlflow.db
 ```
 
-Рабочий YAML можно хранить вне репозитория. Каждый запуск сохраняет конфигурацию вместе с результатами. Образцы для табличной модели, Lightning и Phosphoros собраны в [examples/configs](examples/configs/).
+Рабочий YAML можно хранить вне Git. Каждый запуск сохраняет его разрешённую конфигурацию и параметры моделей вместе с результатами.
 
 | Где искать | Содержимое |
 | --- | --- |

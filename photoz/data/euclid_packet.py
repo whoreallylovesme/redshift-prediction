@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import random
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
 import h5py
+import lightning as L
 import numpy as np
 import torch
 from numpy.typing import NDArray
@@ -50,10 +50,7 @@ type Rows = NDArray[np.integer] | Sequence[int]
 
 
 def reset_rng(seed: int) -> None:
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
+    L.seed_everything(seed, workers=False, verbose=False)
 
 
 def state_copy(model: nn.Module) -> dict[str, Tensor]:

@@ -4,6 +4,7 @@ from pydantic import (
     AfterValidator,
     AliasPath,
     BaseModel,
+    ConfigDict,
     Field,
     TypeAdapter,
     ValidationInfo,
@@ -73,7 +74,27 @@ class ImageCatalogConfig(BaseModel):
         return self
 
 
-class PytorchTrainConfig(BaseModel):
+class ImageTraining(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    epochs: int = Field(ge=1)
+    batch_size: int = Field(ge=1)
+    lr: float = Field(ge=0)
+    weight_decay: float = 0.0
+    freeze_epochs: int = 0
+    train_ratio: float = Field(default=0.8, gt=0, lt=1)
+    seed: int = 42
+    num_workers: int = Field(default=4, ge=0)
+    weighted_sampling: bool = False
+    z_weight_alpha: float = 0.0
+    label_noise: float = 0.0
+    head_prefix: str = "classifier"
+    max_samples: int | None = None
+
+
+class PytorchTrainConfig(ImageTraining):
+    model_config = ConfigDict(extra="ignore")
+
     estimator_params: dict[str, Any] = Field(default_factory=dict)
     image_catalog: ImageCatalogConfig | None = None
     device: str = "auto"
@@ -87,31 +108,16 @@ class PytorchTrainConfig(BaseModel):
     crop_size: int | None = None
     out_size: int = 224
     physics_augment: bool = False
-    epochs: int = Field(validation_alias=AliasPath("train", "epochs"))
-    batch_size: int = Field(validation_alias=AliasPath("train", "batch_size"))
-    lr: float = Field(validation_alias=AliasPath("train", "lr"))
-    weight_decay: float = Field(validation_alias=AliasPath("train", "weight_decay"))
-    freeze_epochs: int = Field(validation_alias=AliasPath("train", "freeze_epochs"))
-    train_ratio: float = Field(default=0.8, validation_alias=AliasPath("train", "train_ratio"))
-    seed: int = Field(default=42, validation_alias=AliasPath("train", "seed"))
-    num_workers: int = Field(default=4, validation_alias=AliasPath("train", "num_workers"))
-    weighted_sampling: bool = Field(
-        default=False,
-        validation_alias=AliasPath("train", "weighted_sampling"),
-    )
-    z_weight_alpha: float = Field(
-        default=0.0,
-        validation_alias=AliasPath("train", "z_weight_alpha"),
-    )
-    label_noise: float = Field(default=0.0, validation_alias=AliasPath("train", "label_noise"))
-    head_prefix: str = Field(
-        default="classifier",
-        validation_alias=AliasPath("train", "head_prefix"),
-    )
-    max_samples: int | None = Field(
-        default=None,
-        validation_alias=AliasPath("train", "max_samples"),
-    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def training_fields(cls, raw: Any) -> Any:
+        if isinstance(raw, dict) and isinstance(raw.get("train"), dict):
+            return {
+                **raw,
+                **{k: v for k, v in raw["train"].items() if k in ImageTraining.model_fields},
+            }
+        return raw
 
 
 class EuclidStage(BaseModel):

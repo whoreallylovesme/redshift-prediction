@@ -16,7 +16,14 @@ from typing import Any
 import yaml
 
 from lib.config import FlowConfig
-from lib.config.experiment import Experiment, Saved
+from lib.config.experiment import (
+    Experiment,
+    External,
+    ImageSplit,
+    Lightning,
+    RecipeMethod,
+    image_splits,
+)
 
 _TEXT_CONFIG = {".yaml", ".yml", ".json", ".conf", ".toml"}
 _active: ContextVar[Path | None] = ContextVar("config_snapshot", default=None)
@@ -70,6 +77,8 @@ def record_config(source: str | Path, snapshot: Path | None = None) -> Path | No
         return None
     # Preserve the supplied name even when a source is a symlink.
     source = Path(os.path.abspath(source))
+    if source.is_relative_to(root.resolve() / "resolved"):
+        return source
     cwd = Path.cwd()
     if source.is_relative_to(cwd):
         target = root / "files/workspace" / source.relative_to(cwd)
@@ -113,7 +122,7 @@ def create_snapshot(directory: Path, config: Experiment | FlowConfig) -> Path:
         if config.dataset:
             files.extend((config.dataset.feature_catalog, config.dataset.split_config))
         files.extend(
-            method.recipe for method in config.methods.values() if not isinstance(method, Saved)
+            method.recipe for method in config.methods.values() if isinstance(method, RecipeMethod)
         )
     else:
         if config.dataset:
@@ -133,8 +142,65 @@ def create_snapshot(directory: Path, config: Experiment | FlowConfig) -> Path:
     return directory
 
 
+def resolve_methods(config: Experiment, snapshot: Path, data: dict[str, Any]) -> Experiment:
+    """Expose inline parameters as run-owned files for the existing backend APIs."""
+    methods = dict(config.methods)
+    for name, method in methods.items():
+        if not isinstance(method, RecipeMethod) or method.recipe is not None:
+            continue
+        path = snapshot / "resolved" / f"{name}.yaml"
+        raw = (
+            method.params
+            if isinstance(method, External)
+            else {
+                "estimator": method.model,
+                "estimator_params": method.params,
+            }
+        )
+        update: dict[str, Any] = {"recipe": path, "params": {}}
+        if not isinstance(method, External):
+            update["model"] = None
+        if config.dataset and config.dataset.id_column and not method.report.id_column:
+            update["report"] = method.report.model_copy(
+                update={"id_column": config.dataset.id_column}
+            )
+        if isinstance(method, Lightning):
+            if not data:
+                continue  # Dataset preparation failed. Its error is reported against this method.
+            assert config.dataset is not None
+            assert method.train is not None
+            ds = config.dataset
+            images = image_splits(ds, method.split)
+            raw.update(
+                model_type="lightning",
+                device=method.device,
+                data_dir=str(images["train"]),
+                catalog=data["train"],
+                image_catalog={
+                    "id_column": data["id_column"],
+                    "target_column": data["target"],
+                    "features": data["features"] if method.use_features else [],
+                    "array_key": ds.array_key,
+                },
+                out_size=ds.image_size,
+                crop_size=ds.crop_size,
+                train=method.train.model_dump(exclude_unset=True),
+            )
+            held = data["evaluation_files"] or {method.split: data["test"]}
+            update["predict_on"] = {
+                label: ImageSplit(images=images[label], catalog=catalog, role="held-out")
+                for label, catalog in held.items()
+            }
+        _create(
+            path, yaml.safe_dump(public_config(raw), sort_keys=False, allow_unicode=True).encode()
+        )
+        methods[name] = method.model_copy(update=update)
+    return config.model_copy(update={"methods": methods})
+
+
 def seal_snapshot(directory: Path) -> None:
     files = [directory / "effective.json", directory / "flow.yaml"]
+    files += sorted((directory / "resolved").glob("*.yaml"))
     files += sorted(p for p in (directory / "files").rglob("*") if p.is_file())
     hashes = {
         p.relative_to(directory).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
@@ -174,7 +240,7 @@ def restore_snapshot(
         content = source.read_bytes()
         if hashlib.sha256(content).hexdigest() != expected:
             raise ValueError(f"Configuration digest mismatch at {key}")
-        if stored in {"flow.yaml", "effective.json"}:
+        if stored in {"flow.yaml", "effective.json"} or key.parts[:1] == ("resolved",):
             continue
         if key.parts[:2] == ("files", "workspace"):
             target = (workspace / key.relative_to("files/workspace")).resolve()

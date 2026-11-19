@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import time
 from pathlib import Path
 from typing import Any
 
@@ -15,9 +14,10 @@ from sklearn.isotonic import IsotonicRegression
 from torch.optim import Adam
 from torch.optim.lr_scheduler import ExponentialLR
 from torch.utils.data import DataLoader
+from torchmetrics.classification import MulticlassAccuracy
 
 from lib.models.capsnet import CapsNet, margin_loss
-from lib.train.lightning import predict_batches, single_device_trainer
+from lib.train.lightning import fit_best, predict_batches
 from lib.utils.log import get_logger
 from lib.utils.utils import pick_device
 from photoz.data.hdf5 import HDF5Dataset
@@ -36,11 +36,7 @@ class MorphologyClassifier(L.LightningModule):
         self.lr = lr
         self.decay_rate = decay_rate
         self.reconstruction_weight = lam_recon * num_pixels
-        self.best_acc = -1.0
-        self.best_state: dict[str, torch.Tensor] | None = None
-        self.correct = 0
-        self.total = 0
-        self.started = 0.0
+        self.accuracy = MulticlassAccuracy(num_classes=model.num_class, average="micro")
 
     def configure_optimizers(self) -> tuple[list[Adam], list[ExponentialLR]]:
         optimizer = Adam(self.model.parameters(), lr=self.lr)
@@ -54,30 +50,11 @@ class MorphologyClassifier(L.LightningModule):
         self.log("train/loss", loss, on_epoch=True, on_step=False, batch_size=len(images))
         return loss
 
-    def on_train_epoch_start(self) -> None:
-        self.started = time.monotonic()
-        self.correct = 0
-        self.total = 0
-
     def validation_step(self, batch: _T, batch_idx: int) -> None:
         images, _, morph = batch
         _, probs, _ = self.model(images, target_class=None)
-        self.correct += int((probs.argmax(dim=1) == morph.long()).sum())
-        self.total += len(morph)
-
-    def on_train_epoch_end(self) -> None:
-        accuracy = self.correct / max(self.total, 1)
-        if accuracy > self.best_acc:
-            self.best_acc = accuracy
-            self.best_state = {
-                key: value.detach().cpu().clone() for key, value in self.model.state_dict().items()
-            }
-        self.log("val/accuracy", accuracy)
-        logger.info(
-            f"    epoch {self.current_epoch + 1}/{self.trainer.max_epochs}: "
-            f"val accuracy = {accuracy:.4f} (best {self.best_acc:.4f}) "
-            f"({time.monotonic() - self.started:.0f}s)"
-        )
+        self.accuracy.update(probs, morph.long())
+        self.log("val/accuracy", self.accuracy)
 
 
 def _train_classifier(
@@ -92,10 +69,11 @@ def _train_classifier(
     num_pixels: int,
 ) -> None:
     module = MorphologyClassifier(model, lr, decay_rate, lam_recon, num_pixels)
-    single_device_trainer(device, epochs).fit(module, train_loader, val_loader)
+    if epochs and len(train_loader):
+        fit_best(
+            module, train_loader, val_loader, device, epochs, monitor="val/accuracy", mode="max"
+        )
     model.to(device)
-    if module.best_state is not None:
-        model.load_state_dict(module.best_state)
 
 class MorphologyProbabilities(L.LightningModule):
     def __init__(self, model: CapsNet) -> None:
@@ -177,8 +155,7 @@ def run_generate(config_path: Path) -> None:
     num_pixels = int(raw.get("in_channels", 5)) * crop * crop
     lam_recon = float(raw.get("lam_recon", 0.005))
 
-    torch.manual_seed(int(raw.get("seed", 200)))
-    np.random.seed(int(raw.get("seed", 200)))
+    L.seed_everything(int(raw.get("seed", 200)), workers=False, verbose=False)
     model = CapsNet(
         in_channels=int(raw.get("in_channels", 5)), input_size=crop,
         num_class=2, dim_capsule=16, routings=3,

@@ -15,14 +15,23 @@ def _spatial_tensor(img: np.ndarray) -> torch.Tensor:
     return tensor.permute(2, 0, 1) if img.ndim == 3 else tensor
 
 
-def center_crop(img: np.ndarray, size: int) -> np.ndarray:
+def center_crop(img: np.ndarray, size: int, *, out_size: int | None = None) -> np.ndarray:
     """Crop HWC or HW inputs with the historical floor offset, including odd margins."""
     h, w = img.shape[:2]
     top, left = (h - size) // 2, (w - size) // 2
     # Keep NumPy's slice bounds for legacy rectangular stamps smaller than the requested crop.
     top, bottom, _ = slice(top, top + size).indices(h)
     left, right, _ = slice(left, left + size).indices(w)
-    cropped: torch.Tensor = vision.crop(_spatial_tensor(img), top, left, bottom - top, right - left)
+    image = _spatial_tensor(img)
+    crop = (top, left, bottom - top, right - left)
+    if out_size is not None and out_size != size:
+        channels = image if img.ndim == 3 else image.unsqueeze(0)
+        resized: torch.Tensor = vision.resized_crop(
+            channels.float(), *crop, [out_size, out_size],
+            interpolation=InterpolationMode.BILINEAR, antialias=False,
+        )
+        return (resized.permute(1, 2, 0) if img.ndim == 3 else resized[0]).numpy()
+    cropped: torch.Tensor = vision.crop(image, *crop)
     output = cropped.permute(1, 2, 0) if img.ndim == 3 else cropped
     return output.numpy().astype(img.dtype, copy=False)
 

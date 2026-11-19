@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader
 from lib.config import PytorchTrainConfig
 from lib.config.schemas import ImageCatalogConfig
 from lib.dataloaders.images import ImageInput, Images, catalog
-from lib.train.lightning import single_device_trainer
+from lib.train.lightning import predict_batches
 from lib.train.regression import scalar_predictions
 from lib.utils.estimator_loader import load_estimator
 from lib.utils.utils import pick_device
@@ -69,15 +69,9 @@ def predict_catalog(
     frame = rows[[spec.id_column]].rename(columns={spec.id_column: key}).copy()
     if spec.target_column in rows:
         frame["y_true"] = rows[spec.target_column]
-    prediction = np.empty(0, dtype=np.float32)
-    if len(data):
-        loader = DataLoader(data, batch_size=cfg.batch_size, num_workers=cfg.num_workers)
-        trainer = single_device_trainer(pick_device(cfg.device), 1)
-        values = trainer.predict(ImagePredictor(model), dataloaders=loader, return_predictions=True)
-        if values is None:
-            raise RuntimeError("Lightning did not return image predictions")
-        prediction = torch.cat(cast(list[torch.Tensor], values)).cpu().numpy()
-    frame["y_pred"] = prediction
+    loader = DataLoader(data, batch_size=cfg.batch_size, num_workers=cfg.num_workers)
+    values = predict_batches(ImagePredictor(model), loader, pick_device(cfg.device))
+    frame["y_pred"] = torch.cat(values).cpu().numpy() if values else np.empty(0, dtype=np.float32)
     frame.attrs["prediction_id_column"] = key
     if membership is not None:
         frame.attrs["image_split_overlap"] = membership

@@ -23,7 +23,7 @@ from sklearn.neighbors import NearestNeighbors
 from threadpoolctl import threadpool_limits
 from torch.utils.data import DataLoader, TensorDataset
 
-from lib.train.lightning import predict_batches, single_device_trainer
+from lib.train.lightning import fit_best, predict_batches
 from lib.utils.log import get_logger
 from lib.utils.utils import check, load_yaml_as
 from photoz.data.euclid_packet import select_rows
@@ -277,8 +277,6 @@ class CommitteeRegressor(L.LightningModule):
     def __init__(self, net: torch.nn.Module) -> None:
         super().__init__()
         self.net = net
-        self.best_loss = np.inf
-        self.best_state: dict[str, torch.Tensor] | None = None
         self.iterations = 0
 
     def configure_optimizers(self) -> torch.optim.LBFGS:
@@ -296,11 +294,8 @@ class CommitteeRegressor(L.LightningModule):
 
     def validation_step(self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> None:
         x, y = batch
-        loss = float(((self.net(x).squeeze(1) - y) ** 2).mean())
+        loss = ((self.net(x).squeeze(1) - y) ** 2).mean()
         self.log("val/mse", loss, batch_size=len(y))
-        if loss < self.best_loss:
-            self.best_loss = loss
-            self.best_state = {k: v.detach().clone() for k, v in self.net.state_dict().items()}
 
     def predict_step(self, batch: tuple[torch.Tensor], batch_idx: int) -> torch.Tensor:
         prediction: torch.Tensor = self.net(batch[0]).squeeze(1)
@@ -336,10 +331,7 @@ def fit_annz(z: Floats, y: Floats, groups: NDArray[np.int64], q: Floats, threads
         val_set = TensorDataset(xa.unsqueeze(0), ya.unsqueeze(0))
         train = DataLoader(train_set, batch_size=None, generator=torch.Generator())
         valid = DataLoader(val_set, batch_size=None, generator=torch.Generator())
-        single_device_trainer(torch.device("cpu"), ANNZ_STEPS).fit(module, train, valid)
-        if module.best_state is None:
-            raise ValueError("ANNz validation loss must be finite")
-        net.load_state_dict(module.best_state)
+        fit_best(module, train, valid, torch.device("cpu"), ANNZ_STEPS, monitor="val/mse")
         query = DataLoader(TensorDataset(xq.unsqueeze(0)), batch_size=None,
                            generator=torch.Generator())
         predictions = predict_batches(module, query, torch.device("cpu"))

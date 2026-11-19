@@ -13,12 +13,12 @@ from pydantic import BaseModel, ConfigDict, Field
 from torch import Tensor
 from torch.utils.data import DataLoader, TensorDataset
 
-from lib.train.lightning import predict_batches, single_device_trainer
+from lib.train.lightning import fit_best, predict_batches
 from lib.utils.utils import load_yaml_as, pick_device
 from photoz.data.euclid_transforms import BANDS
 from photoz.models.euclid_clip import DESCRIPTOR_DIM, TABLE_BANDS
 from photoz.models.tabular import Architecture, TableRegressor
-from photoz.training.clip_epochs import ShuffledRowBatches
+from photoz.training.clip_epochs import OptimizerSchedule, ShuffledRowBatches, scheduled_adamw
 
 
 class TableRecipe(BaseModel):
@@ -108,15 +108,12 @@ class TableModule(L.LightningModule):
         self.recipe = recipe
         self.target = torch.from_numpy(np.log1p(data.truth).astype(np.float32))
         self.register_buffer("descriptor", data.descriptor, persistent=False)
-        self.best = math.inf
-        self.best_state: dict[str, Tensor] | None = None
-        self.selected_epoch = 0
         self.history: list[dict[str, Any]] = []
-        self.valid_errors: list[np.ndarray] = []
 
-    def configure_optimizers(self) -> torch.optim.AdamW:
-        return torch.optim.AdamW(
-            self.model.parameters(), lr=self.recipe.lr, weight_decay=self.recipe.weight_decay
+    def configure_optimizers(self) -> OptimizerSchedule:
+        return scheduled_adamw(
+            self.model.parameters(), self.recipe.epochs, lr=self.recipe.lr,
+            weight_decay=self.recipe.weight_decay, warmup=self.recipe.warmup_epochs,
         )
 
     def transfer_batch_to_device(
@@ -125,15 +122,7 @@ class TableModule(L.LightningModule):
         return batch
 
     def on_train_epoch_start(self) -> None:
-        epoch, warm = self.current_epoch + 1, self.recipe.warmup_epochs
-        if epoch <= warm:
-            factor = epoch / warm
-        else:
-            factor = 0.5 * (1 + math.cos(math.pi * (epoch - warm) / (self.recipe.epochs - warm)))
-        self.lr = self.recipe.lr * factor
-        self.train_sum, self.train_rows = 0.0, 0
-        for group in self.trainer.optimizers[0].param_groups:
-            group["lr"] = self.lr
+        self.lr = float(self.trainer.optimizers[0].param_groups[0]["lr"])
 
     def predict_rows(self, rows: Tensor) -> Tensor:
         prediction: Tensor = self.model(
@@ -150,33 +139,24 @@ class TableModule(L.LightningModule):
         loss = (self.predict_rows(batch) - self.target[batch].to(self.device)).square().mean()
         if not torch.isfinite(loss):
             raise ValueError("Nonfinite table regression loss")
-        self.train_sum += float(loss.detach()) * len(batch)
-        self.train_rows += len(batch)
+        self.log("train/log_mse", loss.detach().double(), on_step=False, on_epoch=True,
+                 batch_size=len(batch))
         return loss
-
-    def on_validation_epoch_start(self) -> None:
-        self.valid_errors.clear()
 
     def validation_step(self, batch: tuple[Tensor], batch_idx: int) -> None:
         rows = batch[0]
-        errors = self.predict_rows(rows).double().cpu() - self.target[rows].double()
-        self.valid_errors.append(errors.square().numpy())
+        errors = self.predict_rows(rows).double() - self.target[rows].to(self.device).double()
+        self.log("val/log_mse", errors.square().mean(), batch_size=len(rows))
 
-    def on_validation_epoch_end(self) -> None:
-        valid = float(np.concatenate(self.valid_errors).mean())
+    def on_train_epoch_end(self) -> None:
+        metrics = self.trainer.callback_metrics
+        valid = float(metrics["val/log_mse"])
         if not math.isfinite(valid):
             raise ValueError("Nonfinite validation log-MSE")
-        self.log("val/log_mse", valid)
-        train = self.train_sum / self.train_rows
-        self.log("train/log_mse", train)
-        epoch = self.current_epoch + 1
-        self.history.append(dict(epoch=epoch, lr=self.lr, train_logMSE=train, FVALID_logMSE=valid))
-        if valid < self.best:
-            self.best, self.selected_epoch = valid, epoch
-            self.best_state = {
-                k: v.detach().cpu().clone() for k, v in self.model.state_dict().items()
-            }
-
+        self.history.append(dict(
+            epoch=self.current_epoch + 1, lr=self.lr,
+            train_logMSE=float(metrics["train/log_mse"]), FVALID_logMSE=valid,
+        ))
 
 def fit_table(data: Projection, recipe: TableRecipe, out: Path) -> TableModule:
     out.mkdir(parents=True, exist_ok=False)
@@ -188,18 +168,16 @@ def fit_table(data: Projection, recipe: TableRecipe, out: Path) -> TableModule:
         batch_size=recipe.batch_size,
         generator=torch.Generator(),
     )
-    single_device_trainer(device, recipe.epochs, gradient_clip=5.0).fit(module, train, valid)
-    if module.best_state is None:
-        raise ValueError("No validation checkpoint was selected")
-    torch.save(module.model.state_dict(), out / "last_state.pt")
-    torch.save(module.best_state, out / "selected_state.pt")
-    module.model.load_state_dict(module.best_state, strict=True)
+    epoch, score = fit_best(
+        module, train, valid, device, recipe.epochs, monitor="val/log_mse",
+        gradient_clip=5.0, export_dir=out,
+    )
     module.to(device).eval()
     report = {
         "architecture": recipe.architecture,
         "seed": recipe.seed,
-        "selected_epoch": module.selected_epoch,
-        "validation_log_mse": module.best,
+        "selected_epoch": epoch,
+        "validation_log_mse": score,
         "history": module.history,
         "normalizer_mean": data.mean.tolist(),
         "normalizer_std": data.std.tolist(),

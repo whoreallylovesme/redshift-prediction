@@ -28,6 +28,8 @@ def load_flow(
     if not isinstance(config, DictConfig):
         raise ValueError(f"{path} must contain a flow mapping")
     if "defaults" in config or overrides:
+        if path.suffix != ".yaml":
+            raise ValueError("Use a .yaml file for Hydra config groups or command-line overrides")
         with initialize_config_dir(config_dir=str(path.resolve().parent), version_base="1.3"):
             config = compose(config_name=path.name, overrides=list(overrides))
     with open_dict(config):

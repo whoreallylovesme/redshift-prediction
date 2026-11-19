@@ -11,9 +11,6 @@ from hydra import main as hydra_main
 from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig, OmegaConf
 
-REPOSITORY = Path(__file__).resolve().parents[2]
-EXAMPLE_DIR = REPOSITORY / "examples/configs/hydra"
-
 
 def _recipe_path(value: str, config_dir: Path | None) -> Path:
     path = Path(value)
@@ -26,7 +23,7 @@ def _recipe_path(value: str, config_dir: Path | None) -> Path:
             for source in HydraConfig.get().runtime.config_sources
             if source.schema == "file"
         )
-    roots.extend([Path.cwd() / "configs", EXAMPLE_DIR])
+    roots.append(Path.cwd() / "configs")
     for root in roots:
         relative = Path(*path.parts[1:]) if path.parts[0] == root.name else path
         candidate = root / relative
@@ -79,8 +76,23 @@ def run_recipe_cli(action: Callable[[str], None]) -> None:
     # An appended Hydra search path has lower priority than the main directory.
     # Set the external directory as the sole source of the user's config name.
     external = any(arg.split("=")[0] in {"--config-dir", "-cd"} for arg in argv)
-    restored = REPOSITORY / "configs"
-    default = restored if (restored / "hydra.yaml").is_file() else EXAMPLE_DIR
+    # Only archived experiments use the grouped single-stage CLI.
+    default = next(
+        (
+            p.resolve()
+            for p in (Path("configs"), Path("examples/configs/hydra"))
+            if (p / "hydra.yaml").is_file()
+        ),
+        None,
+    )
+    if not external and default is None:
+        parser = argparse.ArgumentParser(description="Debug a single stage of a saved experiment.")
+        parser.add_argument("--config", help="Resolved method YAML from the run's config_snapshot")
+        parser.add_argument("--config-dir", help="Directory containing archived Hydra groups")
+        if not argv or argv in (["--help"], ["-h"]):
+            parser.print_help()
+            return
+        parser.error("pass --config or --config-dir to select an experiment")
 
     @hydra_main(
         config_path=None if external else str(default), config_name="hydra", version_base="1.3"

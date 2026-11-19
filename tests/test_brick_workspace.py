@@ -7,8 +7,10 @@ from unittest import TestCase
 from unittest.mock import MagicMock, patch
 
 import aiohttp
+import pandas as pd
+from click.testing import CliRunner
 
-from tools.download_imgs import download_bricks, download_legacy_survey
+from tools.download_imgs import download_bricks, download_legacy_survey, survey
 from tools.download_imgs.workspace import brick_workspace, download_destination
 from tools.euclid_q1.download_mosaics import download
 
@@ -55,6 +57,50 @@ class BrickWorkspaceTests(TestCase):
                 self.assertEqual(download("https://example.invalid/test", out, 1), 5)
             self.assertEqual(out.read_bytes(), b"abcde")
 
+    def test_no_matching_brick_is_an_empty_mapping_for_both_commands(self) -> None:
+        coords = pd.DataFrame({"objid": [1], "ra": [358.2], "dec": [4.0]})
+        bricks = pd.DataFrame(
+            {
+                "brickname": ["0390p040"],
+                "ra1": [38.9],
+                "ra2": [39.1],
+                "dec1": [3.9],
+                "dec2": [4.1],
+            }
+        )
+        for module in (download_bricks, download_legacy_survey):
+            self.assertEqual(module.map_objects_to_bricks(coords, bricks), {})
+            result = module.map_objects_to_bricks(coords.assign(ra=39.0), bricks)
+            self.assertEqual(result, {"0390p040": [(1, 39.0, 4.0)]})
+
+    def test_no_coverage_exits_before_downloading_in_both_clis(self) -> None:
+        with TemporaryDirectory() as tmp:
+            ids = Path(tmp) / "ids.json"
+            ids.write_text('{"A": [1]}')
+            coords = pd.DataFrame({"objid": [1], "ra": [30.0], "dec": [3.0]})
+            for module, flags in [
+                (download_bricks, ["--dataset", "teddy", "--split", "A", "--dry-run"]),
+                (download_legacy_survey, ["--datasets", "teddy", "--splits", "A"]),
+            ]:
+                with (
+                    patch.object(module, "fetch_coordinates", return_value=coords),
+                    patch.object(module, "load_brick_index", return_value=pd.DataFrame()),
+                    patch.object(module, "map_objects_to_bricks", return_value={}),
+                ):
+                    args = ["--teddy-json", str(ids), "--happy-json", str(ids), "--outdir", tmp]
+                    result = CliRunner().invoke(module.main, [*args, *flags])
+                self.assertEqual(result.exit_code, 0, result.output)
+                self.assertIn("No coordinates matched", result.output)
+
+    def test_truncated_brick_index_is_not_reused(self) -> None:
+        class Reply(BytesIO):
+            headers = {"Content-Length": "12"}
+
+        with TemporaryDirectory() as tmp, patch.object(survey, "urlopen", return_value=Reply(b"x")):
+            with self.assertRaisesRegex(ValueError, "Truncated"):
+                survey.load_brick_index(Path(tmp))
+            self.assertEqual(list(Path(tmp).iterdir()), [])
+
     def test_both_brick_downloaders_stream_and_discard_interrupted_responses(self) -> None:
         async def chunks(interrupted: bool) -> AsyncIterator[bytes]:
             yield b"first"
@@ -69,7 +115,7 @@ class BrickWorkspaceTests(TestCase):
                 response = session.get.return_value.__aenter__.return_value
                 response.status = 200
                 response.raise_for_status = MagicMock()
-                with self.subTest(module=module.__name__), patch.object(module, "MAX_RETRIES", 1):
+                with self.subTest(module=module.__name__), patch.object(survey, "MAX_RETRIES", 1):
                     for interrupted in (True, False):
                         response.content.iter_chunked = MagicMock(return_value=chunks(interrupted))
                         ok = asyncio.run(

@@ -12,7 +12,4 @@
 !examples/
 !examples/configs/
 !examples/configs/**
-!tests/
-!tests/fixtures/
-!tests/fixtures/**
 **/__pycache__/

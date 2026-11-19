@@ -33,7 +33,7 @@ class LegacyPredictTest(TestCase):
             weights = root / "best_model.pt"
             torch.save(Average().state_dict(), weights)
             cfg = PytorchTrainConfig.model_validate(
-                yaml.safe_load(Path("examples/configs/models/fusion.yaml").read_text())
+                yaml.safe_load(Path("tests/fixtures/legacy/models/fusion.yaml").read_text())
             )
             cfg.device = "cpu"
             out = root / "held.parquet"

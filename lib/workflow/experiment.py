@@ -9,14 +9,13 @@ from uuid import UUID
 
 import joblib
 from filelock import FileLock
-from prefect import flow, task
+from prefect import flow, task, unmapped
 from prefect.artifacts import create_table_artifact
-from prefect.cache_policies import NO_CACHE
+from prefect.cache_policies import INPUTS, NO_CACHE, TASK_SOURCE
 from prefect.client.orchestration import get_client
 from prefect.client.schemas.filters import FlowRunFilter, FlowRunFilterId
 from prefect.client.schemas.objects import TaskRun
 from prefect.client.schemas.sorting import TaskRunSort
-from prefect.context import TaskRunContext
 from prefect.futures import PrefectFuture
 from prefect.runtime import flow_run
 from prefect.task_runners import TaskRunner, ThreadPoolTaskRunner
@@ -36,14 +35,16 @@ from lib.config.snapshot import (
     public_config,
     record_config,
     recording_configs,
+    resolve_methods,
 )
 from lib.report.task import metric_suite, scores
 from lib.tracking import Tracker, bind_run, finish_with_snapshots
 from lib.train.sklearn import fit_regressor
 from lib.utils.utils import load_yaml_as
-from lib.workflow.data import code_version, digest, prepare_dataset, signature, symbol, table
+from lib.workflow.data import code_version, digest, prepare_dataset, symbol, table
 
 _ACCELERATOR = Path(gettempdir()) / "astro-lightning"
+_FIT_CACHE = TASK_SOURCE + (INPUTS - "data" - "recipe")
 
 
 def accelerator_lock() -> FileLock:
@@ -52,23 +53,19 @@ def accelerator_lock() -> FileLock:
     return FileLock(str(_ACCELERATOR) + "-" + getpass.getuser() + ".lock")
 
 
-def cache_key(ctx: TaskRunContext, inputs: dict[str, Any]) -> str | None:
-    return str(inputs["key"]) if inputs["key"] is not None else None
-
-
 @task(cache_policy=NO_CACHE)
 def prepare(cfg: Dataset, out: Path, snapshot: Path | None = None) -> dict[str, Any]:
     with recording_configs(snapshot):
         return prepare_dataset(cfg, out)
 
 
-@task(cache_key_fn=cache_key, persist_result=True)
+@task(cache_policy=NO_CACHE)
 def fit(
     data: dict[str, Any],
     recipe: Path,
     task_name: str,
     threads: int,
-    key: str | None,
+    cache_inputs: dict[str, Any] | None = None,
 ) -> tuple[Any, dict[str, Any]]:
     cfg = load_yaml_as(str(recipe), SklearnTrainConfig)
     train = table(Path(data["train"]))
@@ -118,7 +115,7 @@ def external_prediction(
     out.parent.mkdir(parents=True, exist_ok=True)
     lock = accelerator_lock() if cfg.resource == "accelerator" else nullcontext()
     with lock, bind_run(uri, run_id), recording_configs(snapshot):
-        return str(symbol(cfg.predictor)(config_path=cfg.recipe, out_dir=out, **cfg.options))
+        return str(symbol(cfg.predictor)(config_path=cfg.recipe_path, out_dir=out, **cfg.options))
 
 
 @task(cache_policy=NO_CACHE)
@@ -126,7 +123,7 @@ def image_fit(cfg: Lightning, out: Path, uri: str | None, run_id: str | None) ->
     from runtime.train import train
 
     with accelerator_lock(), bind_run(uri, run_id):
-        train(str(cfg.recipe), outdir=str(out))
+        train(str(cfg.recipe_path), outdir=str(out))
     weights = out / "best_model.pt"
     if not weights.is_file():
         raise FileNotFoundError(weights)
@@ -143,7 +140,7 @@ def image_predict(cfg: Lightning, weights: str, split: str, out: Path) -> str:
         inference(
             weights,
             str(output),
-            str(cfg.recipe),
+            str(cfg.recipe_path),
             data_dir=str(dataset.images),
             catalog=str(dataset.catalog),
             id_column=cfg.report.id_column,
@@ -153,13 +150,14 @@ def image_predict(cfg: Lightning, weights: str, split: str, out: Path) -> str:
     return str(output)
 
 
-@task(cache_key_fn=cache_key, persist_result=True)
+@task(cache_policy=NO_CACHE)
 def evaluate_and_compare(
     records: list[dict[str, Any]],
     task_name: str,
     name: str,
     repeats: int,
-    key: str | None,
+    code_sha256: str,
+    sources: dict[str, str],
 ) -> dict[str, Any]:
     from lib.report import build_report_data
 
@@ -191,6 +189,12 @@ def submit_methods(
     submitted: list[tuple[str, str, str | PrefectFuture[Any] | Exception]] = []
     for name, method in config.methods.items():
         out = directory / "methods" / name
+        if dataset_error is not None and (
+            isinstance(method, Tabular) or (isinstance(method, Lightning) and method.recipe is None)
+        ):
+            labels = list(config.dataset.evaluation_files) if config.dataset else []
+            submitted.extend((name, label, dataset_error) for label in labels or [method.split])
+            continue
         if isinstance(method, Saved):
             submitted.append((name, method.split, str(method.predictions)))
         elif isinstance(method, External):
@@ -203,30 +207,27 @@ def submit_methods(
             )
             submitted.append((name, method.split, prediction))
         elif isinstance(method, Tabular):
-            if dataset_error is not None:
-                labels = list(config.dataset.evaluation_files) if config.dataset else []
-                submitted.extend((name, label, dataset_error) for label in labels or [method.split])
-                continue
-            fingerprint = signature(
-                "tabular-fit",
-                version,
-                data["train_sha256"],
-                data["features"],
-                data.get("missing_features", []),
-                data.get("feature_set"),
-                data["target"],
-                data["weight_column"],
-                digest(method.recipe) if method.recipe.is_file() else str(method.recipe),
-                config.task,
-                config.threads_per_method,
-            )
-            fitted = fit.with_options(task_run_name=f"{name}-fit").submit(
-                data,
-                method.recipe,
-                config.task,
-                config.threads_per_method,
-                fingerprint if config.cache else None,
-            )
+            # Run directories change on every execution. Hash their contents and training schema.
+            cache_inputs = None
+            if config.cache:
+                keys = (
+                    "train_sha256",
+                    "features",
+                    "missing_features",
+                    "feature_set",
+                    "target",
+                    "weight_column",
+                )
+                cache_inputs = {key: data.get(key) for key in keys}
+                cache_inputs.update(
+                    code=version,
+                    recipe=digest(method.recipe_path) if method.recipe_path.is_file() else None,
+                )
+            fitted = fit.with_options(
+                task_run_name=f"{name}-fit",
+                cache_policy=_FIT_CACHE if config.cache else NO_CACHE,
+                persist_result=config.cache,
+            ).submit(data, method.recipe_path, config.task, config.threads_per_method, cache_inputs)
             model_path = save_tabular_model.with_options(task_run_name=f"{name}-save").submit(
                 fitted, out, return_state=False
             )
@@ -253,15 +254,14 @@ def submit_methods(
                 config.tracking_uri,
                 run_ids.get(name),
             )
-            for split in method.predict_on:
-                future = image_predict.with_options(task_run_name=f"{name}-{split}").submit(
-                    method,
-                    weights,
-                    split,
-                    out,
-                    return_state=False,
-                )
-                submitted.append((name, split, future))
+            splits = list(method.predict_on)
+            predictions = image_predict.with_options(task_run_name=f"{name}-{{split}}").map(
+                unmapped(method), unmapped(weights), splits, unmapped(out)
+            )
+            submitted.extend(
+                (name, split, prediction)
+                for split, prediction in zip(splits, predictions, strict=True)
+            )
     return submitted
 
 
@@ -339,13 +339,10 @@ def stage_history(flow_id: str) -> list[dict[str, Any]]:
     with get_client(sync_client=True) as client:
         query = FlowRunFilter(id=FlowRunFilterId(any_=[UUID(flow_id)]))
         stages: list[TaskRun] = []
-        while True:
-            page = client.read_task_runs(
-                flow_run_filter=query, sort=TaskRunSort.ID_DESC, limit=100, offset=len(stages)
-            )
+        while page := client.read_task_runs(
+            flow_run_filter=query, sort=TaskRunSort.ID_DESC, offset=len(stages)
+        ):
             stages.extend(page)
-            if len(page) < 100:
-                break
     return [
         {
             "stage": stage.name,
@@ -356,7 +353,7 @@ def stage_history(flow_id: str) -> list[dict[str, Any]]:
     ]
 
 
-@flow(name="regression-experiment")
+@flow(name="regression-experiment", flow_run_name="{config.name}")
 def experiment(config: Experiment) -> Path:
     directory = config.output.resolve() / str(flow_run.id)
     if flow_run.run_count > 1:
@@ -380,11 +377,18 @@ def experiment(config: Experiment) -> Path:
     finished = False
     failures: list[str] = []
     try:
-        if config.dataset is not None:
+        uses_catalog = any(
+            isinstance(m, Tabular) or (isinstance(m, Lightning) and m.recipe is None)
+            for m in config.methods.values()
+        )
+        if config.dataset is not None and (
+            uses_catalog or config.dataset.features or config.dataset.feature_catalog
+        ):
             try:
                 data = prepare(config.dataset, directory / "data", snapshot=configuration)
             except Exception as exc:
                 dataset_error = ValueError(f"Dataset preparation failed: {exc}")
+        config = resolve_methods(config, configuration, data)
         if tracker:
             for name, method in config.methods.items():
                 params: dict[str, Any] = {
@@ -392,9 +396,9 @@ def experiment(config: Experiment) -> Path:
                     "task": config.task,
                     "code_sha256": version,
                 }
-                if not isinstance(method, Saved):
-                    params["recipe"] = str(method.recipe)
-                    captured = record_config(method.recipe, configuration)
+                if not isinstance(method, Saved) and method.recipe is not None:
+                    params["recipe"] = str(method.recipe_path)
+                    captured = record_config(method.recipe_path, configuration)
                     if captured is not None:
                         params["recipe_sha256"] = digest(captured)
                 if data:
@@ -423,22 +427,10 @@ def experiment(config: Experiment) -> Path:
                 path = row.get(field)
                 if isinstance(path, str) and path not in sources and Path(path).is_file():
                     sources[path] = digest(Path(path))
-        key = signature(
-            "evaluate",
-            version,
-            records,
-            sources,
-            config.task,
-            config.name,
-            config.bootstrap_replicates,
-        )
-        report = evaluate_and_compare(
-            records,
-            config.task,
-            config.name,
-            config.bootstrap_replicates,
-            key if config.cache else None,
-        )
+        report = evaluate_and_compare.with_options(
+            cache_policy=TASK_SOURCE + INPUTS if config.cache else NO_CACHE,
+            persist_result=config.cache,
+        )(records, config.task, config.name, config.bootstrap_replicates, version, sources)
         report["metadata"] = {
             "prefect_flow_run": str(flow_run.id),
             "mlflow_runs": run_ids,
@@ -462,8 +454,8 @@ def experiment(config: Experiment) -> Path:
                 method_cfg = config.methods[method_name]
                 settings = public_config(method_cfg.model_dump(mode="json"))
                 tracker.client.log_dict(run_id, settings, "method.json")
-                if not isinstance(method_cfg, Saved):
-                    captured = record_config(method_cfg.recipe, configuration)
+                if not isinstance(method_cfg, Saved) and method_cfg.recipe is not None:
+                    captured = record_config(method_cfg.recipe_path, configuration)
                     if captured is not None:
                         tracker.client.log_artifact(run_id, str(captured), "recipe")
                 summary = directory / "methods" / method_name / "train_report.json"
@@ -477,7 +469,7 @@ def experiment(config: Experiment) -> Path:
             for row in report["rows"]:
                 tracker.log_metrics(run_ids[row["name"]], row["split"], row["metrics"])
         failures = [r["name"] for r in report["rows"] if r["status"] == "failed"]
-        if dataset_error and not any(isinstance(m, Tabular) for m in config.methods.values()):
+        if dataset_error and not uses_catalog:
             failures.append("dataset preparation")
         failures.extend(
             f"{p['a']} / {p['b']}" for p in report["pairs"] if p.get("status") == "failed"
@@ -485,7 +477,10 @@ def experiment(config: Experiment) -> Path:
         finished = True
     finally:
         finish_with_snapshots(
-            tracker, configuration, directory, flow_run.run_count,
+            tracker,
+            configuration,
+            directory,
+            flow_run.run_count,
             {run_id: finished and name not in failures for name, run_id in run_ids.items()},
         )
     if failures:
@@ -495,7 +490,6 @@ def experiment(config: Experiment) -> Path:
 
 def run(config: Experiment) -> Path:
     return experiment.with_options(
-        flow_run_name=config.name,
         task_runner=cast(
             TaskRunner[PrefectFuture[Any]], ThreadPoolTaskRunner(max_workers=config.workers)
         ),

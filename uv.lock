@@ -336,6 +336,7 @@ dependencies = [
     { name = "threadpoolctl" },
     { name = "timm" },
     { name = "torch" },
+    { name = "torchmetrics" },
     { name = "torchvision" },
     { name = "tqdm" },
 ]
@@ -390,6 +391,7 @@ requires-dist = [
     { name = "threadpoolctl", specifier = ">=3.6.0" },
     { name = "timm", specifier = ">=1.0.26" },
     { name = "torch", specifier = ">=2.0" },
+    { name = "torchmetrics", specifier = ">=1" },
     { name = "torchvision", specifier = ">=0.25.0" },
     { name = "tqdm", specifier = ">=4.67.3" },
 ]

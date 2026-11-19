@@ -15,7 +15,7 @@ from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader
 
 from lib.config import PytorchTrainConfig
-from lib.tracking import lightning_logger
+from lib.train.lightning import export_weights, single_device_trainer
 from lib.train.regression import RegressionTask, scalar_predictions
 from lib.utils.log import get_logger
 from lib.utils.utils import pick_device
@@ -138,13 +138,7 @@ class RegressionModule(L.LightningModule):
 
 
 def _extract_model_state(ckpt_path: Path, out_path: Path) -> None:
-    ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=True)
-    sd = {
-        k.removeprefix("model."): v
-        for k, v in ckpt["state_dict"].items()
-        if k.startswith("model.")
-    }
-    torch.save(sd, out_path)
+    export_weights(ckpt_path, out_path, "model.")
 
 
 def run_regression(
@@ -156,8 +150,7 @@ def run_regression(
     task: RegressionTask | None = None,
     device: torch.device | None = None,
 ) -> Path:
-    torch.manual_seed(cfg.seed)
-    np.random.seed(cfg.seed)
+    L.seed_everything(cfg.seed, workers=False, verbose=False)
     out = Path(outdir)
     weights_dir = out / "weights"
     weights_dir.mkdir(parents=True, exist_ok=True)
@@ -177,15 +170,7 @@ def run_regression(
         save_top_k=1,
         save_last=True,
     )
-    trainer = L.Trainer(
-        max_epochs=cfg.epochs,
-        accelerator=device.type,
-        devices=[device.index or 0] if device.type == "cuda" else 1,
-        callbacks=[ckpt],
-        logger=lightning_logger(default=False),
-        enable_progress_bar=False,
-        num_sanity_val_steps=0,
-    )
+    trainer = single_device_trainer(device, cfg.epochs, callbacks=[ckpt])
     trainer.fit(module, train_dataloaders=train_loader, val_dataloaders=val_loader)
 
     (out / "history.json").write_text(json.dumps(module.history, indent=2, allow_nan=False))

@@ -6,15 +6,11 @@ import torch
 from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader, Dataset, WeightedRandomSampler
 
-from lib.dataloaders.common import center_crop, orient, resize_square, subsample_indices
+from lib.dataloaders.common import center_crop, orient, subsample_indices
 
 
 def _center_crop_resize(img: np.ndarray, crop_size: int, out_size: int = 224) -> np.ndarray:
-    crop = center_crop(img, crop_size)
-    if crop_size == out_size:
-        return crop
-    tensor = torch.from_numpy(crop).permute(2, 0, 1).float()
-    return resize_square(tensor, out_size).permute(1, 2, 0).numpy()
+    return center_crop(img, crop_size, out_size=out_size)
 
 
 def read_bands(path: Path, in_channels: int, w1w2_path: Path | None = None) -> np.ndarray:

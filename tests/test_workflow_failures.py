@@ -46,7 +46,7 @@ class WorkflowFailuresTest(TestCase):
                         },
                         "table": {
                             "kind": "tabular",
-                            "recipe": "examples/configs/models/ridge.yaml",
+                            "recipe": "tests/fixtures/legacy/models/ridge.yaml",
                         },
                     },
                 }

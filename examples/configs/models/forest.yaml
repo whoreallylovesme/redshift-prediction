@@ -1,2 +1,0 @@
-estimator: rf
-estimator_params: {model__n_estimators: 8, model__max_depth: 3}

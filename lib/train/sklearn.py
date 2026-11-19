@@ -142,6 +142,8 @@ def fit_regressor(
     metrics: Callable[..., Any],
     weight_column: str | None = None,
 ) -> tuple[Any, dict[str, Any]]:
+    from sklearn.pipeline import Pipeline
+
     from lib.utils.estimator_loader import load_estimator
 
     x, y = frame[features], frame[target]
@@ -153,6 +155,13 @@ def fit_regressor(
         xt, xv, yt, yv = x, x.iloc[:0], y, y.iloc[:0]
     estimator: Any = load_estimator(cfg.estimator)
     overrides = dict(cfg.estimator_params)
+    if isinstance(estimator, Pipeline):
+        final_step = estimator.steps[-1][0]
+        pipeline_keys = estimator.get_params(deep=False).keys() | estimator.named_steps.keys()
+        overrides = {
+            key if "__" in key or key in pipeline_keys else f"{final_step}__{key}": value
+            for key, value in overrides.items()
+        }
     if threads is not None:
         for name in ("model__n_jobs", "model__thread_count"):
             if name in estimator.get_params():

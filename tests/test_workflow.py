@@ -57,7 +57,10 @@ class WorkflowTest(TestCase):
                     "split_column": "role",
                 },
                 "methods": {
-                    "ridge": {"kind": "tabular", "recipe": "examples/configs/models/ridge.yaml"}
+                    "ridge": {
+                        "kind": "tabular",
+                        "recipe": "tests/fixtures/legacy/models/ridge.yaml",
+                    }
                 },
             }
             if find_spec("mlflow"):

@@ -31,15 +31,10 @@ from runtime.train import train
 logger = get_logger()
 
 
-@task(cache_policy=NO_CACHE)
-def split_tabular_data(
-    input_csv: str,
-    data_config: str,
-    features: str,
-    outdir: str,
-    id_column: str | None = None,
-) -> None:
-    prepare(input_csv, data_config, features, outdir, id_column=id_column)
+split_tabular_data = task(name="split_tabular_data", cache_policy=NO_CACHE)(prepare)
+evaluate = task(name="evaluate", cache_policy=NO_CACHE)(calc_metrics)
+render_summary_table = task(name="render_summary_table", cache_policy=NO_CACHE)(summary_table)
+render_summary_plots = task(name="render_summary_plots", cache_policy=NO_CACHE)(summary_plots)
 
 
 @task(cache_policy=NO_CACHE)
@@ -79,21 +74,6 @@ def predict(
         catalog,
         id_column=id_column,
     )
-
-
-@task(cache_policy=NO_CACHE)
-def evaluate(preds: str, outdir: str, model_name: str) -> None:
-    calc_metrics(preds, outdir, model_name)
-
-
-@task(cache_policy=NO_CACHE)
-def render_summary_table(runs_dir: str, out: str, title: str) -> None:
-    summary_table(runs_dir, out, title)
-
-
-@task(cache_policy=NO_CACHE)
-def render_summary_plots(runs_dir: str, out: str, title: str) -> None:
-    summary_plots(runs_dir, out, title)
 
 
 @contextmanager
@@ -150,11 +130,16 @@ def combined_report(
         raise ValueError(f"Report saved with evaluation failures: {', '.join(failures)}")
 
 
-def fit_recipe(config: str, uri: str | None) -> None:
+def fit_recipe(config: str, tracking_uri: str | None = None) -> None:
     recipe = Path(config)
-    with tracked_method(uri, recipe.stem, config, recipe.parent) as (_, run_id):
-        with bind_run(uri, run_id):
-            train(config)
+    with (
+        tracked_method(tracking_uri, recipe.stem, config, recipe.parent) as (_, run_id),
+        bind_run(tracking_uri, run_id),
+    ):
+        train(config)
+
+
+fit_euclid_stage = task(name="fit_euclid_stage", cache_policy=NO_CACHE)(fit_recipe)
 
 
 @task(cache_policy=NO_CACHE)
@@ -166,9 +151,14 @@ def fit_capsnet(config: str, tracking_uri: str | None = None, run_id: str | None
             train(config)
 
 
-@task(cache_policy=NO_CACHE)
-def predict_capsnet_splits(config: str) -> None:
+def predict_from_recipe(config: str) -> None:
     inference(config_path=config)
+
+
+predict_capsnet_splits = task(name="predict_capsnet_splits", cache_policy=NO_CACHE)(
+    predict_from_recipe
+)
+predict_euclid_stage = task(name="predict_euclid_stage", cache_policy=NO_CACHE)(predict_from_recipe)
 
 
 @task(cache_policy=NO_CACHE)
@@ -336,16 +326,6 @@ def run_nn_pipeline(config: FlowConfig, uri: str | None = None) -> None:
             title = split.get("summary_title", f"nn_runs_{split_name}")
             render_summary_table(split_runs, f"{split_runs}/summary_table.html", title)
             render_summary_plots(split_runs, f"{split_runs}/summary_plots.html", title)
-
-
-@task(cache_policy=NO_CACHE)
-def fit_euclid_stage(config: str, tracking_uri: str | None = None) -> None:
-    fit_recipe(config, tracking_uri)
-
-
-@task(cache_policy=NO_CACHE)
-def predict_euclid_stage(config: str) -> None:
-    inference(config_path=config)
 
 
 @task(cache_policy=NO_CACHE)

@@ -1,15 +1,17 @@
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from typing import Any
 
 import lightning as L
 import numpy as np
 import torch
 from numpy.typing import NDArray
+from torch.optim import AdamW
+from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader, IterableDataset
 
-from photoz.data.euclid_packet import schedule_lr
+from photoz.data.euclid_packet import WARMUP_EPOCHS, schedule_lr
 
 
 class ShuffledRowBatches(IterableDataset[torch.Tensor]):
@@ -33,12 +35,25 @@ class ShuffledRowBatches(IterableDataset[torch.Tensor]):
         return DataLoader(self, batch_size=None, generator=torch.Generator())
 
 
+type OptimizerSchedule = tuple[list[AdamW], list[LambdaLR]]
+
+
+def scheduled_adamw(
+    parameters: Iterable[torch.Tensor], epochs: int, *, lr: float,
+    weight_decay: float, warmup: int = WARMUP_EPOCHS,
+) -> OptimizerSchedule:
+    optimizer = AdamW(parameters, lr=lr, weight_decay=weight_decay)
+    scheduler = LambdaLR(
+        optimizer, lambda step: schedule_lr(min(step + 1, epochs), epochs, 1.0, warmup)
+    )
+    return [optimizer], [scheduler]
+
+
 class ClipTrainingEpoch(L.LightningModule):
     def __init__(self, epochs: int) -> None:
         super().__init__()
         self.epochs = epochs
         self.history: list[dict[str, Any]] = []
-        self.loss_sum = 0.0
         self.examples = 0
         self.lr = 0.0
 
@@ -48,13 +63,12 @@ class ClipTrainingEpoch(L.LightningModule):
         return batch
 
     def on_train_epoch_start(self) -> None:
-        self.loss_sum = 0.0
         self.examples = 0
-        self.lr = schedule_lr(self.current_epoch + 1, self.epochs)
-        for group in self.trainer.optimizers[0].param_groups:
-            group["lr"] = self.lr
+        self.lr = float(self.trainer.optimizers[0].param_groups[0]["lr"])
 
     def record_loss(self, loss: torch.Tensor, size: int) -> None:
-        self.loss_sum += float(loss.detach()) * size
         self.examples += size
-        self.log("train/loss", loss, on_epoch=True, on_step=False, batch_size=size)
+        value = loss.detach()
+        if value.device.type != "mps":
+            value = value.double()
+        self.log("train/loss", value, on_epoch=True, on_step=False, batch_size=size)
