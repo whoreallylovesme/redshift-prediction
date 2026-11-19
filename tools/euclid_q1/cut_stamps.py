@@ -15,7 +15,11 @@ from astropy.wcs import WCS
 from numpy.typing import NDArray
 from pydantic import BaseModel
 
-from lib.dataloaders.euclid_transforms import (
+from lib.utils.log import get_logger
+from lib.utils.utils import check, load_yaml_as
+from photoz.data.euclid_mosaics import Plane, open_mosaic
+from photoz.data.euclid_mosaics import load_plane as load_plane
+from photoz.data.euclid_transforms import (
     BANDS,
     IMAGE_BANDS,
     IMAGE_SIDE,
@@ -24,8 +28,6 @@ from lib.dataloaders.euclid_transforms import (
     transform_image_band,
     transform_table,
 )
-from lib.utils.log import get_logger
-from lib.utils.utils import check, load_yaml_as
 
 logger = get_logger()
 
@@ -47,9 +49,6 @@ GEOMETRY = (
     "NAXIS1",
     "NAXIS2",
 )
-
-type Plane = NDArray[Any] | SparsePlane
-
 
 class CutStampsConfig(BaseModel):
     selected: Path
@@ -155,69 +154,6 @@ def prepare_inputs(cfg: CutStampsConfig) -> None:
     )
 
 
-def image_header(path: str) -> tuple[fits.Header, int, np.dtype[Any], bool]:
-    with fits.open(path, memmap=False, lazy_load_hdus=True) as h:
-        i = 0 if h[0].header.get("NAXIS", 0) == 2 else 1
-        head = h[i].header.copy()
-        offset = int(h.fileinfo(i)["datLoc"])
-    bitpix = int(head["BITPIX"])
-    scale, zero = head.get("BSCALE", 1), head.get("BZERO", 0)
-    kind = "f" if bitpix < 0 else "i"
-    unsigned = kind == "i" and scale == 1 and zero == 2 ** (abs(bitpix) - 1)
-    check(unsigned or (scale == 1 and zero == 0), f"unsupported scaling {path}")
-    return head, offset, np.dtype(">" + kind + str(abs(bitpix) // 8)), unsigned
-
-
-def native(data: NDArray[Any], unsigned: bool, bits: int) -> NDArray[Any]:
-    data = data.byteswap().view(data.dtype.newbyteorder("="))
-    if unsigned:
-        data = data.view(np.dtype("u" + str(bits // 8)))
-        data ^= np.array(1 << (bits - 1), dtype=data.dtype)
-    return data
-
-
-def load_plane(path: str) -> tuple[NDArray[Any], fits.Header]:
-    head, offset, dtype, unsigned = image_header(path)
-    data = np.fromfile(
-        path, dtype=dtype, count=head["NAXIS2"] * head["NAXIS1"], offset=offset
-    ).reshape(head["NAXIS2"], head["NAXIS1"])
-    return native(data, unsigned, abs(head["BITPIX"])), head
-
-
-class SparsePlane:
-    def __init__(self, path: str) -> None:
-        self.path = path
-        self.head, self.offset, self.dtype, self.unsigned = image_header(path)
-        self.shape = (int(self.head["NAXIS2"]), int(self.head["NAXIS1"]))
-
-    def stamp(self, y0: int, x0: int) -> NDArray[Any]:
-        w = self.shape[1]
-        block = np.fromfile(
-            self.path,
-            dtype=self.dtype,
-            count=IMAGE_SIDE * w,
-            offset=self.offset + y0 * w * self.dtype.itemsize,
-        ).reshape(IMAGE_SIDE, w)
-        return native(
-            np.ascontiguousarray(block[:, x0 : x0 + IMAGE_SIDE]),
-            self.unsigned,
-            abs(self.head["BITPIX"]),
-        )
-
-
-def open_plane(path: str, n: int, sparse_rows: int) -> tuple[Plane, fits.Header]:
-    if n <= sparse_rows:
-        plane = SparsePlane(path)
-        return plane, plane.head
-    return load_plane(path)
-
-
-def stamp(src: Plane, y: int, x: int) -> NDArray[Any]:
-    if isinstance(src, SparsePlane):
-        return src.stamp(y - HALF, x - HALF)
-    return src[y - HALF : y + HALF, x - HALF : x + HALF]
-
-
 def stamps(
     src: Plane,
     yi: NDArray[np.int64],
@@ -227,7 +163,9 @@ def stamps(
 ) -> NDArray[Any]:
     out = np.empty((len(rows), IMAGE_SIDE, IMAGE_SIDE), dtype)
     for j, r in enumerate(rows):
-        out[j] = stamp(src, int(yi[r]), int(xi[r]))
+        y, x = int(yi[r]), int(xi[r])
+        # Astropy can read all of these FITS rows in a single contiguous request.
+        out[j] = src[y - HALF : y + HALF, :][:, x - HALF : x + HALF]
     return out
 
 
@@ -250,28 +188,30 @@ def cut_owner(
     anyvalid = np.zeros((n, IMAGE_BANDS), bool)
     stats: dict[str, Any] = {}
     for b, band in enumerate(IMAGE_BAND_NAMES):
-        sci, sh = open_plane(files[f"{band}_science"], n, sparse_rows)
-        x, y = WCS(sh).world_to_pixel_values(ra, dec)
-        ok = np.isfinite(x) & np.isfinite(y)
-        xi = np.rint(np.where(ok, x, -1e9)).astype(np.int64)
-        yi = np.rint(np.where(ok, y, -1e9)).astype(np.int64)
-        hgt, wid = sci.shape
-        inb = ok & (xi >= HALF) & (xi <= wid - HALF) & (yi >= HALF) & (yi <= hgt - HALF)
-        rows = np.flatnonzero(inb)
-        science = stamps(sci, yi, xi, rows, np.float32)
-        zp = float(sh["MAGZERO"])
+        with open_mosaic(files[f"{band}_science"], sparse=n <= sparse_rows) as (sci, sh):
+            x, y = WCS(sh).world_to_pixel_values(ra, dec)
+            ok = np.isfinite(x) & np.isfinite(y)
+            xi = np.rint(np.where(ok, x, -1e9)).astype(np.int64)
+            yi = np.rint(np.where(ok, y, -1e9)).astype(np.int64)
+            hgt, wid = sci.shape
+            inb = ok & (xi >= HALF) & (xi <= wid - HALF) & (yi >= HALF) & (yi <= hgt - HALF)
+            rows = np.flatnonzero(inb)
+            science = stamps(sci, yi, xi, rows, np.float32)
+            zp = float(sh["MAGZERO"])
         del sci
-        rms, rh = open_plane(files[f"{band}_rms"], n, sparse_rows)
-        check(same_geometry(rh, sh), f"{band} rms geometry")
-        check(np.isclose(float(rh["MAGZERO"]), zp, atol=1e-8, rtol=0), f"{band} rms calibration")
-        noise = stamps(rms, yi, xi, rows, np.float32)
+        with open_mosaic(files[f"{band}_rms"], sparse=n <= sparse_rows) as (rms, rh):
+            check(same_geometry(rh, sh), f"{band} rms geometry")
+            check(
+                np.isclose(float(rh["MAGZERO"]), zp, atol=1e-8, rtol=0), f"{band} rms calibration"
+            )
+            noise = stamps(rms, yi, xi, rows, np.float32)
         del rms
         flags = np.zeros((len(rows), IMAGE_SIDE, IMAGE_SIDE), np.uint32)
         if read_flags:
-            flg, fh = open_plane(files[f"{band}_flag"], n, sparse_rows)
-            check(same_geometry(fh, sh), f"{band} flag geometry")
-            check(flg.dtype.kind in "iu", f"{band} integer flags")
-            flags = stamps(flg, yi, xi, rows, np.uint32)
+            with open_mosaic(files[f"{band}_flag"], sparse=n <= sparse_rows) as (flg, fh):
+                check(same_geometry(fh, sh), f"{band} flag geometry")
+                check(fh["BITPIX"] > 0, f"{band} integer flags")
+                flags = stamps(flg, yi, xi, rows, np.uint32)
             del flg
         factor = 10 ** ((AB_ZEROPOINT_UJY - zp) / 2.5)
         with np.errstate(over="ignore", under="ignore", invalid="ignore"):

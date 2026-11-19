@@ -1,0 +1,653 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ title }}</title>
+<style>
+:root {
+  --ink:#182c32;
+  --sub:#4b6269;
+  --paper:#faf9f5;
+  --surface:#fff;
+  --rule:#ccd6d3;
+  --teal:#006f63;
+  --soft:#e2f0eb;
+  --link:#075b75;
+  --accent:#965026;
+  font:15px/1.55 "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color:var(--ink);
+  background:var(--paper);
+  color-scheme:light;
+}
+* {
+  box-sizing:border-box;
+}
+body {
+  margin:0;
+}
+main {
+  width:min(1280px,100%);
+  margin:auto;
+  padding:46px clamp(16px,4vw,60px) 80px;
+}
+header {
+  display:flex;
+  align-items:end;
+  justify-content:space-between;
+  gap:24px;
+  border-bottom:2px solid var(--ink);
+  padding-bottom:21px;
+}
+h1,h2,h3,p {
+  margin:0;
+}
+h1 {
+  font:500 clamp(2.2rem,5vw,4.25rem)/1.05 Georgia,serif;
+  letter-spacing:-.035em;
+  max-width:21ch;
+  overflow-wrap:anywhere;
+}
+h2 {
+  font:500 clamp(1.55rem,3vw,2.1rem)/1.15 Georgia,serif;
+  letter-spacing:-.02em;
+  margin-bottom:14px;
+}
+h3 {
+  font-size:1rem;
+  margin:16px 0 8px;
+}
+section {
+  margin-top:32px;
+}
+.exports {
+  display:flex;
+  gap:10px;
+  align-items:center;
+}
+.exports span,.muted,.status,.note {
+  color:var(--sub);
+}
+.exports a,a {
+  color:var(--link);
+  text-underline-offset:3px;
+}
+.note {
+  margin:6px 0 15px;
+  max-width:85ch;
+}
+table,select {
+  font-variant-numeric:tabular-nums;
+}
+table {
+  width:100%;
+  border-collapse:collapse;
+  background:var(--surface);
+  font-size:.88rem;
+}
+th,td {
+  padding:9px 12px;
+  text-align:right;
+  white-space:nowrap;
+  border-bottom:1px solid var(--rule);
+}
+th {
+  background:#edf1ef;
+  font-weight:600;
+  color:var(--sub);
+}
+td:first-child,th:first-child {
+  text-align:left;
+}
+tbody tr:hover {
+  background:#f1f6f4;
+}
+.best {
+  font-weight:750;
+  color:#005b51;
+}
+.wrap {
+  overflow-x:auto;
+}
+.controls {
+  display:flex;
+  flex-wrap:wrap;
+  gap:15px;
+  background:#eaf1ed;
+  border-block:1px solid var(--rule);
+  padding:14px clamp(12px,2vw,23px);
+}
+label {
+  display:grid;
+  gap:4px;
+  font-size:.8rem;
+  color:var(--sub);
+  min-width:128px;
+  max-width:100%;
+}
+select {
+  max-width:100%;
+  padding:7px 29px 7px 10px;
+  border:1px solid #8caaa0;
+  border-radius:4px;
+  background:var(--surface);
+  color:var(--ink);
+  font:inherit;
+}
+button {
+  font:inherit;
+  color:var(--teal);
+  cursor:pointer;
+}
+.row-pick {
+  background:none;
+  border:0;
+  padding:2px 0;
+  text-align:left;
+  font-weight:630;
+  text-decoration:underline;
+  text-underline-offset:3px;
+}
+.current td:first-child {
+  box-shadow:inset 3px 0 var(--teal);
+}
+:focus-visible {
+  outline:3px solid #237496;
+  outline-offset:3px;
+}
+::selection {
+  background:#c4e6de;
+}
+nav {
+  display:flex;
+  gap:14px;
+  overflow-x:auto;
+  margin:20px 0;
+  border-bottom:1px solid var(--rule);
+}
+nav button {
+  border:0;
+  border-bottom:3px solid transparent;
+  background:none;
+  color:var(--sub);
+  font-weight:630;
+  white-space:nowrap;
+  padding:8px 0;
+}
+nav button[aria-pressed=true] {
+  color:var(--teal);
+  border-bottom-color:var(--teal);
+}
+.grid {
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:20px;
+}
+.chart {
+  min-width:0;
+  background:white;
+  border:1px solid var(--rule);
+  margin-top:6px;
+}
+.plot {
+  width:100%;
+  height:310px;
+}
+.empty {
+  padding:18px;
+  background:#f0f2ee;
+  color:var(--sub);
+}
+.details {
+  margin:8px 0;
+  border-bottom:1px solid var(--rule);
+  padding:6px 0;
+}
+summary {
+  cursor:pointer;
+  color:var(--teal);
+  font-weight:600;
+}
+pre {
+  white-space:pre-wrap;
+  overflow-wrap:anywhere;
+  font:13px/1.5 ui-monospace,monospace;
+  background:#f1f3f0;
+  padding:12px;
+}
+img {
+  max-width:120px;
+  max-height:90px;
+}
+.runline {
+  color:var(--sub);
+  font-size:.88rem;
+  margin-top:12px;
+}
+#panel {
+  min-height:260px;
+}
+.metric-small {
+  font-size:.78rem;
+  color:var(--sub);
+}
+.coverage {
+  color:var(--sub);
+}
+.stats {
+  display:flex;
+  gap:22px;
+  flex-wrap:wrap;
+  margin:12px 0 18px;
+}
+.stats span {
+  border-bottom:1px solid var(--rule);
+  padding:4px 0;
+}
+.stats strong {
+  margin-left:8px;
+}
+@media(max-width:740px) {
+  main {
+    padding-top:25px;
+  }
+  header {
+    align-items:start;
+    flex-direction:column;
+    gap:12px;
+  }
+  .grid {
+    grid-template-columns:1fr;
+  }
+  .controls label {
+    flex:1 1 42%;
+  }
+  section {
+    margin-top:24px;
+  }
+  .plot {
+    height:280px;
+  }
+  th,td {
+    padding:7px 8px;
+  }
+}
+@media print {
+  main {
+    padding:0;
+  }
+  .controls,nav,.exports {
+    display:none;
+  }
+  .wrap {
+    overflow:visible;
+  }
+  section {
+    break-inside:avoid;
+  }
+}
+</style>
+<script>{{ plotly | safe }}</script>
+</head>
+<body><main>
+<header><div><h1>{{ title }}</h1><p class="runline" id="summary-line"></p></div>
+<div class="exports"><span>Выгрузка</span><a href="metrics.csv" download>CSV</a><a href="metrics.json" download>JSON</a></div></header>
+<section aria-labelledby="overview-title"><h2 id="overview-title">Сравнение методов</h2><div class="wrap" id="overview"></div></section>
+<section aria-label="Детали"><div class="controls">
+<label>Сплит<select id="split"></select></label><label>Метод<select id="model"></select></label>
+<label>Сравнить с<select id="other"></select></label><label>Срез<select id="slice"></select></label></div>
+<nav id="tabs" aria-label="Раздел отчёта"></nav><div id="panel" aria-live="polite"></div></section>
+<noscript>Для интерактивных графиков включите JavaScript. Таблицы доступны в CSV и JSON.</noscript>
+</main><script type="application/json" id="report-data">{{ payload | safe }}</script>
+<script>
+"use strict";
+const report = JSON.parse(document.getElementById("report-data").textContent);
+const $ = id => document.getElementById(id);
+const all = "All objects";
+const palette = ["#007568", "#b96735", "#255b85", "#80639d", "#88753f"];
+const roles = { development: "Валидация", "held-out": "Отложенный", unspecified: "Не указана" };
+const statuses = { completed: "Завершён", complete: "Завершён", ok: "Завершён", failed: "Ошибка", pending: "Ожидает", skipped: "Пропущен", planned: "Запланирован" };
+const directions = { min: "↓", max: "↑", zero: "→ 0" };
+const tabs = { errors: "Ошибки", pair: "Общие объекты", data: "Данные", history: "Обучение", provenance: "Происхождение" };
+const state = { tab: "errors", split: report.rows[0].split, model: report.rows[0].name, other: "", slice: all };
+const num = value => value == null ? "—" : Number(value).toLocaleString("ru", { maximumSignificantDigits: 7 });
+function element(tag, text, cls) {
+    const el = document.createElement(tag);
+    if (text != null)
+        el.textContent = String(text);
+    if (cls)
+        el.className = cls;
+    return el;
+}
+function options(id, values, selected, labels = {}) {
+    const select = $(id);
+    select.replaceChildren(...values.map(v => new Option(labels[v] || v, v)));
+    select.value = values.includes(selected) ? selected : values[0];
+    return select.value;
+}
+function table(parent, headers, rows) {
+    const wrapper = element("div", null, "wrap"), t = element("table"), head = t.createTHead().insertRow();
+    headers.forEach(h => { const th = element("th", h); th.scope = "col"; head.append(th); });
+    const body = t.createTBody();
+    for (const data of rows) {
+        const tr = body.insertRow();
+        data.forEach(v => { const cell = tr.insertCell(); if (v instanceof Node)
+            cell.append(v);
+        else
+            cell.textContent = v ?? "—"; });
+    }
+    wrapper.append(t);
+    parent.append(wrapper);
+    return body;
+}
+function notes(parent, msg) { parent.append(element("p", msg, "note")); }
+function empty(parent, msg) { parent.append(element("p", msg, "empty")); }
+function jsonBlock(parent, label, data) {
+    const detail = element("details", null, "details");
+    detail.append(element("summary", label), element("pre", JSON.stringify(data, null, 2)));
+    parent.append(detail);
+}
+function safeLink(text, href) {
+    if (typeof href !== "string" || !href)
+        return element("span", text);
+    try {
+        const url = new URL(href, document.baseURI);
+        if (!["file:", "http:", "https:"].includes(url.protocol))
+            return element("span", text);
+        const a = element("a", text);
+        a.href = url.href;
+        a.rel = "noopener noreferrer";
+        return a;
+    }
+    catch {
+        return element("span", text);
+    }
+}
+function bestFor(rows, key) {
+    const direction = report.metrics[key].direction, values = rows.map(r => r.metrics[key]).filter(Number.isFinite);
+    if (!values.length)
+        return null;
+    return direction === "max" ? Math.max(...values) : Math.min(...values.map(v => direction === "zero" ? Math.abs(v) : v));
+}
+const label = k => report.metrics[k].label + (report.metrics[k].unit ? " (" + report.metrics[k].unit + ")" : "");
+function summary() {
+    const keys = [report.primary, ...Object.keys(report.metrics).filter(k => k !== report.primary)];
+    const rows = report.rows.map(r => {
+        const button = element("button", r.name, "row-pick");
+        button.onclick = () => { state.split = r.split; state.model = r.name; state.slice = all; refresh(); };
+        const same = report.rows.filter(x => x.split === r.split);
+        const metrics = keys.map(k => {
+            const v = r.metrics[k], best = bestFor(same, k), x = report.metrics[k].direction === "zero" ? Math.abs(v) : v;
+            const cell = element("span", num(v), v != null && best != null && Math.abs(x - best) < 1e-12 ? "best" : "");
+            cell.title = v == null ? "Недоступно" : String(v);
+            return cell;
+        });
+        const c = r.coverage;
+        return [button, r.split, metrics[0], c ? num(c.evaluated) + " / " + num(c.requested) : "—", roles[r.role] || r.role, statuses[r.status] || r.status, ...metrics.slice(1)];
+    });
+    $("overview").replaceChildren();
+    const tbody = table($("overview"), ["Метод", "Сплит", label(keys[0]) + " " + directions[report.metrics[keys[0]].direction], "Оценено / запрошено", "Роль", "Статус",
+        ...keys.slice(1).map(k => label(k) + " " + directions[report.metrics[k].direction])], rows);
+    Array.from(tbody.rows).forEach((r, i) => r.classList.toggle("current", report.rows[i].split === state.split && report.rows[i].name === state.model));
+}
+function plot(parent, title, traces, xTitle, yTitle, extra = {}) {
+    const section = element("div"), host = element("div", null, "plot"), box = element("div", null, "chart");
+    section.append(element("h3", title));
+    box.append(host);
+    section.append(box);
+    parent.append(section);
+    Plotly.newPlot(host, traces, {
+        margin: { l: 62, r: 18, t: 12, b: 63 }, paper_bgcolor: "#fff", plot_bgcolor: "#fff",
+        font: { family: "Inter, system-ui, sans-serif", color: "#22383b", size: 12 },
+        xaxis: { title: { text: xTitle }, gridcolor: "#e5ece8", automargin: true },
+        yaxis: { title: { text: yTitle }, gridcolor: "#e5ece8", automargin: true },
+        colorway: palette, showlegend: traces.length > 1, legend: { orientation: "h", y: -.25 }, ...extra
+    }, { responsive: true, displaylogo: false, scrollZoom: false });
+}
+function bars(h, name) { return { type: "bar", x: h.x, y: h.y, width: h.width, name, marker: { color: palette[0] } }; }
+function summaryCounts(parent, c) {
+    const line = element("div", null, "stats");
+    [["Запрошено", c.requested], ["Допущено", c.admitted], ["Есть прогноз", c.predicted], ["Оценено", c.evaluated]].forEach(([label, v]) => {
+        const box = element("span", label);
+        box.append(element("strong", num(v)));
+        line.append(box);
+    });
+    parent.append(line);
+}
+function errors(parent, selection) {
+    const c = selection.coverage, ch = selection.charts;
+    summaryCounts(parent, c);
+    if (ch.posterior_examples?.length) {
+        const curves = ch.posterior_examples.map((obj, i) => ({
+            x: obj.posterior.x, y: obj.posterior.y, mode: "lines",
+            name: obj.id == null ? "Пример " + (i + 1) : "ID " + obj.id,
+            hovertemplate: "%{x:.5g} · %{y:.5g}<extra>%{fullData.name}</extra>"
+        }));
+        plot(parent, "Распределения отдельных прогнозов", curves, report.labels.pred, "Вероятность в бине");
+    }
+    if (!c.evaluated) {
+        empty(parent, "Для оценки нужны конечный прогноз и допустимая эталонная метка.");
+        return;
+    }
+    const grid = element("div", null, "grid");
+    parent.append(grid);
+    const base = ch.density ? [{ type: "heatmap", ...ch.density, colorscale: "Blues", name: "Плотность",
+            hovertemplate: "%{x:.4g}, %{y:.4g}<br>Объекты %{z}<extra></extra>", showscale: false }] : [];
+    base.push({ type: "scatter", mode: "markers", ...ch.sample, name: "Объекты", marker: { size: 4, opacity: ch.density ? .25 : .55, color: palette[0] } });
+    for (const [name, trace] of Object.entries(ch.guides))
+        base.push({ type: "scatter", mode: "lines", ...trace, name,
+            line: { width: 1.5, color: ["Identity", "Диагональ"].includes(name) ? "#394d52" : "#ab653d", dash: ["Identity", "Диагональ"].includes(name) ? "solid" : "dot" } });
+    plot(grid, "Прогноз и эталон", base, report.labels.truth, report.labels.pred);
+    plot(grid, "Распределение остатков", [bars(ch.residual, "Объекты")], report.labels.residual, "Объекты");
+    notes(parent, "Показано точек " + num(ch.sample.x.length) + " из " + num(c.evaluated) + ". Метрики и гистограммы рассчитаны по всем оценённым объектам.");
+    const binGrid = element("div", null, "grid");
+    parent.append(binGrid);
+    const mid = ch.bins.map(b => (b.lo + b.hi) / 2);
+    const binKeys = Object.keys(report.metrics);
+    const metricSelect = element("select");
+    binKeys.forEach(k => metricSelect.add(new Option(label(k), k)));
+    metricSelect.value = report.primary;
+    const field = element("label", "Метрика по бинам");
+    field.append(metricSelect);
+    parent.insertBefore(field, binGrid);
+    function bins() {
+        binGrid.querySelectorAll(".plot").forEach(p => Plotly.purge(p));
+        binGrid.replaceChildren();
+        plot(binGrid, label(metricSelect.value) + " по бинам", [{ x: mid, y: ch.bins.map(b => b.metrics[metricSelect.value]),
+                mode: "lines+markers", name: label(metricSelect.value) }], report.labels.truth, label(metricSelect.value));
+        plot(binGrid, "Покрытие по бинам", [{ type: "bar", x: mid, y: ch.bins.map(b => 100 * b.evaluated / b.requested),
+                name: "Покрытие", customdata: ch.bins.map(b => [b.evaluated, b.requested]),
+                hovertemplate: "%{y:.2f}% · %{customdata[0]} / %{customdata[1]}<extra></extra>" }], report.labels.truth, "Оценено, %");
+    }
+    bins();
+    metricSelect.onchange = bins;
+    if (ch.posterior && ch.posterior.count) {
+        const p = ch.posterior;
+        parent.append(element("h3", "Калибровка распределения"));
+        notes(parent, "Допустимые распределения: " + num(p.count) + ", недопустимые: " + num(p.invalid) + ". Интервалы построены по дискретной сетке.");
+        if (p.count)
+            plot(parent, "Покрытие центрального интервала", [
+                { x: p.nominal, y: p.empirical, mode: "lines+markers", name: "Измерено" },
+                { x: [0, 1], y: [0, 1], mode: "lines", line: { dash: "dot" }, name: "Номинальное" }
+            ], "Номинальная вероятность", "Фактическое покрытие");
+    }
+    if (ch.interval) {
+        const it = ch.interval;
+        parent.append(element("h3", "Калибровка интервалов"));
+        table(parent, ["Интервалов", "Фактическое покрытие", "Номинальное покрытие", "Средняя ширина"], [[num(it.count), num(100 * it.covered / it.count) + "%", it.nominal == null ? "—" : num(100 * it.nominal) + "%", num(it.mean_width)]]);
+        plot(parent, "Ширина интервала", [bars(it.width, "Объекты")], "Ширина", "Объекты");
+    }
+}
+function pairs(parent) {
+    const pair = report.pairs.find(p => p.split === state.split && [p.a, p.b].includes(state.model) && [p.a, p.b].includes(state.other));
+    if (!pair) {
+        empty(parent, "В этом сплите требуется второй метод.");
+        return;
+    }
+    const result = pair.slices[state.slice];
+    if (!result) {
+        empty(parent, pair.reason || "Для сравнения нужен общий срез и проверенные ID объектов.");
+        return;
+    }
+    const first = pair.a === state.model, a = first ? "a" : "b", b = first ? "b" : "a", sign = first ? 1 : -1;
+    notes(parent, "Общих ID " + num(result.shared_ids) + " · оценённых пар " + num(result.count) + ". Разность рассчитана как " + state.model + " − " + state.other + ".");
+    if (!result.count) {
+        empty(parent, "Среди общих объектов отсутствуют пары допустимых прогнозов и меток.");
+        return;
+    }
+    table(parent, ["Метрика", state.model, state.other, "Разность", "95% ДИ"], Object.keys(report.metrics).map(k => {
+        const ci = result.ci95?.[k], val = result.delta[k];
+        return [label(k), num(result[a][k]), num(result[b][k]), num(val == null ? null : sign * val),
+            ci ? (first ? ci : [-ci[1], -ci[0]]).map(num).join(" … ") : "—"];
+    }));
+    if (!result.ci95)
+        notes(parent, "Доверительный интервал доступен при настроенном бутстрапе по группам.");
+    parent.append(element("h3", "Объекты с наибольшей разницей абсолютных остатков"));
+    table(parent, ["ID", "Эталон", state.model, state.other, "Остаток · " + state.model, "Остаток · " + state.other, "Детали"], result.examples.map(e => {
+        const details = element("span");
+        if (Object.keys(e.details).length)
+            jsonBlock(details, "Признаки", e.details);
+        const assets = [e["assets_" + a] || {}, e["assets_" + b] || {}];
+        const img = assets.find(v => v.thumbnail);
+        if (img) {
+            const thumb = element("img");
+            thumb.src = img.thumbnail;
+            thumb.alt = "Объект " + e.id;
+            thumb.loading = "lazy";
+            details.append(thumb);
+        }
+        const pdfs = assets.map((item, i) => item.posterior ? { x: item.posterior.x, y: item.posterior.y, mode: "lines",
+            name: i ? state.other : state.model } : null).filter(Boolean);
+        if (pdfs.length) {
+            const d = element("details");
+            d.append(element("summary", "Распределение"));
+            details.append(d);
+            d.ontoggle = () => { if (d.open && !d.querySelector(".plot"))
+                plot(d, "Объект " + e.id, pdfs, report.labels.truth, "Вероятность в бине"); };
+        }
+        return [e.id, num(e.truth), num(e[a]), num(e[b]), num(e["residual_" + a]), num(e["residual_" + b]), details];
+    }));
+}
+function dataView(parent, row, s) {
+    summaryCounts(parent, s.coverage);
+    if (Object.keys(s.coverage.reasons).length) {
+        table(parent, ["Причина потери", "Объекты"], Object.entries(s.coverage.reasons).map(([k, v]) => [k, num(v)]));
+    }
+    if (s.charts.target.x.length)
+        plot(parent, "Распределение эталона", [bars(s.charts.target, "Объекты")], report.labels.truth, "Объекты");
+    const d = row.data;
+    parent.append(element("h3", "Полный сплит"));
+    if (Object.keys(d.modalities).length)
+        table(parent, ["Доступные входы", "Объекты"], Object.entries(d.modalities).map(([k, v]) => [k, num(v)]));
+    if (Object.keys(d.missing_features).length)
+        table(parent, ["Признак", "Пропуски", "Доля"], Object.entries(d.missing_features).map(([k, v]) => [k, num(v), row.coverage.requested ? num(100 * v / row.coverage.requested) + "%" : "—"]));
+    if (!Object.keys(d.modalities).length && !Object.keys(d.missing_features).length)
+        notes(parent, "Сведения о признаках и доступности входов не переданы.");
+    if (d.missing_slices.length)
+        notes(parent, "Отсутствующие колонки срезов: " + d.missing_slices.join(", ") + ".");
+    const overlaps = report.overlaps.filter(o => o.name === row.name);
+    if (overlaps.length)
+        table(parent, ["Сплиты", "Общие ID", "Общие группы"], overlaps.map(o => [o.a + " / " + o.b, num(o.shared_ids), num(o.shared_groups)]));
+}
+function history(parent, row) {
+    const h = row.history;
+    if (Array.isArray(h) && h.length) {
+        const keys = [...new Set(h.flatMap(Object.keys))], axis = ["step", "epoch", "global_step"].find(k => keys.includes(k));
+        const x = h.map((r, i) => axis ? r[axis] : i + 1);
+        const series = keys.filter(k => k !== axis && k !== "epoch" && k !== "step" && k !== "global_step" && h.some(r => Number.isFinite(r[k])));
+        if (series.length) {
+            const grid = element("div", null, "grid");
+            parent.append(grid);
+            for (const key of series)
+                plot(grid, key, [{ x, y: h.map(r => r[key] ?? null), mode: "lines+markers", name: key }], axis || "Запись", key);
+        }
+        else
+            jsonBlock(parent, "История", h);
+    }
+    else if (h)
+        jsonBlock(parent, "История", h);
+    else
+        empty(parent, "История обучения для этого метода не передана.");
+    const seedGroup = (report.seed_summaries || []).find(g => g.split === row.split && g.methods.includes(row.name));
+    if (seedGroup) {
+        parent.append(element("h3", "Разброс по сидам"));
+        notes(parent, seedGroup.family + " · " + seedGroup.methods.join(", "));
+        table(parent, ["Метрика", "Сидов", "Среднее", "Минимум", "Максимум"], Object.entries(seedGroup.metrics).map(([k, s]) => [label(k), s.count, num(s.mean), num(s.min), num(s.max)]));
+    }
+    if (Object.keys(row.details).length)
+        jsonBlock(parent, "Параметры метода", row.details);
+}
+function provenance(parent, row) {
+    const info = element("div");
+    parent.append(info);
+    table(info, ["Поле", "Значение"], [["Метод", row.name], ["Сплит", row.split], ["Роль", row.role], ["Статус", row.status],
+        ["Прогнозы", row.predictions ? safeLink(row.predictions, row.predictions) : "—"]]);
+    for (const [key, val] of Object.entries({ ...report.metadata, ...row.details })) {
+        if (val == null)
+            continue;
+        if (typeof val === "string" && /(_url|_uri|_link)$/.test(key)) {
+            const p = element("p");
+            p.append(safeLink(key, val));
+            parent.append(p);
+        }
+        else
+            jsonBlock(parent, key, val);
+    }
+}
+function refresh() {
+    state.split = options("split", [...new Set(report.rows.map(r => r.split))], state.split);
+    const rows = report.rows.filter(r => r.split === state.split);
+    state.model = options("model", rows.map(r => r.name), state.model);
+    const row = rows.find(r => r.name === state.model);
+    state.other = options("other", rows.filter(r => r.name !== state.model).map(r => r.name), state.other);
+    $("other").disabled = rows.length === 1;
+    const slices = Object.keys(row.slices);
+    state.slice = options("slice", slices.length ? slices : [all], state.slice, { [all]: "Все объекты" });
+    for (const b of $("tabs").querySelectorAll("button"))
+        b.setAttribute("aria-pressed", String(b.dataset.tab === state.tab));
+    summary();
+    const parent = $("panel");
+    parent.querySelectorAll(".plot").forEach(el => Plotly.purge(el));
+    parent.replaceChildren();
+    if (row.details.reference_kind === "agreement")
+        notes(parent, "Согласие с прогнозами каталога. Остатки измеряют расхождение двух методов.");
+    if (state.tab === "provenance") {
+        provenance(parent, row);
+        return;
+    }
+    if (state.tab === "history") {
+        history(parent, row);
+        return;
+    }
+    if (state.tab === "pair") {
+        pairs(parent);
+        return;
+    }
+    const sel = row.slices[state.slice];
+    if (!sel) {
+        empty(parent, row.details.reason || "Для метода отсутствует результат. Статус: " + row.status + ".");
+        return;
+    }
+    if (state.tab === "data")
+        dataView(parent, row, sel);
+    else
+        errors(parent, sel);
+}
+for (const [key, name] of Object.entries(tabs)) {
+    const b = element("button", name);
+    b.dataset.tab = key;
+    b.onclick = () => { state.tab = key; refresh(); };
+    $("tabs").append(b);
+}
+for (const key of ["split", "model", "other", "slice"])
+    $(key).onchange = e => {
+        state[key] = e.target.value;
+        if (key === "other")
+            state.tab = "pair";
+        if (key === "split")
+            state.slice = all;
+        refresh();
+    };
+$("summary-line").textContent = "Методов: " + new Set(report.rows.map(r => r.name)).size + " · сплитов: " + new Set(report.rows.map(r => r.split)).size;
+refresh();
+</script></body></html>

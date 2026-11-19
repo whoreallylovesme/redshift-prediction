@@ -22,36 +22,28 @@ uv run pre-commit install          # хуки ruff + mypy
 uv run ruff check .                # перед каждым коммитом
 uv run mypy .
 
-uv run python runtime/pipeline.py --config configs/flows/fast_test.yaml   # smoke-тест
-uv run python runtime/pipeline.py --config configs/flows/<flow>.yaml
+uv run python -m runtime.pipeline --config examples/configs/teddy.yaml --check
+uv run python -m runtime.pipeline --config path/to/experiment.yaml
 ```
 
-**Всё запускается только через Prefect** — требование научного руководителя. Обучение, прогноз,
-оценка, отчёты и любые опыты запускаются флоу Prefect (`runtime/pipeline.py --config <flow>.yaml`).
-Новый опыт — это новый flow-YAML или новая стадия во флоу, а не отдельный скрипт, запущенный
-руками. Прямые вызовы `runtime/train.py` и `runtime/inference.py` (Hydra:
-`model=<...> dataset=<...>`) — только для отладки одной стадии; результаты таких запусков в отчёты
-не идут.
+Научные эксперименты запускаются через Prefect командой `uv run python -m runtime.pipeline --config <experiment.yaml>`. Это требование научного руководителя. Подготовка выборок, обучение, прогноз, оценка и отчёт принадлежат одному запуску. Новый эксперимент задаётся YAML с общим блоком `dataset` и словарём `methods`.
 
-Флоу (`configs/flows/`): `fast_test`, `run_all` (табличные), `train_nn`, `train_convnext`,
-`capsnet_teddy`, `capsnet_hayat`, `euclid_clip_p_final`. Тестов нет: после нетривиальных
-изменений запускать `fast_test.yaml`, а изменения в моделях проверять сверкой метрик с прошлым
-прогоном.
+Проверка без научных каталогов:
+
+```bash
+uv run python -m runtime.pipeline --config examples/configs/euclid.yaml --check
+uv run --extra tracking python -m unittest discover -s tests
+```
 
 ## Архитектура
 
-- `runtime/pipeline.py` — флоу Prefect. Режим задаёт поле `pipeline:` во flow-YAML
-  (`tabular | nn | capsnet | euclid_clip`), схема — `lib/config/schemas.py: FlowConfig`.
-- `runtime/train.py` — выбор тренера по `model_type`/`model`: `sklearn`, `lightning`
-  (`RegressionModule` или тренер из реестра), `torch` (реестр: `capsnet`, `euclid_clip`,
-  `euclid_clip_pretrain`, `euclid_classical`).
-- `runtime/inference.py` → `lib/inference/engine.py`, реестр предикторов (`capsnet`, `euclid_clip`).
-- `lib/` — `config`, `dataloaders`, `models`, `train`, `inference`, `metrics` (δ = (z_pred − z)/(1 + z),
-  bias, NMAD, доля выбросов; бутстрап по тайлам), `visual`, `utils` (логгер, реестры, Hydra).
-- `tools/` — сбор данных: `download_imgs`, `capsnet`, `euclid_q1`.
-- `reports/weekly/<YYYY-MM-DD>/`, `reports/monthly/<YYYY-MM-DD>/` — отчёты научным руководителям
-  и кафедре (TeX, PDF, рисунки, метрики).
-- `ai/skills/` — скиллы агентов: отчёт по эксперименту, месячный отчёт и календарный план.
+- `runtime/pipeline.py` — публичный вход Prefect, проверка рецепта и повторный рендер отчёта.
+- `lib/config/experiment.py` задаёт схему `preparation`, `dataset` и `methods`; стадии подготовки образуют кешируемый DAG, поля model и params задают метод, единый dataset описывает входы таблиц и изображений.
+- `lib/workflow/`, `lib/train/`, `lib/inference/`, `lib/report/` — граф, классический ML, Lightning, расчёт общих метрик и интерактивный HTML.
+- `lib/models/nn/` содержит нейросети, `lib/models/tabular/` — классические оценщики. Именованные фабрики доступны через `lib/models/registry.py`.
+- `photoz/` содержит предметные правила каталогов, метрик и Phosphoros. Архитектуры с фиксированной схемой входов Euclid находятся в `photoz/models/nn/`.
+- `tools/` готовит данные и ресурсы для методов. Форматы научных результатов описаны в `docs/euclid_q1/README.md`.
+- Примеры конфигов, правила кеширования и границы трекинга см. в `docs/pipeline.md`. Порядок проверки обучения — в `docs/lightning.md`.
 
 ## Стандарты кода
 
@@ -63,9 +55,8 @@ uv run python runtime/pipeline.py --config configs/flows/<flow>.yaml
 
 ## Подводные камни
 
-- Флоу `tabular` и `nn` в начале удаляют `runs_root` (`tabular` ещё и `prepared_root`):
-  не направлять их на существующие артефакты.
-- Поле `estimator` в табличных YAML исполняется через `exec` — это код.
+- Для нового эксперимента используйте уникальный каталог запуска, созданный Prefect. Снимок параметров сохраняется в `config_snapshot/` этого запуска.
+- Методы `kind: tabular` и `kind: lightning` выбирают фабрику через `model`. Параметры модели задаются в `params`, параметры обучения — в `train`.
 - Данные в git не коммитятся: `datasets/`, `prepared/`, `runs/`, `external/`, картинки Teddy.
 - Mac M3 — бэкенд `mps`, в конфигах `device: auto`. Прогноз на GPU отличается от CPU в 4-м знаке
   (TF32/cudnn); побитовые сверки делать на CPU.

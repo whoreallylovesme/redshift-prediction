@@ -11,7 +11,9 @@ import numpy as np
 from numpy.typing import NDArray
 from pydantic import BaseModel
 
-from lib.dataloaders.euclid_transforms import (
+from lib.utils.log import get_logger
+from lib.utils.utils import check, load_yaml_as
+from photoz.data.euclid_transforms import (
     BANDS,
     IMAGE_SIDE,
     SPECTRUM_LENGTH,
@@ -27,8 +29,6 @@ from lib.dataloaders.euclid_transforms import (
     transform_table,
     validate_band_order,
 )
-from lib.utils.log import get_logger
-from lib.utils.utils import check, load_yaml_as
 
 logger = get_logger()
 

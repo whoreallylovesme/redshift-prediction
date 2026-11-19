@@ -1,0 +1,193 @@
+from __future__ import annotations
+
+import json
+from contextlib import chdir
+from importlib.util import find_spec
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from unittest import TestCase
+from unittest.mock import MagicMock, call, patch
+
+import pandas as pd
+import yaml
+from prefect.testing.utilities import prefect_test_harness
+
+from lib.config import load_flow
+from lib.config.experiment import Experiment
+from lib.config.snapshot import create_snapshot, record_config, recording_configs, seal_snapshot
+from lib.tracking.mlflow import Tracker, finish_with_snapshots
+from photoz.methods.phosphoros import VariantConfig, config_values, variant_factors
+from runtime.pipeline import pipeline
+
+
+class SnapshotTests(TestCase):
+    def test_replay_fields_privacy_and_only_used_native_inputs(self) -> None:
+        with TemporaryDirectory() as temp, chdir(temp):
+            root = Path(temp).resolve()
+            Path("cfg").mkdir()
+            cfg = Path("cfg/recipe.yml")
+            cfg.write_text("type: SED\ntracking_uri: https://sensitive.invalid/token\n")
+            dust = Path("cfg/active.conf")
+            dust.write_text("catalog-type=synthetic\n")
+            Path("cfg/inactive.conf").write_text("unused=yes\n")
+            factors = Path("cfg/calibration.json")
+            factors.write_text('{"VIS": 1.5}')
+            Path("objects.parquet").write_bytes(b"catalog contents")
+            exp = Experiment.model_validate(
+                {
+                    "name": "external",
+                    "output": "runs",
+                    "tracking_uri": "https://sensitive.invalid/token",
+                    "workers": 2,
+                    "dataset": {
+                        "source": "objects.parquet",
+                        "target": "y",
+                        "features": ["x"],
+                    },
+                    "methods": {
+                        "native": {
+                            "kind": "external",
+                            "model": "example:predict",
+                            "params": {"native_config": str(cfg)},
+                        },
+                        "payload": {
+                            "kind": "saved",
+                            "predictions": "objects.parquet",
+                        },
+                    },
+                }
+            )
+            archive = create_snapshot(root / "archived", exp)
+            with recording_configs(archive):
+                invalid = Path("cfg/invalid.yaml")
+                invalid.write_text("tracking_uri: [https://sensitive.invalid\n")
+                self.assertIsNone(record_config(invalid))
+                record_config(cfg)
+                self.assertEqual(config_values(dust)["catalog-type"], "synthetic")
+                self.assertEqual(
+                    variant_factors(VariantConfig(sets=["x"], multiply_json=factors)),
+                    ({}, {"VIS": 1.5}),
+                )
+            seal_snapshot(archive)
+            manifest = json.loads((archive / "manifest.json").read_text())
+            paths = set(manifest["sha256"])
+            self.assertEqual(
+                paths,
+                {
+                    "effective.json",
+                    "flow.yaml",
+                    "files/workspace/cfg/recipe.yml",
+                    "files/workspace/cfg/active.conf",
+                    "files/workspace/cfg/calibration.json",
+                },
+            )
+            rebuilt = load_flow(archive / "flow.yaml")
+            assert isinstance(rebuilt, Experiment)
+            self.assertEqual(rebuilt.workers, 2)
+            for file in archive.rglob("*"):
+                if file.is_file():
+                    self.assertNotIn(b"sensitive.invalid", file.read_bytes())
+            native_files = archive / "files/workspace/cfg"
+            self.assertEqual((native_files / dust.name).read_bytes(), dust.read_bytes())
+            self.assertEqual((native_files / factors.name).read_bytes(), factors.read_bytes())
+
+    def test_finalization_attempts_every_run_even_after_failure(self) -> None:
+        tracker = MagicMock(spec=Tracker)
+        source, output = Path("snapshot"), Path("work")
+        with patch("lib.config.snapshot.seal_snapshot", side_effect=OSError("disk full")):
+            with self.assertRaises(ExceptionGroup):
+                finish_with_snapshots(tracker, source, output, 1, {"a": True, "b": True})
+        tracker.log_snapshot.assert_not_called()
+        self.assertEqual(
+            tracker.finish.call_args_list, [call("a", False, output), call("b", False, output)]
+        )
+        tracker.reset_mock()
+        tracker.log_snapshot.side_effect = [OSError("upload"), None]
+        tracker.finish.side_effect = [OSError("unavailable"), None]
+        with patch("lib.config.snapshot.seal_snapshot"):
+            with self.assertRaises(ExceptionGroup) as e:
+                finish_with_snapshots(tracker, source, output, 3, {"a": True, "b": True})
+        self.assertEqual(len(e.exception.exceptions), 2)
+        self.assertEqual(
+            tracker.finish.call_args_list, [call("a", False, output), call("b", True, output)]
+        )
+
+    def test_public_flows_publish_config_and_replay_without_original_recipe(self) -> None:
+        with TemporaryDirectory() as temp, prefect_test_harness(), chdir(temp):
+            root = Path(temp).resolve()
+            pd.DataFrame(
+                {"idx": list(range(12)), "x": list(range(12)), "y": list(range(12))}
+            ).to_parquet("train.parquet")
+            flow = Path("flow.yaml")
+            flow.write_text(
+                yaml.safe_dump(
+                    {
+                        "name": "snapshot-test",
+                        "cache": False,
+                        "output": "runs",
+                        "dataset": {
+                            "source": "train.parquet",
+                            "id_column": "idx",
+                            "target": "y",
+                            "features": ["x"],
+                        },
+                        "methods": {"ridge": {"kind": "tabular", "model": "ridge"}},
+                    }
+                )
+            )
+            uri = f"sqlite:///{root / 'mlflow.sqlite'}" if find_spec("mlflow") else None
+            first = pipeline(str(flow), tracking_uri=uri)
+            assert isinstance(first, Path)
+            archive = first / "config_snapshot"
+            original_predictions = pd.read_parquet(first / "methods/ridge/predictions.parquet")
+            flow.unlink()
+            replay = pipeline(str(archive / "flow.yaml"))
+            assert isinstance(replay, Path)
+            pd.testing.assert_frame_equal(
+                original_predictions, pd.read_parquet(replay / "methods/ridge/predictions.parquet")
+            )
+            partial = root / "partial.yml"
+            partial.write_text(
+                yaml.safe_dump(
+                    {
+                        "name": "snapshot-partial",
+                        "output": "partial",
+                        "methods": {
+                            "unavailable": {
+                                "kind": "external",
+                                "model": "photoz.methods.phosphoros:predict",
+                                "options": {"set_name": "example"},
+                            },
+                            "available": {
+                                "kind": "saved",
+                                "predictions": str(first / "methods/ridge/predictions.parquet"),
+                            },
+                        },
+                    }
+                )
+            )
+            with self.assertRaisesRegex(RuntimeError, "Failed methods: unavailable"):
+                pipeline(str(partial), tracking_uri=uri)
+            (mixed,) = (root / "partial").iterdir()
+            states = json.loads((mixed / "report-data.json").read_text())["rows"]
+            self.assertEqual(
+                {r["name"]: r["status"] for r in states},
+                {"unavailable": "failed", "available": "completed"},
+            )
+            self.assertFalse((mixed / "config_snapshot/files").exists())
+            if uri:
+                from mlflow import MlflowClient
+
+                client = MlflowClient(tracking_uri=uri)
+                ids = json.loads((mixed / "tracking.json").read_text())
+                for name, status in [("unavailable", "FAILED"), ("available", "FINISHED")]:
+                    self.assertEqual(client.get_run(ids[name]).info.status, status)
+                    self.assertEqual(bool(client.list_artifacts(ids[name], "recipe")),
+                                     name == "unavailable")
+                run_id = json.loads((first / "tracking.json").read_text())["ridge"]
+                remote = Path(client.download_artifacts(run_id, "config_snapshot", str(root)))
+                self.assertEqual((remote / "manifest.json").read_bytes(),
+                                 (archive / "manifest.json").read_bytes())
+                manifest = json.loads((archive / "manifest.json").read_text())["sha256"]
+                for key in manifest:
+                    self.assertEqual((remote / key).read_bytes(), (archive / key).read_bytes())

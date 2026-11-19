@@ -5,221 +5,36 @@ For each brick: download 6 FITS → extract cutouts → delete FITS.
 Disk usage: only .npz outputs + 1 brick at a time (~72 MB).
 
 Usage:
-  python download_bricks.py --dataset teddy --split A
-  python download_bricks.py --dataset happy --split A,B
-  python download_bricks.py --dataset teddy,happy --split A,B,C,D
+  python -m tools.download_imgs.download_bricks --dataset teddy --split A
+  python -m tools.download_imgs.download_bricks --dataset happy --split A,B
+  python -m tools.download_imgs.download_bricks --dataset teddy,happy --split A,B,C,D
 """
 from __future__ import annotations
 
 import asyncio
 import json
-import shutil
-import time
-from io import StringIO
+import sys
+from itertools import batched
 from pathlib import Path
-from urllib.parse import urlencode
-from urllib.request import urlopen
 
 import aiohttp
 import astropy.units as u
 import click
 import numpy as np
-import pandas as pd
 from astropy.coordinates import SkyCoord
 from astropy.io import fits
 from astropy.nddata import Cutout2D
 from astropy.wcs import WCS
+from tqdm import tqdm
 
-# ── Config ────────────────────────────────────────────────────────────────────
-STAMP_SIZE = 224
-NERSC_BASE = "https://portal.nersc.gov/cfs/cosmo/data/legacysurvey/dr10"
-BRICKS_URL = f"{NERSC_BASE}/survey-bricks.fits.gz"
-BANDS = ["g", "r", "i", "z", "W1", "W2"]
+from tools.download_imgs import survey
+from tools.download_imgs.workspace import brick_workspace, download_destination
 
-# ── SDSS ──────────────────────────────────────────────────────────────────────
-SDSS_DR = 19
-SDSS_BATCH = 200
-SDSS_TIMEOUT = 60.0
-SDSS_ENDPOINT = f"https://skyserver.sdss.org/dr{SDSS_DR}/SkyServerWS/SearchTools/SqlSearch"
-
-MAX_RETRIES = 5
-RETRY_BACKOFF = 1.0
+BANDS = survey.BANDS
+STAMP_SIZE = survey.STAMP_SIZE
+SDSS_BATCH = survey.SDSS_BATCH
 
 _OUT = click.Path(file_okay=False, dir_okay=True, path_type=Path)
-
-
-# ── SDSS coordinate fetch ────────────────────────────────────────────────────
-
-def _try_sdss(sql: str) -> pd.DataFrame | None:
-    url = f"{SDSS_ENDPOINT}?{urlencode({'cmd': sql, 'format': 'csv'})}"
-    try:
-        with urlopen(url, timeout=SDSS_TIMEOUT) as r:  # noqa: S310
-            text = r.read().decode("utf-8")
-        if "No objects have been found" in text or "error" in text[:200].lower():
-            return pd.DataFrame()
-        df = pd.read_csv(StringIO(text), comment="#")
-        if {"objid", "ra", "dec"}.issubset(set(df.columns)):
-            return df
-        return None
-    except Exception:
-        return None
-
-
-def _sdss_batch(objids: list[int]) -> pd.DataFrame:
-    sql = f"SELECT objid,ra,dec FROM PhotoObj WHERE objid IN ({','.join(map(str, objids))})"
-    for attempt in range(MAX_RETRIES):
-        result = _try_sdss(sql)
-        if result is not None:
-            return result
-        print(f"    SDSS failed (attempt {attempt + 1}/{MAX_RETRIES})", flush=True)
-        if attempt < MAX_RETRIES - 1:
-            time.sleep(RETRY_BACKOFF * (2**attempt))
-    print("    All retries failed for this batch", flush=True)
-    return pd.DataFrame()
-
-
-def fetch_coordinates(objids: list[int], cache_path: Path) -> pd.DataFrame:
-    frames: list[pd.DataFrame] = []
-    cached_ids: set[int] = set()
-
-    if cache_path.exists():
-        cached = pd.read_parquet(cache_path)
-        cached_ids = set(cached["objid"].tolist())
-        frames.append(cached)
-        print(f"  Loaded {len(cached)} cached coordinates", flush=True)
-
-    remaining = [oid for oid in objids if oid not in cached_ids]
-    if remaining:
-        print(f"  Querying SDSS for {len(remaining)} objects...", flush=True)
-        batches = [remaining[i : i + SDSS_BATCH] for i in range(0, len(remaining), SDSS_BATCH)]
-        new_frames: list[pd.DataFrame] = []
-        for bi, batch in enumerate(batches):
-            if bi % 50 == 0:
-                print(f"    batch {bi + 1}/{len(batches)}", flush=True)
-            df = _sdss_batch(batch)
-            if not df.empty:
-                new_frames.append(df)
-            if (bi + 1) % 100 == 0 and new_frames:
-                pd.concat(frames + new_frames, ignore_index=True).to_parquet(cache_path)
-                print(f"    checkpoint saved ({bi + 1} batches done)", flush=True)
-        if new_frames:
-            frames.extend(new_frames)
-        if frames:
-            combined = pd.concat(frames, ignore_index=True).drop_duplicates("objid")
-            combined.to_parquet(cache_path)
-            print(f"  Cached {len(combined)} coordinates total", flush=True)
-
-    if not frames:
-        return pd.DataFrame(columns=["objid", "ra", "dec"])
-    return pd.concat(frames, ignore_index=True).drop_duplicates("objid")
-
-
-# ── Brick index ───────────────────────────────────────────────────────────────
-
-def load_brick_index(cache_dir: Path) -> pd.DataFrame:
-    local_path = cache_dir / "survey-bricks.fits.gz"
-    if not local_path.exists():
-        print("  Downloading brick index...", flush=True)
-        with urlopen(BRICKS_URL, timeout=120) as r:  # noqa: S310
-            local_path.write_bytes(r.read())
-        print(f"  Saved ({local_path.stat().st_size // 1024 // 1024} MB)", flush=True)
-    else:
-        print("  Using cached brick index", flush=True)
-
-    with fits.open(local_path) as hdul:
-        data = hdul[1].data
-        return pd.DataFrame({
-            "brickname": [s.strip() for s in data["BRICKNAME"].astype(str)],
-            "ra": data["RA"].astype(float),
-            "dec": data["DEC"].astype(float),
-            "ra1": data["RA1"].astype(float),
-            "ra2": data["RA2"].astype(float),
-            "dec1": data["DEC1"].astype(float),
-            "dec2": data["DEC2"].astype(float),
-        })
-
-
-def find_brick(ra: float, dec: float, bricks: pd.DataFrame) -> str | None:
-    mask = (
-        (bricks["ra1"] <= ra)
-        & (ra < bricks["ra2"])
-        & (bricks["dec1"] <= dec)
-        & (dec < bricks["dec2"])
-    )
-    matches = bricks.loc[mask, "brickname"]
-    if len(matches) == 0:
-        return None
-    return str(matches.iloc[0])
-
-
-def map_objects_to_bricks(
-    coords: pd.DataFrame,
-    bricks: pd.DataFrame,
-) -> dict[str, list[tuple[int, float, float]]]:
-    dec_min, dec_max = coords["dec"].min() - 0.5, coords["dec"].max() + 0.5
-    bricks_filtered = bricks[(bricks["dec2"] >= dec_min) & (bricks["dec1"] <= dec_max)]
-    print(
-        f"  Filtered to {len(bricks_filtered)} bricks in Dec [{dec_min:.1f}, {dec_max:.1f}]",
-        flush=True,
-    )
-
-    brick_map: dict[str, list[tuple[int, float, float]]] = {}
-    no_brick = 0
-    for row in coords.itertuples(index=False):
-        brick = find_brick(float(row.ra), float(row.dec), bricks_filtered)
-        if brick is None:
-            no_brick += 1
-            continue
-        brick_map.setdefault(brick, []).append((int(row.objid), float(row.ra), float(row.dec)))
-
-    if no_brick > 0:
-        print(f"  WARNING: {no_brick} objects not in any brick", flush=True)
-    objs_per_brick = [len(v) for v in brick_map.values()]
-    print(
-        f"  {len(coords)} objects → {len(brick_map)} unique bricks "
-        f"(avg {np.mean(objs_per_brick):.0f}/brick, max {np.max(objs_per_brick)}/brick)",
-        flush=True,
-    )
-    return brick_map
-
-
-# ── Download one brick ────────────────────────────────────────────────────────
-
-def _brick_url(brickname: str, band: str) -> str:
-    aaa = brickname[:3]
-    sign = 1 if "p" in brickname else -1
-    dec_str = brickname.split("p")[-1] if "p" in brickname else brickname.split("m")[-1]
-    dec_val = sign * float(dec_str) / 10.0
-    region = "north" if dec_val >= 32.375 else "south"
-    fname = f"legacysurvey-{brickname}-image-{band}.fits.fz"
-    return f"{NERSC_BASE}/{region}/coadd/{aaa}/{brickname}/{fname}"
-
-
-async def _download_file(
-    session: aiohttp.ClientSession,
-    url: str,
-    dest: Path,
-    semaphore: asyncio.Semaphore,
-) -> bool:
-    if dest.exists():
-        return True
-    async with semaphore:
-        for attempt in range(MAX_RETRIES):
-            try:
-                async with session.get(url) as resp:
-                    if resp.status == 404:
-                        return False
-                    resp.raise_for_status()
-                    data = await resp.read()
-                    dest.parent.mkdir(parents=True, exist_ok=True)
-                    dest.write_bytes(data)
-                    return True
-            except (aiohttp.ClientError, TimeoutError) as e:
-                if attempt == MAX_RETRIES - 1:
-                    print(f"    FAIL {dest.name} — {e}", flush=True)
-                    return False
-                await asyncio.sleep(RETRY_BACKOFF * (2**attempt))
-    return False
 
 
 async def download_one_brick(
@@ -235,9 +50,9 @@ async def download_one_brick(
 
     tasks = []
     for band in BANDS:
-        url = _brick_url(brickname, band)
+        url = survey._brick_url(brickname, band)
         dest = dest_dir / f"legacysurvey-{brickname}-image-{band}.fits.fz"
-        tasks.append(_download_file(session, url, dest, semaphore))
+        tasks.append(survey._download_file(session, url, dest, semaphore))
 
     results = await asyncio.gather(*tasks)
     if all(results):
@@ -298,7 +113,8 @@ def extract_cutouts_from_brick(
             image = np.stack(channels, axis=0)
             image = np.moveaxis(image, 0, -1)  # (6,H,W) → (H,W,6)
             if image.shape == (STAMP_SIZE, STAMP_SIZE, 6):
-                np.savez_compressed(npz_path, image=image)
+                with download_destination(npz_path) as stream:
+                    np.savez_compressed(stream, image=image)
                 saved += 1
                 continue
 
@@ -319,18 +135,17 @@ async def _process_one_brick(
     brick_dir: Path,
 ) -> tuple[int, int, list[int], list[int]]:
     """Download one brick, extract cutouts, delete brick."""
-    brick_path = await download_one_brick(session, semaphore, brickname, brick_dir)
+    with brick_workspace(brick_dir) as scratch:
+        brick_path = await download_one_brick(session, semaphore, brickname, scratch)
 
-    if brick_path is None:
-        missing = [oid for oid, _, _ in objects]
-        return 0, len(objects), [], missing
+        if brick_path is None:
+            missing = [oid for oid, _, _ in objects]
+            return 0, len(objects), [], missing
 
-    loop = asyncio.get_event_loop()
-    saved, failed, failed_ids = await loop.run_in_executor(
-        None, extract_cutouts_from_brick, brick_path, brickname, objects, objid_to_dest
-    )
-    shutil.rmtree(brick_path, ignore_errors=True)
-    return saved, failed, failed_ids, []
+        saved, failed, failed_ids = await asyncio.to_thread(
+            extract_cutouts_from_brick, brick_path, brickname, objects, objid_to_dest
+        )
+        return saved, failed, failed_ids, []
 
 
 async def streaming_pipeline(
@@ -347,44 +162,27 @@ async def streaming_pipeline(
     connector = aiohttp.TCPConnector(limit=total_conns, ttl_dns_cache=300)
     timeout_cfg = aiohttp.ClientTimeout(total=timeout, connect=30)
 
-    total_bricks = len(brick_map)
     total_saved = 0
     total_failed = 0
     all_failed_ids: list[int] = []
     missing_brick_ids: list[int] = []
-    done_count = 0
-    t0 = time.time()
-
-    brick_items = list(brick_map.items())
 
     async with aiohttp.ClientSession(connector=connector, timeout=timeout_cfg) as session:
-        for chunk_start in range(0, total_bricks, brick_parallel):
-            chunk = brick_items[chunk_start : chunk_start + brick_parallel]
-
-            tasks = [
-                _process_one_brick(session, semaphore, brickname, objects, objid_to_dest, brick_dir)
-                for brickname, objects in chunk
-            ]
-            results = await asyncio.gather(*tasks)
-
-            for saved, failed, failed_ids, missing_ids in results:
-                total_saved += saved
-                total_failed += failed
-                all_failed_ids.extend(failed_ids)
-                missing_brick_ids.extend(missing_ids)
-
-            done_count += len(chunk)
-            if done_count % 10 <= brick_parallel or done_count == total_bricks:
-                elapsed = time.time() - t0
-                rate = done_count / elapsed if elapsed > 0 else 0
-                eta = (total_bricks - done_count) / rate if rate > 0 else 0
-                print(
-                    f"  [{done_count}/{total_bricks}] "
-                    f"saved={total_saved} failed={total_failed} "
-                    f"{rate:.1f} brick/s "
-                    f"ETA={eta / 60:.0f}min",
-                    flush=True,
-                )
+        with tqdm(total=len(brick_map), unit="brick", desc="Cutouts", file=sys.stdout) as progress:
+            for chunk in batched(brick_map.items(), brick_parallel, strict=False):
+                results = await asyncio.gather(*(
+                    _process_one_brick(
+                        session, semaphore, brickname, objects, objid_to_dest, brick_dir
+                    )
+                    for brickname, objects in chunk
+                ))
+                for saved, failed, failed_ids, missing_ids in results:
+                    total_saved += saved
+                    total_failed += failed
+                    all_failed_ids.extend(failed_ids)
+                    missing_brick_ids.extend(missing_ids)
+                progress.set_postfix(saved=total_saved, failed=total_failed, refresh=False)
+                progress.update(len(chunk))
 
     return total_saved, total_failed, all_failed_ids, missing_brick_ids
 
@@ -470,7 +268,7 @@ def main(
     # ── Step 1: Coordinates ───────────────────────────────────────────────────
     print("\n[1/3] Fetching coordinates from SDSS...")
     cache_path = outdir / "coords.parquet"
-    coords = fetch_coordinates(list(objid_to_dest.keys()), cache_path)
+    coords = survey.fetch_coordinates(list(objid_to_dest.keys()), cache_path)
     if coords.empty:
         print("No coordinates found!")
         return
@@ -483,8 +281,11 @@ def main(
 
     # ── Step 2: Brick mapping ─────────────────────────────────────────────────
     print("\n[2/3] Mapping objects to bricks...")
-    bricks = load_brick_index(outdir)
-    brick_map = map_objects_to_bricks(coords, bricks)
+    bricks = survey.load_brick_index(outdir)
+    brick_map = survey.map_objects_to_bricks(coords, bricks)
+    if not brick_map:
+        print("No coordinates matched the survey brick index.")
+        return
 
     if dry_run:
         n_objs = len(objid_to_dest)
@@ -531,23 +332,18 @@ def main(
         return
 
     # ── Step 3: Stream download + extract ─────────────────────────────────────
-    brick_dir = outdir / "_tmp_bricks"
-    brick_dir.mkdir(parents=True, exist_ok=True)
-
-    print("\n[3/3] Streaming: download → extract → delete...")
-    total_saved, total_failed, failed_ids, missing_ids = asyncio.run(
-        streaming_pipeline(
-            brick_map,
-            objid_to_dest,
-            brick_dir,
-            concurrency,
-            brick_parallel,
-            timeout,
+    with brick_workspace(outdir) as brick_dir:
+        print("\n[3/3] Streaming: download → extract → delete...")
+        total_saved, total_failed, failed_ids, missing_ids = asyncio.run(
+            streaming_pipeline(
+                brick_map,
+                objid_to_dest,
+                brick_dir,
+                concurrency,
+                brick_parallel,
+                timeout,
+            )
         )
-    )
-
-    # Cleanup temp dir
-    shutil.rmtree(brick_dir, ignore_errors=True)
 
     # ── Report ────────────────────────────────────────────────────────────────
     report = {

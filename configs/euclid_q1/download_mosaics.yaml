@@ -1,5 +1,0 @@
-selected: datasets/euclid_q1/pretrain/selected.parquet
-source_map: datasets/euclid_q1/pretrain/mosaic_sources.json
-mosaic_dirs:
-  - datasets/euclid_q1/mosaics/{key}
-download_workers: 8
