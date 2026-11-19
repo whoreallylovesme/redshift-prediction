@@ -1,0 +1,306 @@
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+import pandas as pd
+import torch
+from sklearn.model_selection import train_test_split
+from torch.utils.data import DataLoader, Dataset, WeightedRandomSampler
+
+from lib.dataloaders.common import (
+    center_crop,
+    inverse_bin_weights,
+    random_rot90_flip,
+    subsample_indices,
+)
+from lib.dataloaders.staged import StagedLoaders
+from lib.utils.log import get_logger
+from photoz.data.npz import _resolve_w1w2_path, parse_catalog, read_bands
+
+logger = get_logger()
+
+
+
+
+def _build_morph_map(gz1_parquet: Path) -> dict[str, float]:
+    df = pd.read_parquet(gz1_parquet)
+    out: dict[str, float] = {}
+
+    for objid, spiral, elliptical in zip(
+        df["objid"].astype(str), df["gz_spiral"], df["gz_elliptical"], strict=True,
+    ):
+        if spiral == 1:
+            out[objid] = 1.0
+        elif elliptical == 1:
+            out[objid] = 0.0
+    return out
+
+TARGET_SCALE = 0.05
+PER_CHANNEL_NORM_6CH = np.array(
+    [
+        [0.0003, 0.072],
+        [0.0007, 0.243],
+        [0.0011, 0.429],
+        [0.0012, 0.573],
+        [2.0114, 156.717],
+        [2.8756, 175.454],
+    ],
+    dtype=np.float32,
+)
+
+class TeddyCapsnetDataset(Dataset[tuple[torch.Tensor, torch.Tensor, torch.Tensor]]):
+    def __init__(
+        self,
+        files: list[Path],
+        z_labels: np.ndarray,
+        morph_labels: np.ndarray,
+        in_channels: int = 4,
+        crop_size: int = 64,
+        image_scale: float = 10.0,
+        augment: bool = False,
+        per_channel_norm: bool = False,
+        w1w2_dir: Path | None = None,
+        rot90_prob: float = 0.67,
+        flip_prob: float = 0.33,
+    ) -> None:
+        self.files = files
+        self.z_labels = z_labels.astype(np.float32)
+        self.morph_labels = morph_labels.astype(np.float32)
+        self.in_channels = in_channels
+        self.crop_size = crop_size
+        self.image_scale = float(image_scale)
+        self.augment = augment
+        self.per_channel_norm = per_channel_norm and in_channels == 6
+        self.w1w2_dir = w1w2_dir
+        self.rot90_prob = float(rot90_prob)
+        self.flip_prob = float(flip_prob)
+
+    def __len__(self) -> int:
+        return len(self.files)
+
+    def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        path = self.files[idx]
+        n_griz = self.in_channels - 2 if self.w1w2_dir is not None else self.in_channels
+        extra = _resolve_w1w2_path(path, self.w1w2_dir) if self.w1w2_dir is not None else None
+        img = read_bands(path, n_griz, extra)
+        if self.crop_size < img.shape[0]:
+            img = center_crop(img, self.crop_size)
+        if self.per_channel_norm:
+            med = PER_CHANNEL_NORM_6CH[:, 0]
+            scale = PER_CHANNEL_NORM_6CH[:, 1] - PER_CHANNEL_NORM_6CH[:, 0]
+            img = (img - med) / scale * TARGET_SCALE
+        else:
+            img = img / self.image_scale
+
+        if self.augment:
+            img = random_rot90_flip(img, self.rot90_prob, self.flip_prob)
+
+        tensor = torch.from_numpy(img.copy()).permute(2, 0, 1).float()
+        z = torch.tensor(self.z_labels[idx], dtype=torch.float32)
+        m = torch.tensor(self.morph_labels[idx], dtype=torch.float32)
+        return tensor, z, m
+
+
+def _scan(
+    images_dir: Path, catalog_path: Path, gz1_parquet: Path,
+    w1w2_dir: Path | None = None,
+) -> tuple[list[Path], np.ndarray, np.ndarray]:
+    z_map = parse_catalog(catalog_path)
+    morph_map = _build_morph_map(gz1_parquet)
+
+    files: list[Path] = []
+    zs: list[float] = []
+    ms: list[float] = []
+    for npz in sorted(images_dir.iterdir()):
+        if npz.suffix != ".npz":
+            continue
+        objid = npz.stem
+        z = z_map.get(objid)
+        if z is None:
+            continue
+        if w1w2_dir is not None and not _resolve_w1w2_path(npz, w1w2_dir).exists():
+            continue
+        files.append(npz)
+        zs.append(z)
+        ms.append(morph_map.get(objid, float("nan")))
+    return files, np.array(zs, dtype=np.float32), np.array(ms, dtype=np.float32)
+
+def get_teddy_capsnet_dataloaders(
+    images_dir: str | Path,
+    catalog_path: str | Path,
+    gz1_parquet: str | Path,
+    batch_size: int = 400,
+    num_workers: int = 4,
+    train_ratio: float = 0.8,
+    seed: int = 200,
+    max_samples: int | None = None,
+    weighted_sampling: bool = True,
+    crop_size: int = 64,
+    in_channels: int = 4,
+    image_scale: float = 10.0,
+    labeled_only: bool = False,
+    per_channel_norm: bool = False,
+    rot90_prob: float = 0.67,
+    flip_prob: float = 0.33,
+) -> tuple[DataLoader[tuple[torch.Tensor, torch.Tensor, torch.Tensor]],
+           DataLoader[tuple[torch.Tensor, torch.Tensor, torch.Tensor]]]:
+    files, z_all, morph_all = _scan(Path(images_dir), Path(catalog_path), Path(gz1_parquet))
+    logger.info(
+        f"[teddy] scanned {len(files)} npz with z_spec; "
+        f"morph labeled: {int((~np.isnan(morph_all)).sum())} "
+        f"(spiral={int((morph_all==1).sum())}, ellip={int((morph_all==0).sum())})",
+    )
+
+    if max_samples is not None and len(files) > max_samples:
+        keep_idx = subsample_indices(len(files), int(max_samples), seed)
+        files = [files[i] for i in keep_idx]
+        z_all = z_all[keep_idx]
+        morph_all = morph_all[keep_idx]
+
+    train_pos, val_pos = train_test_split(
+        np.arange(len(files)), train_size=train_ratio, random_state=seed,
+    )
+    if labeled_only:
+        train_pos = train_pos[np.isfinite(morph_all[train_pos])]
+        val_pos = val_pos[np.isfinite(morph_all[val_pos])]
+        if not len(train_pos) or not len(val_pos):
+            raise ValueError("CapsNet stage A needs morphology labels in both splits")
+    train_files = [files[i] for i in train_pos]
+    val_files = [files[i] for i in val_pos]
+    train_z = z_all[train_pos]
+    val_z = z_all[val_pos]
+    train_m = morph_all[train_pos]
+    val_m = morph_all[val_pos]
+
+    logger.info(
+        f"[teddy] train N={len(train_files)}, val N={len(val_files)} "
+        f"(train spiral={int((train_m==1).sum())}, ellip={int((train_m==0).sum())}, "
+        f"unlabeled={int(np.isnan(train_m).sum())})",
+    )
+
+    train_ds = TeddyCapsnetDataset(
+        train_files, train_z, train_m,
+        in_channels=in_channels, crop_size=crop_size, image_scale=image_scale,
+        augment=True, per_channel_norm=per_channel_norm,
+        rot90_prob=rot90_prob, flip_prob=flip_prob,
+    )
+    val_ds = TeddyCapsnetDataset(
+        val_files, val_z, val_m,
+        in_channels=in_channels, crop_size=crop_size, image_scale=image_scale,
+        augment=False, per_channel_norm=per_channel_norm,
+    )
+
+    sampler: WeightedRandomSampler | None = None
+    shuffle = True
+    if weighted_sampling:
+        if labeled_only:
+
+            spiral_w = 1.0 / max(int((train_m == 1).sum()), 1)
+            ellip_w = 1.0 / max(int((train_m == 0).sum()), 1)
+            w = np.where(train_m == 1, spiral_w, ellip_w).astype(np.float64)
+        else:
+            w = inverse_bin_weights(train_z)
+        sampler = WeightedRandomSampler(
+            weights=torch.from_numpy(w).double().tolist(),
+            num_samples=len(train_ds),
+            replacement=True,
+        )
+        shuffle = False
+
+    train_loader = DataLoader(
+        train_ds, batch_size=batch_size, shuffle=shuffle, sampler=sampler,
+        num_workers=num_workers, pin_memory=True, persistent_workers=num_workers > 0,
+    )
+    val_loader = DataLoader(
+        val_ds, batch_size=batch_size, shuffle=False,
+        num_workers=num_workers, pin_memory=True, persistent_workers=num_workers > 0,
+    )
+    return train_loader, val_loader
+
+
+def staged_capsnet_loaders(
+    images_dir: str | Path,
+    catalog_path: str | Path,
+    gz1_parquet: str | Path,
+    batch_size: int = 256,
+    num_workers: int = 4,
+    train_ratio: float = 0.85,
+    seed: int = 200,
+    max_samples: int | None = None,
+    weighted_sampling: bool = True,
+    crop_size: int = 64,
+    in_channels: int = 4,
+    image_scale: float = 10.0,
+    per_channel_norm: bool = False,
+    rot90_prob: float = 0.67,
+    flip_prob: float = 0.33,
+    include_stage_a: bool = True,
+) -> StagedLoaders:
+    common: dict[str, Any] = dict(
+        images_dir=images_dir,
+        catalog_path=catalog_path,
+        gz1_parquet=gz1_parquet,
+        batch_size=batch_size,
+        num_workers=num_workers,
+        train_ratio=train_ratio,
+        seed=seed,
+        max_samples=max_samples,
+        crop_size=crop_size,
+        in_channels=in_channels,
+        image_scale=image_scale,
+        per_channel_norm=per_channel_norm,
+        rot90_prob=rot90_prob,
+        flip_prob=flip_prob,
+    )
+    train_a, val_a = None, None
+    if include_stage_a:
+        train_a, val_a = get_teddy_capsnet_dataloaders(
+            **common, weighted_sampling=True, labeled_only=True,
+        )
+    train_b, val_b = get_teddy_capsnet_dataloaders(
+        **common, weighted_sampling=weighted_sampling, labeled_only=False,
+    )
+    return StagedLoaders(train_a, val_a, train_b, val_b)
+
+
+def capsnet_inference_data(
+    images_dir: str | Path,
+    catalog_path: str | Path,
+    gz1_parquet: str | Path,
+    w1w2_dir: str | Path | None = None,
+    batch_size: int = 256,
+    num_workers: int = 3,
+    seed: int = 200,
+    max_samples: int | None = None,
+    crop_size: int = 64,
+    in_channels: int = 4,
+    image_scale: float = 10.0,
+    per_channel_norm: bool = False,
+) -> tuple[pd.DataFrame, DataLoader[tuple[torch.Tensor, torch.Tensor, torch.Tensor]]]:
+    wise = Path(w1w2_dir) if w1w2_dir is not None else None
+    files, z_all, morph_all = _scan(
+        Path(images_dir), Path(catalog_path), Path(gz1_parquet), w1w2_dir=wise,
+    )
+    if max_samples is not None and len(files) > max_samples:
+        selected = subsample_indices(len(files), max_samples, seed)
+        files = [files[i] for i in selected]
+        z_all, morph_all = z_all[selected], morph_all[selected]
+    dataset = TeddyCapsnetDataset(
+        files,
+        z_all,
+        morph_all,
+        in_channels=in_channels,
+        crop_size=crop_size,
+        image_scale=image_scale,
+        augment=False,
+        per_channel_norm=per_channel_norm,
+        w1w2_dir=wise,
+    )
+    loader = DataLoader(dataset, batch_size=batch_size, num_workers=num_workers)
+    frame = pd.DataFrame({
+        "objid": [int(path.stem) for path in files],
+        "z_spec": z_all,
+    })
+    return frame, loader

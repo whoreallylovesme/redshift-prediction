@@ -1,0 +1,15 @@
+**
+!pyproject.toml
+!uv.lock
+!lib/
+!lib/**
+!runtime/
+!runtime/**
+!photoz/
+!photoz/**
+!tools/
+!tools/**
+!examples/
+!examples/configs/
+!examples/configs/**
+**/__pycache__/

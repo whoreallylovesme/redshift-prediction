@@ -1,0 +1,181 @@
+"""Capture the text configuration used by an experiment."""
+
+from __future__ import annotations
+
+import json
+import os
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
+from pathlib import Path
+from tempfile import NamedTemporaryFile
+from typing import Any
+
+import yaml
+
+from lib.config.experiment import (
+    Experiment,
+    External,
+    Lightning,
+    Saved,
+    Tabular,
+    image_splits,
+)
+from lib.utils.artifacts import sha256_file
+
+_TEXT_CONFIG = {".yaml", ".yml", ".json", ".conf", ".toml"}
+_active: ContextVar[Path | None] = ContextVar("config_snapshot", default=None)
+
+
+def public_config(value: Any) -> Any:
+    if isinstance(value, list):
+        return [public_config(item) for item in value]
+    if isinstance(value, dict):
+        return {
+            key: public_config(item)
+            for key, item in value.items()
+            if str(key).lower().replace("-", "_") not in {"tracking_uri", "mlflow_tracking_uri"}
+        }
+    return value
+
+
+def _config_bytes(source: Path) -> bytes:
+    raw = source.read_bytes()
+    if b"tracking_uri" not in raw.lower().replace(b"-", b"_"):
+        return raw
+    if source.suffix.lower() in {".yaml", ".yml", ".json"}:
+        if source.suffix.lower() == ".json":
+            return json.dumps(public_config(json.loads(raw)), indent=2).encode()
+        return yaml.safe_dump(
+            public_config(yaml.safe_load(raw)), sort_keys=False, allow_unicode=True
+        ).encode()
+    return b"".join(
+        line
+        for line in raw.splitlines(keepends=True)
+        if b"tracking_uri" not in line.lower().replace(b"-", b"_")
+    )
+
+
+def _create(path: Path, data: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with NamedTemporaryFile(dir=path.parent) as stream:
+        stream.write(data)
+        stream.flush()
+        try:
+            os.link(stream.name, path)
+        except FileExistsError:
+            if path.read_bytes() != data:
+                raise ValueError(f"Configuration changed at {path}") from None
+
+
+def record_config(source: str | Path, snapshot: Path | None = None) -> Path | None:
+    root = snapshot or _active.get()
+    source = Path(source)
+    if root is None or source.suffix.lower() not in _TEXT_CONFIG or not source.is_file():
+        return None
+    # Preserve the supplied name even when a source is a symlink.
+    source = Path(os.path.abspath(source))
+    if source.is_relative_to(root.resolve() / "resolved"):
+        return source
+    cwd = Path.cwd()
+    if source.is_relative_to(cwd):
+        target = root / "files/workspace" / source.relative_to(cwd)
+    else:
+        target = root / "files/absolute" / source.relative_to(source.anchor)
+    try:
+        content = _config_bytes(source)
+    except (OSError, UnicodeError, yaml.YAMLError, json.JSONDecodeError):
+        # The method reports its unreadable recipe. Omit bytes whose secrets cannot be removed.
+        return None
+    _create(target, content)
+    return target
+
+
+@contextmanager
+def recording_configs(directory: Path | None) -> Iterator[None]:
+    if directory is None:
+        yield
+        return
+    token = _active.set(directory)
+    try:
+        yield
+    finally:
+        _active.reset(token)
+
+
+def create_snapshot(directory: Path, config: Experiment) -> Path:
+    directory.mkdir(parents=True, exist_ok=True)
+    replay = public_config(config.model_dump(mode="json", exclude_unset=True))
+    effective = public_config(config.model_dump(mode="json"))
+    _create(
+        directory / "flow.yaml",
+        yaml.safe_dump(replay, sort_keys=False, allow_unicode=True).encode(),
+    )
+    _create(
+        directory / "effective.json", json.dumps(effective, indent=2, ensure_ascii=False).encode()
+    )
+    seal_snapshot(directory)
+    return directory
+
+
+def write_method_recipes(
+    config: Experiment, snapshot: Path, data: dict[str, Any]
+) -> dict[str, Path]:
+    recipes: dict[str, Path] = {}
+    for name, method in config.methods.items():
+        if isinstance(method, Saved):
+            continue
+        path = snapshot / "resolved" / f"{name}.yaml"
+        raw = (
+            method.params
+            if isinstance(method, External)
+            else {"estimator": method.model, "estimator_params": method.params}
+        )
+        if isinstance(method, Tabular):
+            raw.update(method.train.model_dump(exclude_unset=True))
+        if isinstance(method, Lightning):
+            if not data:
+                continue
+            ds = config.dataset
+            assert ds is not None
+            images = image_splits(ds, method.split)
+            raw.update(
+                model_type="lightning",
+                device=method.device,
+                data_dir=str(images["train"]),
+                catalog=data["train"],
+                image_catalog={
+                    "id_column": data["id_column"],
+                    "target_column": data["target"],
+                    "features": data["features"] if method.use_features else [],
+                    "array_key": ds.array_key,
+                },
+                out_size=ds.image_size,
+                crop_size=ds.crop_size,
+                train=method.train.model_dump(exclude_unset=True),
+            )
+        _create(
+            path, yaml.safe_dump(public_config(raw), sort_keys=False, allow_unicode=True).encode()
+        )
+        recipes[name] = path
+    return recipes
+
+
+def seal_snapshot(directory: Path) -> None:
+    files = [directory / "effective.json", directory / "flow.yaml"]
+    files += sorted((directory / "resolved").glob("*.yaml"))
+    files += sorted(p for p in (directory / "files").rglob("*") if p.is_file())
+    hashes = {
+        p.relative_to(directory).as_posix(): sha256_file(p)
+        for p in files
+    }
+    data = {"version": 1, "working_directory": str(Path.cwd()), "sha256": hashes}
+    manifest = directory / "manifest.json"
+    with NamedTemporaryFile(dir=directory, delete=False) as stream:
+        temporary = Path(stream.name)
+        try:
+            stream.write(json.dumps(data, indent=2, ensure_ascii=False).encode())
+            stream.flush()
+            os.replace(temporary, manifest)
+        finally:
+            temporary.unlink(missing_ok=True)

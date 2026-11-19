@@ -13,10 +13,10 @@ import numpy as np
 from numpy.typing import NDArray
 from pydantic import BaseModel
 
-from lib.dataloaders.euclid_packet import KEYS, Packet, holdout_tiles
-from lib.dataloaders.euclid_transforms import IMAGE_BANDS, IMAGE_SIDE
 from lib.utils.log import get_logger
 from lib.utils.utils import check, load_yaml_as
+from photoz.data.euclid_packet import Packet, holdout_tiles
+from photoz.data.euclid_transforms import IMAGE_BANDS, IMAGE_SIDE
 
 logger = get_logger()
 
@@ -32,16 +32,13 @@ ROW_COLUMNS = (
     "table_mask",
     "table_available",
 )
-OLD_KEYS = tuple(k for k in KEYS if k != "image")
 IMAGE_SHAPE = (3 * IMAGE_BANDS, IMAGE_SIDE, IMAGE_SIDE)
-COPY_ROWS = 2048
 
 
 class PretrainStoreConfig(BaseModel):
     keys: Path
     shards_dir: Path
     store_dir: Path
-    stage_dir: Path
     pilot_packet: Path
     extra_packets: list[Path]
     ho_packet: Path
@@ -146,60 +143,6 @@ def write_index(cfg: PretrainStoreConfig) -> None:
     (cfg.store_dir / "shards.json").write_text(json.dumps(shards, indent=1) + "\n")
 
 
-def old_rows(cfg: PretrainStoreConfig) -> list[tuple[Path, NDArray[np.int64]]]:
-    packet = Packet(cfg.pilot_packet)
-    ssl_fit, _, held_tiles, owner = holdout_tiles(packet)
-    fvalid_tiles = np.unique(owner[packet.indices["valid"]])
-    packet.close()
-    sources = [(cfg.pilot_packet, np.sort(ssl_fit))]
-    for p in cfg.extra_packets:
-        with h5py.File(p, "r") as h:
-            xo = h["owner_tile"][:]
-        sources.append(
-            (p, np.flatnonzero(~(np.isin(xo, held_tiles) | np.isin(xo, fvalid_tiles))))
-        )
-    return sources
-
-
-def stage_old(cfg: PretrainStoreConfig) -> None:
-    sources = old_rows(cfg)
-    n = sum(len(r) for _, r in sources)
-    cfg.stage_dir.mkdir(parents=True, exist_ok=True)
-    img = np.lib.format.open_memmap(
-        cfg.stage_dir / "old_images_f16.npy", mode="w+", dtype=np.float16, shape=(n, *IMAGE_SHAPE)
-    )
-    arr: dict[str, Any] = {}
-    ids, fields, o = [], [], 0
-    for path, rows in sources:
-        breaks = np.flatnonzero(np.diff(rows) != 1) + 1
-        runs = list(zip(np.r_[0, breaks], np.r_[breaks, len(rows)], strict=True))
-        with h5py.File(path, "r") as h:
-            ids.append(h["object_id"][:][rows])
-            fields.append(h["field_code"][:][rows])
-            for k in OLD_KEYS:
-                ds = h[k]
-                if k not in arr:
-                    arr[k] = np.empty((n, *ds.shape[1:]), ds.dtype)
-                for s0, e0 in runs:
-                    arr[k][o + s0 : o + e0] = ds[rows[s0] : rows[e0 - 1] + 1]
-            ds = h["image"]
-            for s0, e0 in runs:
-                for c in range(s0, e0, COPY_ROWS):
-                    c1 = min(e0, c + COPY_ROWS)
-                    img[o + c : o + c1] = ds[rows[c] : rows[c1 - 1] + 1].astype(np.float16)
-        o += len(rows)
-        logger.info("staged %d rows from %s", len(rows), path)
-    img.flush()
-    del img
-    object_id, field_code = np.concatenate(ids), np.concatenate(fields)
-    check(
-        o == n and np.isin(field_code, [1, 2]).all() and len(np.unique(object_id)) == n,
-        "unique F/S old rows",
-    )
-    np.savez(cfg.stage_dir / "old_arrays.npz", object_id=object_id, field_code=field_code, **arr)
-    logger.info("staged %d old rows -> %s", n, cfg.stage_dir)
-
-
 CONFIG = click.option(
     "--config",
     "config_path",
@@ -208,22 +151,11 @@ CONFIG = click.option(
 )
 
 
-@click.group()
-def cli() -> None:
-    pass
-
-
-@cli.command("index")
+@click.command()
 @CONFIG
-def index_command(config_path: Path) -> None:
+def main(config_path: Path) -> None:
     write_index(load_yaml_as(str(config_path), PretrainStoreConfig))
 
 
-@cli.command("stage-old")
-@CONFIG
-def stage_old_command(config_path: Path) -> None:
-    stage_old(load_yaml_as(str(config_path), PretrainStoreConfig))
-
-
 if __name__ == "__main__":
-    cli()
+    main()

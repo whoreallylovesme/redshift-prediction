@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import io
 import json
-import os
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -18,6 +17,7 @@ from pydantic import BaseModel
 
 from lib.utils.log import get_logger
 from lib.utils.utils import check, load_yaml_as
+from tools.download_imgs.workspace import download_destination
 
 logger = get_logger()
 
@@ -147,18 +147,17 @@ def existing(cfg: DownloadMosaicsConfig, key: str, tile: int, name: str) -> bool
 
 
 def download(url: str, target: Path, timeout: float) -> int:
-    partial = target.with_name(target.name + ".partial")
     request = urllib.request.Request(url, headers={"Accept-Encoding": "identity"})
     written = 0
-    with urllib.request.urlopen(request, timeout=timeout) as response, partial.open("wb") as f:
+    with (
+        urllib.request.urlopen(request, timeout=timeout) as response,
+        download_destination(target) as f,
+    ):
         expected = int(response.headers["Content-Length"])
         while chunk := response.read(CHUNK_BYTES):
             f.write(chunk)
             written += len(chunk)
-        f.flush()
-        os.fsync(f.fileno())
-    check(written == expected, f"truncated download {url}: {written} of {expected} bytes")
-    os.replace(partial, target)
+        check(written == expected, f"truncated download {url}: {written} of {expected} bytes")
     return written
 
 
