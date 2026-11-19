@@ -106,6 +106,12 @@ class HDF5RowsTest(TestCase):
         for module in (legacy_lib, legacy_photoz):
             self.assertIs(module.HDF5Dataset, HayatDataset)
             self.assertIs(module.get_hdf5_dataloaders, get_hayat_dataloaders)
+        # Pickle resolves both references when restoring a loader built by the original factory.
+        self.assertIs(pickle.loads(b"clib.dataloaders.hdf5\nHDF5Dataset\n."), HayatDataset)
+        self.assertIs(
+            pickle.loads(b"clib.dataloaders.hdf5\n_worker_init_fn\n."),
+            legacy_photoz._worker_init_fn,
+        )
 
     def test_legacy_hayat_tuple_preserves_subset_labels_and_cropped_pixels(self) -> None:
         from lib.dataloaders.hdf5 import HDF5Dataset

@@ -1,17 +1,10 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 import numpy as np
 import numpy.typing as npt
 import torch
 from torchvision.transforms import InterpolationMode
 from torchvision.transforms.v2 import functional as vision
-
-
-def read_npz_pixels(path: Path, key: str) -> npt.NDArray[np.float32]:
-    with np.load(path, allow_pickle=False) as archive:
-        return np.asarray(archive[key], dtype=np.float32)
 
 
 def _spatial_tensor(img: np.ndarray) -> torch.Tensor:

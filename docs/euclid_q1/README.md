@@ -378,9 +378,9 @@ uv run python -c "from pathlib import Path; from runtime.euclid_report import bu
 | `facts.json` | все метрики, интервалы, бины, кривые обучения, счётчики меток | `runtime/euclid_report.py` |
 | `tables/metrics.tex`, `tables/metrics_delta.tex` | таблица метрик и ΔNMAD с 95 % ДИ | `metrics_tables` |
 | `tables/classical.tex` | классические модели против нашей | `classical_table` |
-| `figures/fig_{dist,scatter_N,scatter_Nall,modes,bins,baselines,train}.pdf` | рисунки отчёта | `lib/visual/euclid_report.py` |
-| `metrics/results_final_vs_{pub,zpf}.json` | описательная оценка по наборам с бутстрапом по тайлам и сидам | `lib/metrics/euclid_eval.comparison_results` |
-| `metrics/results_h6_P_final.json` | HETDEX [OII]: модель и гибрид с Phosphoros | `lib/metrics/euclid_eval.hetdex_results` |
+| `figures/fig_{dist,scatter_N,scatter_Nall,modes,bins,baselines,train}.pdf` | рисунки отчёта | `photoz/figures.py` |
+| `metrics/results_final_vs_{pub,zpf}.json` | описательная оценка по наборам с бутстрапом по тайлам и сидам | `photoz.euclid_eval.comparison_results` |
+| `metrics/results_h6_P_final.json` | HETDEX [OII]: модель и гибрид с Phosphoros | `photoz.euclid_eval.hetdex_results` |
 
 ## Форматы результатов
 
@@ -397,12 +397,11 @@ uv run python -c "from pathlib import Path; from runtime.euclid_report import bu
 ## Откуда берутся числа отчёта
 
 Определения: δ = (z_phot − z)/(1 + z), смещение = median δ, NMAD = 1,4826 · median|δ − median δ|,
-доля выбросов = доля |δ| ≥ 0,15 (`lib/metrics/metrics.py`; `lib/metrics/bootstrap.photoz_stats`
-вызывает эти же функции). Предсказание нашей модели — среднее z по 6 сидам P_final.
+доля выбросов = доля |δ| ≥ 0,15 по определению `photoz.metrics.photoz_stats`. Предсказание нашей модели — среднее z по 6 сидам P_final.
 
 Сравниваются наша модель, Phosphoros, Phosphoros без N (`north_zpf`), PHZ Euclid (`PHZ_MEDIAN`,
 отрицательные значения отбрасываются) и классические модели. Выборки собирает
-`lib/dataloaders/euclid_report.py`:
+`photoz/data/euclid_report.py`:
 
 - `north_frame` — общие объекты N-A + N-B из `labelled_n_table.parquet`, где конечны z и все
   четыре метода: 36 584. Из неё `fig_scatter_N`, `fig_modes`, `fig_bins` и `N_common`.
@@ -416,14 +415,14 @@ uv run python -c "from pathlib import Path; from runtime.euclid_report import bu
 - `classical_frames` — блок `classical` в `facts.json`: N (все, VIS ≥ 22,5, z ≥ 1), D2–D5,
   F VALID и HETDEX.
 
-Метрики считает `lib/metrics/euclid_eval.py`:
+Метрики считает `photoz/euclid_eval.py`:
 
 - `source_metrics` → `N_sources`: NMAD, выбросы, смещение по выборкам ALL, ALL_z1, DESI,
   NEP-Wide, HETDEX; ΔNMAD = NMAD(наша) − NMAD(метод) с 95 % ДИ;
 - `method_block` → `classical`;
 - `zval_metrics` → `VAL`.
 
-ДИ в таблицах — бутстрап по тайлам (`lib/metrics/bootstrap.tile_boot`): 2000 повторов, сид
+ДИ в таблицах — бутстрап по тайлам (`photoz.bootstrap.tile_boot`): 2000 повторов, сид
 20261105, ансамбль из 6 сидов фиксирован. В `results_final_vs_{pub,zpf}.json` тайлы и сиды
 пересэмплируются вместе (`seed_tile_boot`, 2000 повторов, сид 20261104). Для каждого набора там
 три варианта: модель, `+ppub` (среднее log(1+z) модели и Phosphoros с весом 0,5) и `+ppub_ivw`

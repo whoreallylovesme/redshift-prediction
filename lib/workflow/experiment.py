@@ -427,9 +427,11 @@ def experiment(config: Experiment) -> Path:
                 path = row.get(field)
                 if isinstance(path, str) and path not in sources and Path(path).is_file():
                     sources[path] = digest(Path(path))
+        # Thumbnail paths inside prediction tables can change contents independently of the table.
+        cache_report = config.cache and not any(row.get("thumbnail_column") for row in records)
         report = evaluate_and_compare.with_options(
-            cache_policy=TASK_SOURCE + INPUTS if config.cache else NO_CACHE,
-            persist_result=config.cache,
+            cache_policy=TASK_SOURCE + INPUTS if cache_report else NO_CACHE,
+            persist_result=cache_report,
         )(records, config.task, config.name, config.bootstrap_replicates, version, sources)
         report["metadata"] = {
             "prefect_flow_run": str(flow_run.id),

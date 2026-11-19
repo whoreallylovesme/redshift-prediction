@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -14,21 +12,7 @@ __all__ = [
     "squash",
     "mask_by_class",
     "margin_loss",
-    "logistic_to_z",
-    "z_to_logistic",
 ]
-
-if TYPE_CHECKING:
-    from photoz.targets import logistic_to_z as logistic_to_z
-    from photoz.targets import z_to_logistic as z_to_logistic
-
-
-def __getattr__(name: str) -> Any:
-    if name in {"logistic_to_z", "z_to_logistic"}:
-        from photoz import targets
-
-        return getattr(targets, name)
-    raise AttributeError(name)
 
 
 def squash(s: torch.Tensor, dim: int | tuple[int, ...] = -1, eps: float = 1e-8) -> torch.Tensor:

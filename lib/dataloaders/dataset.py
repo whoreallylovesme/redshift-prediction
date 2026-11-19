@@ -13,12 +13,6 @@ def clean_regression_data(df: pd.DataFrame, target: str) -> pd.DataFrame:
     )
 
 
-def clean_dataset(df: pd.DataFrame, target: str) -> pd.DataFrame:
-    from photoz.data.tabular import clean_dataset as clean_photoz
-
-    return clean_photoz(df, target)
-
-
 def exact_index(values: pd.Series, name: str) -> pd.Index:
     ids = pd.Index(values)
     if ids.hasnans or not ids.is_unique:

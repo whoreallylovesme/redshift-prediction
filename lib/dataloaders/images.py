@@ -15,12 +15,12 @@ from lib.config.schemas import ImageCatalogConfig
 from lib.dataloaders.common import (
     center_crop,
     inverse_bin_weights,
-    read_npz_pixels,
     resize_square,
     standardize_channels,
     subsample_indices,
 )
 from lib.dataloaders.dataset import exact_index
+from lib.dataloaders.npz import read_npz_pixels
 
 type ImageInput = torch.Tensor | dict[str, torch.Tensor]
 

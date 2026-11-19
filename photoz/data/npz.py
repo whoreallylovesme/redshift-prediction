@@ -10,10 +10,10 @@ from lib.dataloaders.common import (
     center_crop,
     inverse_bin_weights,
     orient,
-    read_npz_pixels,
     standardize_channels,
     subsample_indices,
 )
+from lib.dataloaders.npz import read_npz_pixels
 
 
 def _center_crop_resize(img: np.ndarray, crop_size: int, out_size: int = 224) -> np.ndarray:

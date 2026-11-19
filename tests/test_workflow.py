@@ -26,6 +26,37 @@ def simultaneous(config_path: Path, out_dir: Path) -> Path:
 
 
 class WorkflowTest(TestCase):
+    def test_report_refreshes_changed_external_thumbnail_on_a_cached_workflow(self) -> None:
+        from PIL import Image
+
+        with (
+            TemporaryDirectory() as tmp,
+            temporary_settings({PREFECT_RESULTS_LOCAL_STORAGE_PATH: Path(tmp) / "cache"}),
+            prefect_test_harness(),
+        ):
+            root = Path(tmp)
+            predictions = root / "saved.parquet"
+            pd.DataFrame({
+                "id": [1, 2], "y_true": [1.0, 2.0], "y_pred": [1.0, 2.0],
+                "stamp": ["stamp.png", "stamp.png"],
+            }).to_parquet(predictions, index=False)
+            method = {
+                "kind": "saved", "predictions": predictions,
+                "report": {"id_column": "id", "thumbnail_column": "stamp"},
+            }
+            cfg = Experiment.model_validate({
+                "name": "saved-thumbnail", "output": root / "runs",
+                "methods": {"first": method, "second": method}, "cache": True,
+            })
+
+            def rendered_thumbnail(color: str) -> str:
+                Image.new("RGB", (8, 8), color).save(root / "stamp.png")
+                report = json.loads((run(cfg) / "report-data.json").read_text())
+                paired = report["pairs"][0]["slices"]["All objects"]
+                return str(paired["examples"][0]["assets_a"]["thumbnail"])
+
+            self.assertNotEqual(rendered_thumbnail("red"), rendered_thumbnail("blue"))
+
     def test_unrecognized_config_fields_fail(self) -> None:
         with self.assertRaises(ValidationError):
             Experiment.model_validate({"name": "x", "output": ".", "workerss": 2, "methods": {}})

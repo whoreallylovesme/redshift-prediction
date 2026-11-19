@@ -22,7 +22,7 @@ uv run pre-commit install          # хуки ruff + mypy
 uv run ruff check .                # перед каждым коммитом
 uv run mypy .
 
-uv run python runtime/pipeline.py --config examples/configs/regression.yaml   # smoke-тест
+uv run python -m runtime.pipeline --config examples/configs/teddy.yaml --check
 uv run python runtime/pipeline.py --config path/to/flow.yaml
 ```
 
@@ -36,8 +36,7 @@ uv run python runtime/pipeline.py --config path/to/flow.yaml
 Проверка без научных каталогов:
 
 ```bash
-uv run python -m runtime.pipeline --config examples/configs/regression.yaml --check
-uv run python -m runtime.pipeline --config examples/configs/regression.yaml
+uv run python -m runtime.pipeline --config examples/configs/euclid.yaml --check
 uv run --extra tracking python -m unittest discover -s tests
 ```
 

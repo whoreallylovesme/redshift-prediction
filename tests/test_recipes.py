@@ -17,9 +17,25 @@ from runtime.pipeline import main
 
 
 class RecipesTest(TestCase):
+    def test_config_selection_and_render_without_a_flow(self) -> None:
+        runner = CliRunner()
+        with patch("runtime.pipeline._run") as run:
+            for args in ([], ["--check"], ["workers=2"]):
+                result = runner.invoke(main, args)
+                self.assertEqual(result.exit_code, 2, result.output)
+                self.assertIn("--config", result.output)
+            with (
+                TemporaryDirectory() as temp,
+                patch("lib.workflow.experiment.rebuild_report") as rebuild,
+            ):
+                result = runner.invoke(main, ["--render", temp])
+                self.assertEqual(result.exit_code, 0, result.output)
+                rebuild.assert_called_once_with(Path(temp))
+            run.assert_not_called()
+
     def test_all_shipped_flows(self) -> None:
         flows = sorted(Path("examples/configs").glob("*.yaml"))
-        self.assertEqual({p.stem for p in flows}, {"teddy", "euclid", "regression"})
+        self.assertEqual({p.stem for p in flows}, {"teddy", "euclid"})
         for path in flows:
             with self.subTest(path=str(path)):
                 load_flow(path, check=True)
@@ -61,7 +77,10 @@ class RecipesTest(TestCase):
 
     def test_check_reports_reference_and_schema_errors_without_training(self) -> None:
         runner = CliRunner()
-        sample = yaml.safe_load(Path("examples/configs/regression.yaml").read_text())
+        sample = {
+            "name": "check", "output": "runs/check",
+            "dataset": {"source": "input.csv", "features": ["x"], "target": "y"},
+        }
         with TemporaryDirectory() as temp:
             root = Path(temp)
             recipe = root / "model.yaml"
@@ -83,7 +102,7 @@ class RecipesTest(TestCase):
         with initialize_config_dir(
             config_dir=str(Path("examples/configs").resolve()), version_base="1.3"
         ):
-            config = load_flow(Path("examples/configs/regression.yaml"), check=True)
+            config = load_flow(Path("examples/configs/teddy.yaml"), check=True)
             self.assertIsInstance(config, Experiment)
         image = yaml.safe_load(Path("examples/configs/teddy.yaml").read_text())
         del image["methods"]["catboost"]

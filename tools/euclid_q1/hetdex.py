@@ -25,7 +25,10 @@ from numpy.typing import NDArray
 from pydantic import BaseModel
 from scipy.spatial import cKDTree
 
-from lib.dataloaders.euclid_transforms import (
+from lib.utils.log import get_logger
+from lib.utils.utils import check, load_yaml_as
+from photoz.data.euclid_mosaics import load_plane as read_plane
+from photoz.data.euclid_transforms import (
     BANDS,
     IMAGE_BANDS,
     IMAGE_SIDE,
@@ -37,9 +40,6 @@ from lib.dataloaders.euclid_transforms import (
     transform_table,
     validate_band_order,
 )
-from lib.utils.log import get_logger
-from lib.utils.utils import check, load_yaml_as
-from photoz.data.euclid_mosaics import load_plane as read_plane
 
 logger = get_logger()
 

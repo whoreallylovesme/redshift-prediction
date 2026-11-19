@@ -32,14 +32,12 @@ class BootstrapCompatibilityTests(TestCase):
             [sys.executable, "-c", """
 import sys
 sys.modules["photoz"] = None
-from lib.metrics.bootstrap import bootstrap_distribution
+from lib.metrics import *
+from lib.metrics.bootstrap import *
 draws = bootstrap_distribution(lambda indices: indices.mean(), (4,), 5, 123)
 assert draws.shape == (5,)
 """], check=True,
         )
-        from lib.metrics.bootstrap import tile_boot as legacy_tile_boot
-
-        self.assertIs(legacy_tile_boot, tile_boot)
 
     def test_paired_tile_intervals_and_calibration_counts(self) -> None:
         a, b, _ = self.pred

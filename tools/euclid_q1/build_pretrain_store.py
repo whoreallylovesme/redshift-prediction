@@ -13,10 +13,10 @@ import numpy as np
 from numpy.typing import NDArray
 from pydantic import BaseModel
 
-from lib.dataloaders.euclid_packet import KEYS, Packet, holdout_tiles
-from lib.dataloaders.euclid_transforms import IMAGE_BANDS, IMAGE_SIDE
 from lib.utils.log import get_logger
 from lib.utils.utils import check, load_yaml_as
+from photoz.data.euclid_packet import KEYS, Packet, holdout_tiles
+from photoz.data.euclid_transforms import IMAGE_BANDS, IMAGE_SIDE
 
 logger = get_logger()
 

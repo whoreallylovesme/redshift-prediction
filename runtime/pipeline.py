@@ -62,7 +62,7 @@ def _run(config: Experiment | FlowConfig) -> Path | None:
     return run(config)
 
 
-@click.command()
+@click.command(no_args_is_help=True)
 @click.argument("overrides", nargs=-1, metavar="[KEY=VALUE]...")
 @click.option("--config", "config_path", type=click.Path(exists=True, dir_okay=False))
 @click.option(
@@ -89,15 +89,17 @@ def main(
         rebuild_report(render)
         click.echo(render / "report.html")
         return
-    path = config_path or "examples/configs/regression.yaml"
+    if config_path is None:
+        raise click.UsageError("Pass --config for an experiment or --render for a saved report.")
     try:
         config = load_flow(
-            Path(path), check=check, overrides=overrides, workers=workers, tracking_uri=tracking_uri
+            Path(config_path), check=check, overrides=overrides, workers=workers,
+            tracking_uri=tracking_uri,
         )
     except (ValueError, OSError, HydraException, OmegaConfBaseException) as exc:
         raise click.ClickException(str(exc)) from exc
     if check:
-        click.echo(f"OK {path}")
+        click.echo(f"OK {config_path}")
         return
     directory = _run(config)
     if directory:

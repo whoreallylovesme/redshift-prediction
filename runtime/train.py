@@ -19,8 +19,8 @@ def _train_sklearn(
     feature_set: str,
     outdir: str,
 ) -> None:
-    from lib.metrics import evaluate_regression
     from lib.train.sklearn import feature_selection, fit_regressor
+    from photoz.metrics import evaluate_regression
 
     cfg = load_yaml_as(config_path, SklearnTrainConfig)
     fcfg = load_yaml_as(features_path, FeaturesConfig)

@@ -421,7 +421,7 @@ class OptionalAssetsTests(unittest.TestCase):
 
 class HistoricalReportTests(unittest.TestCase):
     def test_existing_reports_cover_extra_metrics_and_normalized_threshold(self) -> None:
-        from lib.visual.plots import redshift_scatter
+        from photoz.legacy_plots import redshift_scatter
         from runtime.render_table import Row, all_metrics, best_map, is_best
 
         rows = [

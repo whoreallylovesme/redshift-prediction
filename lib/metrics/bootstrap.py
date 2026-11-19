@@ -6,6 +6,8 @@ import pandas as pd
 from numpy.typing import NDArray
 from scipy.stats import bootstrap
 
+__all__ = ["Indices", "bootstrap_distribution", "group_members"]
+
 type Indices = NDArray[np.intp]
 
 
@@ -31,39 +33,9 @@ def bootstrap_distribution(
         sampled = iter(draws)
         return statistic(*(next(sampled) if len(axis) > 1 else axis for axis in units))
 
-    # Draw all axes of one replicate together to preserve the seeded Euclid protocol.
+    # Draw all axes of one replicate together in a fixed order for reproducibility.
     result = bootstrap(
         variable, evaluate, n_resamples=repeats, method="percentile", vectorized=False,
         batch=1, rng=np.random.default_rng(seed),
     )
     return np.asarray(result.bootstrap_distribution)
-
-
-_EUCLID_NAMES = [
-    "ARM_SEED",
-    "MIN_ROWS",
-    "N_BOOT",
-    "OUTLIER_THRESHOLD",
-    "SEED_TILE_SEED",
-    "TILE_SEED",
-    "FloatArray",
-    "Record",
-    "arm_boot",
-    "arm_summary",
-    "metric_record",
-    "photoz_stats",
-    "seed_summary",
-    "seed_tile_boot",
-    "stats_record",
-    "tile_boot",
-    "tile_members",
-]
-__all__ = ["Indices", "bootstrap_distribution", "group_members", *_EUCLID_NAMES]
-
-
-def __getattr__(name: str) -> Any:
-    if name in _EUCLID_NAMES:
-        from photoz import bootstrap as euclid
-
-        return getattr(euclid, name)
-    raise AttributeError(name)

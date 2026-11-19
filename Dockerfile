@@ -20,4 +20,4 @@ COPY photoz/ photoz/
 COPY examples/configs/ examples/configs/
 RUN uv sync --frozen
 
-CMD ["uv", "run", "python", "-m", "runtime.pipeline", "--config", "examples/configs/regression.yaml"]
+CMD ["uv", "run", "python", "-m", "runtime.pipeline", "--help"]

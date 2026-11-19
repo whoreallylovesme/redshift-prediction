@@ -4,8 +4,8 @@ from pathlib import Path
 
 import click
 
-from lib.dataloaders.euclid_translation import TemplateGridConfig, build_template_grids
 from lib.utils.utils import load_yaml_as
+from photoz.data.euclid_translation import TemplateGridConfig, build_template_grids
 
 
 @click.command()

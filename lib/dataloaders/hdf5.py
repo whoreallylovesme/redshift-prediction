@@ -2,7 +2,7 @@ from typing import Any
 
 from lib.dataloaders.hdf5_rows import HDF5Rows
 
-_HAYAT_NAMES = ("HDF5Dataset", "get_hdf5_dataloaders", "_worker_init_fn", "logger")
+_HAYAT_NAMES = ("HDF5Dataset", "get_hdf5_dataloaders", "_worker_init_fn")
 __all__ = ["HDF5Rows", *_HAYAT_NAMES]
 
 

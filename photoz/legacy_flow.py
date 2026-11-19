@@ -349,7 +349,7 @@ def derived_config(base: str, out: Path, **overrides: object) -> str:
 
 
 def run_euclid_pretrain(euclid: EuclidFlowConfig, runs_root: Path, uri: str | None = None) -> None:
-    from lib.train.euclid_clip_pretrain import STATE_NAME
+    from photoz.training.euclid_clip_pretrain import STATE_NAME
 
     stage = euclid.pretrain
     if stage is None or not stage.enabled:
@@ -372,7 +372,7 @@ def run_euclid_pretrain(euclid: EuclidFlowConfig, runs_root: Path, uri: str | No
 def run_euclid_finetune(
     euclid: EuclidFlowConfig, runs_root: Path, tag: str, ft_dir: Path, uri: str | None = None
 ) -> None:
-    from lib.train.euclid_clip_pretrain import STATE_NAME
+    from photoz.training.euclid_clip_pretrain import STATE_NAME
 
     stage = euclid.finetune
     if not stage.enabled:
@@ -476,7 +476,7 @@ def run_euclid_report(
 
 
 def run_euclid_clip_pipeline(config: FlowConfig, uri: str | None = None) -> None:
-    from lib.train.euclid_clip_finetune import EuclidClipConfig
+    from photoz.training.euclid_clip_finetune import EuclidClipConfig
 
     euclid = config.euclid
     if euclid is None:
