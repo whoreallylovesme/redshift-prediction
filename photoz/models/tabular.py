@@ -3,6 +3,8 @@ from typing import Literal
 import torch
 from torch import Tensor, nn
 
+from lib.models.encoders import ResidualLayer as ResidualLayer
+from lib.models.encoders import ResidualMLPFeatures
 from photoz.models.euclid_clip import (
     DESCRIPTOR_DIM,
     FEATURE_DIM,
@@ -16,27 +18,9 @@ from photoz.models.euclid_clip import (
 type Architecture = Literal["resmlp", "table_transformer"]
 
 
-class ResidualLayer(nn.Module):
+class ResMLPEncoder(ResidualMLPFeatures):
     def __init__(self) -> None:
-        super().__init__()
-        self.net = nn.Sequential(
-            nn.LayerNorm(128),
-            nn.Linear(128, 128),
-            nn.GELU(),
-            nn.Linear(128, 128),
-        )
-
-    def forward(self, x: Tensor) -> Tensor:
-        residual: Tensor = self.net(x)
-        return x + residual
-
-
-class ResMLPEncoder(nn.Module):
-    def __init__(self) -> None:
-        super().__init__()
-        self.input = nn.Linear(3 * TABLE_BANDS, 128)
-        self.blocks = nn.Sequential(ResidualLayer(), ResidualLayer())
-        self.output = nn.Sequential(nn.LayerNorm(128), nn.Linear(128, FEATURE_DIM))
+        super().__init__(3 * TABLE_BANDS, FEATURE_DIM)
 
     def forward(
         self, values: Tensor, mask: Tensor, descriptor: Tensor, available: Tensor
@@ -51,7 +35,7 @@ class ResMLPEncoder(nn.Module):
         observed = mask & available[:, None]
         clean = finite_observations(values, observed[..., None].expand_as(values))
         features = torch.cat((clean.flatten(1), observed.to(clean.dtype)), dim=1)
-        features = self.output(self.blocks(nn.functional.gelu(self.input(features))))
+        features = self.encode(features)
         measured = observed.any(1)
         return EncodedModality(torch.where(measured[:, None], features, 0.0), measured)
 

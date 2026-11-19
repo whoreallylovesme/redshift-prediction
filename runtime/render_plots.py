@@ -8,8 +8,9 @@ from pathlib import Path
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from plotly.offline import get_plotlyjs
 
-from lib.dataloaders.dataset import read_dataset
+from lib.report.evaluation import prepare_frame
 from photoz.legacy_plots import redshift_scatter
+from photoz.report import PHOTOZ
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 
@@ -31,9 +32,10 @@ def load_charts(runs_dir: Path) -> list[dict[str, str]]:
         report = json.loads(report_path.read_text(encoding="utf-8"))
         model_name = report.get("model_name", run_dir.name)
 
-        df = read_dataset(str(preds_path))
-        y_true = df["y_true"]
-        y_pred = df["y_pred"].to_numpy()
+        frame, _ = prepare_frame({"predictions": preds_path}, PHOTOZ)
+        eligible = frame.loc[frame._evaluated]
+        y_true = eligible._truth
+        y_pred = eligible._pred.to_numpy()
 
         if model_name == "llr":
             fig = redshift_scatter(y_true, y_pred, model_name, 0, 4)

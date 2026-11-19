@@ -41,6 +41,15 @@ class TinySource:
 
 
 class ClipTrainingTests(TestCase):
+    def test_short_native_debug_run_uses_the_original_warmup(self) -> None:
+        from photoz.data.euclid_packet import LR, schedule_lr
+
+        for epoch in (1, 2):
+            self.assertEqual(schedule_lr(epoch, 2), schedule_lr(epoch, 40))
+        self.assertEqual(schedule_lr(1, 1), LR / 5)
+        with self.assertRaises(ValueError):
+            schedule_lr(2, 1)
+
     def test_real_encoders_pretrain_and_finetune_from_exported_weights(self) -> None:
         previous = torch.get_num_threads()
         self.addCleanup(torch.set_num_threads, previous)

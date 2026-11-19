@@ -1,3 +1,4 @@
+import json
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -10,6 +11,13 @@ from prefect.cache_policies import NO_CACHE
 from prefect.runtime import flow_run
 
 from lib.config import EuclidFlowConfig, FlowConfig
+from lib.config.snapshot import (
+    create_snapshot,
+    public_config,
+    record_config,
+    recording_configs,
+    seal_snapshot,
+)
 from lib.inference import inference
 from lib.tracking import Tracker, bind_run
 from lib.utils.log import get_logger
@@ -102,7 +110,9 @@ def tracked_method(
     run_id = tracker.start(name, {"recipe": recipe}, str(flow_run.id))
     success = False
     try:
-        tracker.client.log_artifact(run_id, recipe, "recipe")
+        captured = record_config(recipe)
+        if captured is not None:
+            tracker.client.log_artifact(run_id, str(captured), "recipe")
         yield tracker, run_id
         success = True
     finally:
@@ -111,8 +121,6 @@ def tracked_method(
 
 def track_scores(tracker: Tracker | None, run_id: str | None, split: str, output: Path) -> None:
     if tracker is not None and run_id is not None:
-        import json
-
         metrics = json.loads((output / "report.json").read_text())["test_metrics"]
         tracker.log_metrics(run_id, split, {k: v for k, v in metrics.items() if pd.notna(v)})
 
@@ -182,9 +190,17 @@ def run_capsnet_pipeline(config: FlowConfig, uri: str | None = None) -> None:
     recipe = train_cfg["config"]
     nn_raw = yaml.safe_load(Path(recipe).read_text())
     root = Path(nn_raw["out_dir"])
+    log_path = root / "log.jsonl"
+    # The native stage logger appends to one audit file across repeated fits.
+    history_start = log_path.stat().st_size if log_path.is_file() else 0
     records: list[dict[str, Any]] = []
     with tracked_method(uri, Path(recipe).stem, recipe, root) as (tracker, run_id):
         fit_capsnet(recipe, uri, run_id)
+        history = []
+        if log_path.is_file():
+            with log_path.open("rb") as log:
+                log.seek(history_start)
+                history = [json.loads(line) for line in log if line.strip()]
         predict_capsnet_splits(recipe)
         inf = nn_raw["inference"]
         splits = inf["splits"] if "splits" in inf else [{"name": "valid", "out": inf["out"]}]
@@ -201,6 +217,7 @@ def run_capsnet_pipeline(config: FlowConfig, uri: str | None = None) -> None:
                     "truth_column": "z_spec",
                     "prediction_column": "z_pred",
                     "details": {"recipe": recipe},
+                    "history": history,
                 }
             )
         combined_report(root, records, "CapsNet", {"CapsNet": run_id} if run_id else {})
@@ -306,6 +323,8 @@ def run_nn_pipeline(config: FlowConfig, uri: str | None = None) -> None:
                         "id_column": id_column,
                         "role": split.get("role", "unspecified"),
                         "details": {"recipe": config_path, "catalog": split["catalog"]},
+                        "history": str(Path(model_dir) / "history.json")
+                        if (Path(model_dir) / "history.json").is_file() else None,
                     }
                 )
     combined_report(Path(runs_root), records, str(summaries.get("title", "photo-z")), run_ids)
@@ -342,7 +361,10 @@ def derived_config(base: str, out: Path, **overrides: object) -> str:
         raise ValueError(f"{base} must be a YAML mapping")
     raw.update(overrides)
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(yaml.safe_dump(raw, sort_keys=False, allow_unicode=True), encoding="utf-8")
+    out.write_text(
+        yaml.safe_dump(public_config(raw), sort_keys=False, allow_unicode=True), encoding="utf-8"
+    )
+    record_config(out)
     return str(out)
 
 
@@ -493,22 +515,51 @@ def run_euclid_clip_pipeline(config: FlowConfig, uri: str | None = None) -> None
 
 @flow(name="pipeline")
 def legacy_pipeline(
-    config_path: str, tracking_uri: str | None = None, workers: int | None = None
+    config_path: str | FlowConfig, tracking_uri: str | None = None, workers: int | None = None
 ) -> None:
-    config = load_yaml_as(config_path, FlowConfig)
+    if isinstance(config_path, FlowConfig):
+        config = config_path
+    else:
+        from lib.config import load_flow
+
+        parsed = load_flow(Path(config_path), workers=workers, tracking_uri=tracking_uri)
+        if not isinstance(parsed, FlowConfig):
+            raise ValueError("Expected a historical pipeline recipe")
+        config = parsed
     if workers not in (None, 1):
         raise ValueError(
             "Historical flows use serial execution; configure workers in a methods flow"
         )
     tracking_uri = tracking_uri or config.tracking_uri
-    pipeline_type = config.pipeline
-    if pipeline_type == "tabular":
-        run_tabular_pipeline(config, tracking_uri)
-    elif pipeline_type == "nn":
-        run_nn_pipeline(config, tracking_uri)
-    elif pipeline_type == "capsnet":
-        run_capsnet_pipeline(config, tracking_uri)
-    elif pipeline_type == "euclid_clip":
-        run_euclid_clip_pipeline(config, tracking_uri)
-    else:
-        raise ValueError(f"Unsupported pipeline type: {pipeline_type}")
+    directory = Path(config.runs_root).resolve() / "config_snapshots" / str(flow_run.id)
+    if flow_run.run_count > 1:
+        directory /= f"attempt-{flow_run.run_count}"
+    create_snapshot(directory, config)
+    dispatch = {
+        "tabular": run_tabular_pipeline,
+        "nn": run_nn_pipeline,
+        "capsnet": run_capsnet_pipeline,
+        "euclid_clip": run_euclid_clip_pipeline,
+    }
+    success = False
+    try:
+        with recording_configs(directory):
+            dispatch[config.pipeline](config, tracking_uri)
+        success = True
+    finally:
+        seal_snapshot(directory)
+        if tracking_uri:
+            tracker = Tracker(tracking_uri, "photoz")
+            runs = tracker.client.search_runs(
+                [tracker.experiment_id],
+                filter_string=f"tags.`prefect.flow_run_id` = '{flow_run.id}'",
+            )
+            if runs:
+                for run in runs:
+                    tracker.log_snapshot(run.info.run_id, directory, flow_run.run_count)
+            else:
+                run_id = tracker.start(config.pipeline, {}, str(flow_run.id))
+                try:
+                    tracker.log_snapshot(run_id, directory, flow_run.run_count)
+                finally:
+                    tracker.finish(run_id, success, directory)

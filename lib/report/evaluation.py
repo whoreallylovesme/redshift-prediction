@@ -105,28 +105,28 @@ def prepare_frame(method: Record, task: ReportTask) -> tuple[pd.DataFrame, bool]
     status_col = method.get("status_column")
     if not status_col and "status" in predicted.columns:
         status_col = "status"
-    status = (
-        predicted[status_col].reindex(frame.index).astype("string").fillna("missing_status")
-        if status_col
-        else pd.Series("ok", index=frame.index, dtype="string")
-    )
     configured = method.get("ok_statuses")
-    allowed = {
-        str(v)
-        for v in (
-            configured if configured is not None else ["ok", "complete", "completed", "success"]
+    allowed = configured if configured is not None else ["ok", "complete", "completed", "success"]
+    if status_col:
+        native = predicted[status_col]
+        text = native.astype("string")
+        status = text.reindex(frame.index).fillna("missing_status")
+        accepted = (native.isin(allowed) | text.isin([str(v) for v in allowed])).reindex(
+            frame.index, fill_value=False,
         )
-    }
+    else:
+        status = pd.Series("ok", index=frame.index, dtype="string")
+        accepted = status.isin(allowed)
     admission_col = method.get("admitted_column")
     admitted = boolean(frame[admission_col], admission_col) if admission_col else represented
     frame["_admitted"] = admitted
-    frame["_predicted"] = represented & admitted & status.isin(allowed) & np.isfinite(frame._pred)
+    frame["_predicted"] = represented & admitted & accepted & np.isfinite(frame._pred)
     valid_truth = task.valid_target(truth)
     frame["_evaluated"] = frame._predicted & valid_truth
     reason = pd.Series("", index=frame.index, dtype="string")
     reason[~valid_truth] = "invalid or missing reference"
     reason[~np.isfinite(frame._pred)] = "nonfinite prediction"
-    reason[~status.isin(allowed)] = status[~status.isin(allowed)]
+    reason[~accepted] = status[~accepted]
     reason[~represented] = "missing prediction row"
     if admission_col:
         reason[~admitted] = "ineligible"

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -86,6 +87,45 @@ class Tracker:
             if isinstance(value, (int, float)):
                 self.client.log_metric(run_id, f"{split}/{key}", float(value))
 
+    def log_snapshot(self, run_id: str, snapshot: Path, attempt: int = 1) -> None:
+        path = "config_snapshot" if attempt <= 1 else f"attempt-{attempt}/config_snapshot"
+        self.client.log_artifacts(run_id, str(snapshot), path)
+        self.client.set_tag(run_id, "config_snapshot", path)
+
     def finish(self, run_id: str, success: bool, directory: Path) -> None:
-        self.client.set_tag(run_id, "output_directory", str(directory.absolute()))
-        self.client.set_terminated(run_id, status="FINISHED" if success else "FAILED")
+        try:
+            self.client.set_tag(run_id, "output_directory", str(directory.absolute()))
+        finally:
+            self.client.set_terminated(run_id, status="FINISHED" if success else "FAILED")
+
+
+def finish_with_snapshots(
+    tracker: Tracker | None, snapshot: Path, output: Path, attempt: int, runs: dict[str, bool]
+) -> None:
+    from lib.config.snapshot import seal_snapshot
+
+    active = sys.exception()
+    errors: list[Exception] = []
+    try:
+        seal_snapshot(snapshot)
+        sealed = True
+    except Exception as exc:
+        errors.append(exc)
+        sealed = False
+    if tracker:
+        for run_id, success in runs.items():
+            if sealed:
+                try:
+                    tracker.log_snapshot(run_id, snapshot, attempt)
+                except Exception as exc:
+                    errors.append(exc)
+                    success = False
+            try:
+                tracker.finish(run_id, success and sealed, output)
+            except Exception as exc:
+                errors.append(exc)
+    if errors:
+        if active is not None:
+            active.add_note(f"Configuration snapshot or tracking cleanup failed: {errors!r}")
+        else:
+            raise ExceptionGroup("Configuration snapshot or tracking cleanup failed", errors)

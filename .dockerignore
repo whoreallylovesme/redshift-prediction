@@ -9,8 +9,9 @@
 !photoz/**
 !tools/
 !tools/**
-!configs/
-!configs/**
+!examples/
+!examples/configs/
+!examples/configs/**
 !tests/
 !tests/fixtures/
 !tests/fixtures/**

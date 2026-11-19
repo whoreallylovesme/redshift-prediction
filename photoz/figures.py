@@ -110,7 +110,7 @@ def fig_scatter(out: Path, d: pd.DataFrame, name: str, fname: str, zmax: float) 
     with rc_context(STYLE):
         fig = Figure(figsize=(6.7, 3.05), constrained_layout=True)
         ax = fig.subplots(1, 2, sharey=True)
-        norm = LogNorm(1, None)
+        norm = LogNorm(1, None if len(d) else 2)
         hexes = []
         for a, key in zip(ax, ("ml", "ppub"), strict=True):
             hexes.append(
@@ -255,16 +255,10 @@ def fig_baselines(out: Path, ns: Mapping[str, Any]) -> None:
         y = np.arange(len(ks))[::-1]
         for yy, k in zip(y, ks, strict=True):
             v, (lo, hi) = r[k]["nmad"], r[k]["nmad_ci"]
-            ax.errorbar(
-                v,
-                yy,
-                xerr=[[v - lo], [hi - v]],
-                fmt="o" if k in COL else "s",
-                color=color[k],
-                ms=4,
-                lw=1.2,
-                capsize=0,
-            )
+            if np.isfinite(v):
+                ax.plot(v, yy, marker="o" if k in COL else "s", color=color[k], ms=4)
+            if np.isfinite([lo, hi]).all():
+                ax.hlines(yy, lo, hi, color=color[k], linewidth=1.2)
         ax.set_yticks(y)
         ax.set_yticklabels([label[k] for k in ks], fontsize=7.5)
         ax.set_title(f"N, все источники (n={fmt(r['n'])})", fontsize=8.5, color=INK)
@@ -306,22 +300,26 @@ def fig_train(
             ax[1].plot(ep, nll, color=c, lw=1.0, marker="o", ms=2.5)
             ax[2].plot(ep, nmad, color=c, lw=1.0, marker="o", ms=2.5)
             rec[name] = {"epoch": ep, "train_ce": nll, "fvalid_nmad": nmad}
-            last = max(last, *ep)
+            last = max([last, *ep])
         ax[1].set_xlabel("эпоха")
         ax[1].set_ylabel("кросс-энтропия (трейн)")
         ax[1].set_title(f"(b) дообучение, {len(fine)} сидов", loc="left", color=INK2)
-        vo, vp = val_poff, val_ppub
-        ax[2].axhline(vo, color=POFF, ls=":", lw=1.2)
-        hi_, lo_ = max(vo, vp), min(vo, vp)
-        ax[2].axhline(vp, color=PPUB, ls="-", lw=1.0)
-        upper = f"PHZ Euclid {vo:.4f}" if vo >= vp else f"Phosphoros {vp:.4f}"
-        lower = f"Phosphoros {vp:.4f}" if vo >= vp else f"PHZ Euclid {vo:.4f}"
-        ax[2].text(last, hi_ + 0.0008, upper, color=INK2, fontsize=7, ha="right", va="bottom")
-        ax[2].text(last, lo_ - 0.0008, lower, color=INK2, fontsize=7, ha="right", va="top")
+        baselines = [
+            (value, label, color, style)
+            for value, label, color, style in (
+                (val_poff, "PHZ Euclid", POFF, ":"), (val_ppub, "Phosphoros", PPUB, "-")
+            )
+            if np.isfinite(value)
+        ]
+        for index, (value, label, color, style) in enumerate(sorted(baselines, reverse=True)):
+            ax[2].axhline(value, color=color, ls=style, lw=1.2)
+            offset = -0.0008 if index else 0.0008
+            ax[2].text(last, value + offset, f"{label} {value:.4f}", color=INK2, fontsize=7,
+                       ha="right", va="top" if index else "bottom")
         ax[2].set_xlabel("эпоха")
         ax[2].set_ylabel("NMAD (валидация)")
         ax[2].set_title(f"(c) валидация F+S, {len(fine)} сидов", loc="left", color=INK2)
-        ax[2].set_ylim(0, max(vo, vp) * 1.25)
+        ax[2].set_ylim(bottom=0)
         fig.tight_layout()
         fig.savefig(out / "fig_train.pdf")
     return rec

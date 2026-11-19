@@ -1,7 +1,24 @@
+import os
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from tempfile import TemporaryDirectory
+from tempfile import NamedTemporaryFile, TemporaryDirectory
+from typing import IO
+
+
+@contextmanager
+def download_destination(path: Path) -> Iterator[IO[bytes]]:
+    """Publish a complete local download without replacing a concurrently completed file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with NamedTemporaryFile(dir=path.parent) as temp:
+        yield temp.file
+        temp.flush()
+        os.fsync(temp.fileno())
+        try:
+            os.link(temp.name, path)
+        except FileExistsError:
+            if not path.is_file():
+                raise
 
 
 @contextmanager

@@ -16,12 +16,21 @@ def redshift_scatter(
     y_true_arr = np.asarray(y_true).ravel()
     y_pred_arr = np.asarray(y_pred).ravel()
 
+    valid = np.isfinite(y_true_arr) & np.isfinite(y_pred_arr)
+    y_true_arr, y_pred_arr = y_true_arr[valid], y_pred_arr[valid]
     if vmin is None:
-        vmin = float(np.min([y_true_arr.min(), y_pred_arr.min()]))
+        vmin = float(min(y_true_arr.min(), y_pred_arr.min())) if valid.any() else 0.0
     if vmax is None:
-        vmax = float(np.max([y_true_arr.max(), y_pred_arr.max()]))
+        vmax = float(max(y_true_arr.max(), y_pred_arr.max())) if valid.any() else 1.0
+    if vmin == vmax:
+        vmin, vmax = vmin - 0.5, vmax + 0.5
 
     fig = go.Figure()
+    if not valid.any():
+        fig.add_annotation(
+            x=0.5, y=0.5, xref="paper", yref="paper", showarrow=False,
+            text="Нет оценённых объектов",
+        )
 
     fig.add_trace(go.Histogram2d(
         x=y_true_arr,

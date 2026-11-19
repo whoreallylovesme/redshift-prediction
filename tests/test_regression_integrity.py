@@ -40,7 +40,7 @@ class RegressionIntegrityTests(TestCase):
             def duplicate(items: pd.DataFrame, target: str) -> pd.DataFrame:
                 return pd.concat([items, items.iloc[:1]], ignore_index=True)
 
-            with patch("lib.workflow.data.symbol", return_value=duplicate):
+            with patch("lib.workflow.data.plugin", return_value=duplicate):
                 with self.assertRaisesRegex(ValueError, "unique"):
                     prepare_dataset(cfg, root / "output")
             cfg.cleaner = None

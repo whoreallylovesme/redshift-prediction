@@ -344,6 +344,8 @@ def prepare_split(cfg: EuclidClipConfig, packet: Packet) -> ZvalSplit:
         replaced=sum(int(o) in overrides for o in fit_ids),
     )
     mask, per_bin = zval_split(pool.z, cfg.zval_size, cfg.zval_seed)
+    if not mask.any():
+        raise ValueError("ZVAL has no rows under the configured stratified sampling policy")
     return ZvalSplit(pool=pool, overrides=overrides, mask=mask, per_bin=per_bin)
 
 
@@ -516,7 +518,7 @@ def build_model(clip_state: Path, seed: int, device: torch.device) -> BinNet:
 
 def load_finetuned(path: Path, device: torch.device) -> BinNet:
     model = BinNet(ITNetwork())
-    model.load_state_dict(torch.load(path, map_location=device), strict=True)
+    model.load_state_dict(torch.load(path, map_location=device, weights_only=True), strict=True)
     return model.to(device)
 
 
@@ -659,6 +661,8 @@ def run_train(config_path: Path) -> None:
         "n_train": int(len(z)),
         "s90": s90,
         "s99": s99,
+        "zval_metrics": history[-1]["valid"],
+        "metric_partitions": {"fvalid_ungated": "zval", "fvalid_gated": "original_F_VALID"},
         "fvalid_ungated": history[-1]["valid"],
         "fvalid_gated": photoz_metrics(z_fvalid, preds["valid"].z),
         "history": history,

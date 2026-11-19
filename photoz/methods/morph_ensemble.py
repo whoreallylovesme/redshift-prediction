@@ -12,10 +12,11 @@ from numpy.typing import NDArray
 from pydantic import BaseModel, Field
 from torch.utils.data import DataLoader, TensorDataset
 
+from lib.models.capsnet import CapsNet
 from lib.train.lightning import single_device_trainer
 from lib.utils.utils import load_yaml_as
-from photoz.data.weak import exact_ids
-from photoz.models.capsnet import CapsNet, logistic_to_z
+from photoz.data.identifiers import exact_ids
+from photoz.targets import logistic_to_z
 
 SEEDS = (201, 202, 203, 204)
 REF_IDS = (

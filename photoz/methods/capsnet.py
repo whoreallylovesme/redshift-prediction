@@ -23,11 +23,12 @@ logger = get_logger()
 
 def build_predictor(raw: dict[str, Any], weights: Path) -> Any:
     from photoz.models.predictors import CapsNetPredictor
+    from photoz.training.capsnet_lightning import TrainConfig
 
     device = pick_device(str(raw.get("device", "auto")))
     return CapsNetPredictor(
         weights=str(weights),
-        in_channels=int(raw.get("in_channels", 4)),
+        in_channels=int(raw.get("in_channels", TrainConfig.in_channels)),
         input_size=int(raw.get("crop_size", 64)),
         z_min=float(raw.get("z_min", 0.0)),
         z_max=float(raw.get("z_max", 0.4)),
@@ -93,7 +94,10 @@ def _infer_h5(
         image_scale=float(raw.get("image_scale", 10.0)),
         crop_size=int(raw.get("crop_size", 64)), augment=False,
     )
-    loader = DataLoader(ds, batch_size=int(raw.get("batch_size", 256)), num_workers=3)
+    loader = DataLoader(
+        ds, batch_size=int(raw.get("batch_size", 256)),
+        num_workers=int(inf.get("num_workers", raw.get("num_workers", 3))),
+    )
     res = _predict(predictor, loader)
     return pd.DataFrame({
         "objid": objids[idx], "specobjid": specids[idx], "z_spec": z_spec[idx],
@@ -121,7 +125,10 @@ def _infer_split(
         per_channel_norm=bool(raw.get("per_channel_norm", False)),
         w1w2_dir=w1w2_dir,
     )
-    loader = DataLoader(ds, batch_size=int(raw.get("batch_size", 256)), num_workers=3)
+    loader = DataLoader(
+        ds, batch_size=int(raw.get("batch_size", 256)),
+        num_workers=int(inf.get("num_workers", raw.get("num_workers", 3))),
+    )
     res = _predict(predictor, loader)
     return pd.DataFrame({
         "objid": [int(f.stem) for f in files], "z_spec": z_all,

@@ -17,8 +17,8 @@ COPY lib/ lib/
 COPY runtime/ runtime/
 COPY tools/ tools/
 COPY photoz/ photoz/
-COPY configs/ configs/
+COPY examples/configs/ examples/configs/
 COPY tests/fixtures/ tests/fixtures/
 RUN uv sync --frozen
 
-CMD ["uv", "run", "python", "-m", "runtime.pipeline", "--config", "configs/flows/regression_example.yaml"]
+CMD ["uv", "run", "python", "-m", "runtime.pipeline", "--config", "examples/configs/regression.yaml"]

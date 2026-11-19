@@ -12,7 +12,8 @@ import pandas as pd
 from pydantic import BaseModel, Field
 
 from lib.utils.utils import load_yaml_as
-from photoz.data.weak import WEIGHTS, TargetProtocol, checked_read, exact_ids, validate_cohort
+from photoz.data.identifiers import exact_ids
+from photoz.data.weak import WEIGHTS, TargetProtocol, checked_read, validate_cohort
 
 
 class CandidateTable(BaseModel):

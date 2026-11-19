@@ -2,12 +2,9 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import cast
 
-from hydra import main as hydra_main
-from omegaconf import DictConfig
-
 from lib.config import FeaturesConfig, PytorchTrainConfig, SklearnTrainConfig
 from lib.dataloaders.dataset import read_dataset
-from lib.utils.hydra_utils import hydra_to_yaml
+from lib.utils.hydra_utils import run_recipe_cli
 from lib.utils.log import get_logger
 from lib.utils.registry import TORCH_TRAINERS, register_torch_trainer
 from lib.utils.utils import load_yaml, load_yaml_as, pick_device
@@ -66,10 +63,10 @@ def _train_lightning_default(
     from lib.workflow.data import symbol
 
     cfg = PytorchTrainConfig.model_validate(load_yaml(config_path))
-    output = Path(outdir or cfg.out_dir or Path("runs") / Path(config_path).stem)
+    output = Path(outdir or cfg.out_dir or Path("nn_runs") / Path(config_path).stem)
     task_spec = cfg.training_task
+    torch.manual_seed(cfg.seed)
     if cfg.image_catalog is not None:
-        torch.manual_seed(cfg.seed)
         tr, va = image_loaders(cfg, cfg.image_catalog, output)
     else:
         import numpy as np
@@ -178,13 +175,8 @@ def train(
     )
 
 
-@hydra_main(config_path="../configs", config_name="hydra", version_base="1.3")
-def main(cfg: DictConfig) -> None:
-    config_path = hydra_to_yaml(cfg)
-    try:
-        train(str(config_path))
-    finally:
-        config_path.unlink(missing_ok=True)
+def main() -> None:
+    run_recipe_cli(train)
 
 
 if __name__ == "__main__":

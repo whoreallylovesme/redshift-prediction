@@ -41,6 +41,8 @@ def tile_boot(
     n_boot: int = N_BOOT,
     seed: int = TILE_SEED,
 ) -> list[float]:
+    if not len(z):
+        return [np.nan, np.nan]
     mem = tile_members(tiles)
     rng = np.random.default_rng(seed)
     reps: list[float] = []
@@ -59,6 +61,8 @@ def seed_tile_boot(
     n_boot: int = N_BOOT,
     seed: int = SEED_TILE_SEED,
 ) -> tuple[list[float], list[float]]:
+    if not len(z):
+        return [np.nan, np.nan], [np.nan, np.nan]
     mem = tile_members(tiles)
     rng = np.random.default_rng(seed)
     pb = pb[None] if pb.ndim == 1 else pb
@@ -151,6 +155,8 @@ def arm_summary(
     n_boot: int = N_BOOT,
     seed: int = ARM_SEED,
 ) -> Record:
+    if not len(z):
+        return {"n": 0, "tiles": 0, "note": "no common finite observations"}
     reps = arm_boot(models, comps, z, tiles, n_boot, seed)
     arms = {m: metric_record(v.mean(0), z) for m, v in models.items()} | {
         c: metric_record(v, z) for c, v in comps.items()

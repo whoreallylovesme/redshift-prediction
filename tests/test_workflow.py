@@ -56,7 +56,9 @@ class WorkflowTest(TestCase):
                     "target": "y",
                     "split_column": "role",
                 },
-                "methods": {"ridge": {"kind": "tabular", "recipe": "configs/tabular/ridge.yaml"}},
+                "methods": {
+                    "ridge": {"kind": "tabular", "recipe": "examples/configs/models/ridge.yaml"}
+                },
             }
             if find_spec("mlflow"):
                 cfg["tracking_uri"] = f"sqlite:///{root / 'tracking.db'}"

@@ -5,14 +5,18 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import torch
-import torch.nn.functional as F
 from numpy.typing import NDArray
 from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader, Dataset, WeightedRandomSampler
 
 from lib.config import PytorchTrainConfig
 from lib.config.schemas import ImageCatalogConfig
-from lib.dataloaders.common import inverse_bin_weights, subsample_indices
+from lib.dataloaders.common import (
+    center_crop,
+    inverse_bin_weights,
+    resize_square,
+    subsample_indices,
+)
 from lib.dataloaders.dataset import exact_index
 
 type ImageInput = torch.Tensor | dict[str, torch.Tensor]
@@ -122,16 +126,9 @@ class Images(Dataset[tuple[ImageInput, torch.Tensor]]):
             h, w = image.shape[:2]
             if self.crop > min(h, w):
                 raise ValueError(f"{path}: requested crop exceeds image dimensions")
-            top, left = (h - self.crop) // 2, (w - self.crop) // 2
-            image = image[top : top + self.crop, left : left + self.crop]
+            image = center_crop(image, self.crop)
         tensor = torch.from_numpy((image - self.mean) / (self.std + 1e-8)).permute(2, 0, 1)
-        if tensor.shape[1:] != (self.size, self.size):
-            tensor = F.interpolate(
-                tensor.unsqueeze(0),
-                size=(self.size, self.size),
-                mode="bilinear",
-                align_corners=False,
-            ).squeeze(0)
+        tensor = resize_square(tensor, self.size)
         target = torch.tensor(self.targets[index])
         if self.features is not None:
             return {"image": tensor, "features": torch.from_numpy(self.features[index])}, target

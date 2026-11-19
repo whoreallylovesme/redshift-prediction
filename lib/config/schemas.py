@@ -1,6 +1,25 @@
-from typing import Any, Literal, Self
+from typing import Annotated, Any, Literal, Self
 
-from pydantic import AliasPath, BaseModel, Field, model_validator
+from pydantic import (
+    AfterValidator,
+    AliasPath,
+    BaseModel,
+    Field,
+    TypeAdapter,
+    ValidationInfo,
+    model_validator,
+)
+
+from lib.utils.estimator_loader import estimator_name
+from lib.utils.utils import load_yaml, load_yaml_as, plugin
+
+
+def callable_name(value: str) -> str:
+    plugin(value)
+    return value
+
+
+Estimator = Annotated[str, AfterValidator(estimator_name)]
 
 
 class DatasetConfig(BaseModel):
@@ -17,7 +36,7 @@ class FeaturesConfig(BaseModel):
 
 class SklearnTrainConfig(BaseModel):
     model_type: str | None = None
-    estimator: str
+    estimator: Estimator
     estimator_params: dict[str, Any] = Field(default_factory=dict)
     param_grid: dict[str, list[Any]] = Field(default_factory=dict)
     val_size: float = Field(
@@ -58,9 +77,9 @@ class PytorchTrainConfig(BaseModel):
     estimator_params: dict[str, Any] = Field(default_factory=dict)
     image_catalog: ImageCatalogConfig | None = None
     device: str = "auto"
-    training_task: str | None = None
+    training_task: Annotated[str, AfterValidator(callable_name)] | None = None
     model_type: Literal["lightning"]
-    estimator: str
+    estimator: Estimator
     data_dir: str
     catalog: str
     out_dir: str | None = None
@@ -133,3 +152,39 @@ class FlowConfig(BaseModel):
     summaries: dict[str, bool | str] = Field(default_factory=dict)
     train: dict[str, str] | None = None
     euclid: EuclidFlowConfig | None = None
+
+    @model_validator(mode="after")
+    def referenced_recipes(self, info: ValidationInfo) -> Self:
+        if not (info.context and info.context.get("check")):
+            return self
+        if self.pipeline == "tabular":
+            required = {"input_csv", "data_config", "features"}
+            if not self.dataset or not required.issubset(self.dataset):
+                raise ValueError(
+                    "Tabular flows require dataset.input_csv, data_config and features"
+                )
+            load_yaml_as(self.dataset["data_config"], DatasetConfig)
+            catalog = load_yaml_as(self.dataset["features"], FeaturesConfig)
+            for model in self.models:
+                if model.get("feature_set") not in catalog.feature_sets:
+                    raise ValueError(f"Unknown feature set {model.get('feature_set')!r}")
+        if self.pipeline in {"tabular", "nn"}:
+            schema = SklearnTrainConfig if self.pipeline == "tabular" else PytorchTrainConfig
+            for model in self.models:
+                if not model.get("config"):
+                    raise ValueError("Each legacy model requires a config file")
+                load_yaml_as(model["config"], schema)
+        if self.pipeline == "capsnet":
+            if not self.train or not self.train.get("config"):
+                raise ValueError("CapsNet requires train.config")
+            TypeAdapter(dict[str, Any]).validate_python(load_yaml(self.train["config"]))
+        if self.euclid:
+            for stage in (
+                self.euclid.pretrain,
+                self.euclid.finetune,
+                self.euclid.classical,
+                self.euclid.report,
+            ):
+                if stage and stage.enabled:
+                    TypeAdapter(dict[str, Any]).validate_python(load_yaml(stage.config))
+        return self

@@ -1,15 +1,12 @@
 from __future__ import annotations
 
-import warnings
 from pathlib import Path
 
 import h5py
 import numpy as np
 import pandas as pd
 
-warnings.filterwarnings("ignore")
-
-REPO = Path(__file__).resolve().parents[1]
+REPO = Path(__file__).resolve().parents[2]
 PITT = REPO / "datasets" / "dey2022" / "pitt"
 
 TARGETS = [

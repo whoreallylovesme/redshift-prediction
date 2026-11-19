@@ -11,8 +11,8 @@ import torch
 from numpy.typing import NDArray
 from torch import Tensor, nn
 
-from lib.models.euclid_clip import CLIPModel, ITNetwork
 from lib.utils.utils import check
+from photoz.models.euclid_clip import CLIPModel, ITNetwork
 
 KEYS = (
     "image",
@@ -169,7 +169,7 @@ def d4(image: Tensor, codes: Tensor) -> Tensor:
 def schedule_lr(
     epoch: int, epochs: int, base_lr: float = LR, warmup: int = WARMUP_EPOCHS
 ) -> float:
-    if not 1 <= epoch <= epochs or epochs <= warmup:
+    if not 1 <= epoch <= epochs or warmup < 0:
         raise ValueError("schedule epoch outside bounds")
     if epoch <= warmup:
         return base_lr * epoch / warmup
@@ -184,7 +184,7 @@ def masked(b: dict[str, Tensor], keep: Tensor) -> dict[str, Tensor]:
 
 
 def load_it_from_clip(path: Path) -> ITNetwork:
-    state = torch.load(path, map_location="cpu")
+    state = torch.load(path, map_location="cpu", weights_only=True)
     clip = CLIPModel(ITNetwork())
     clip.load_state_dict(state, strict=True)
     return clip.it_network

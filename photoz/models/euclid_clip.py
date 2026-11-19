@@ -11,6 +11,9 @@ from torch import Tensor, nn
 from torch.nn import functional as F
 
 from lib.models.contrastive import masked_pairwise_clip as masked_pairwise_clip
+from lib.models.encoders import ResidualBlock as ResidualBlock
+from lib.models.encoders import attention_stack as attention_stack
+from lib.models.encoders import regression_head as photoz_head
 from lib.utils.utils import check
 
 FEATURE_DIM = 256
@@ -66,29 +69,6 @@ def scatter_features(values: Tensor, indices: Tensor, batch: int) -> Tensor:
     return values.new_zeros((batch, FEATURE_DIM)).index_copy(0, indices, values)
 
 
-class ResidualBlock(nn.Module):
-    def __init__(self, in_channels: int, out_channels: int, stride: int = 1) -> None:
-        super().__init__()
-        self.conv1 = nn.Conv2d(
-            in_channels, out_channels, 3, stride=stride, padding=1, bias=False
-        )
-        self.norm1 = nn.GroupNorm(8, out_channels)
-        self.conv2 = nn.Conv2d(out_channels, out_channels, 3, padding=1, bias=False)
-        self.norm2 = nn.GroupNorm(8, out_channels)
-        self.shortcut: nn.Module = (
-            nn.Identity()
-            if stride == 1 and in_channels == out_channels
-            else nn.Sequential(
-                nn.Conv2d(in_channels, out_channels, 1, stride=stride, bias=False),
-                nn.GroupNorm(8, out_channels),
-            )
-        )
-
-    def forward(self, x: Tensor) -> Tensor:
-        h = F.relu(self.norm1(self.conv1(x)))
-        return F.relu(self.norm2(self.conv2(h)) + self.shortcut(x))
-
-
 class ImageEncoder(nn.Module):
     def __init__(self) -> None:
         super().__init__()
@@ -128,19 +108,6 @@ class ImageEncoder(nn.Module):
         h = self.blocks(self.stem(clean[active]))
         h = F.adaptive_avg_pool2d(h, 1).flatten(1)
         return EncodedModality(scatter_features(h, active, batch), available)
-
-
-def attention_stack(layers: int) -> nn.TransformerEncoder:
-    layer = nn.TransformerEncoderLayer(
-        d_model=128,
-        nhead=4,
-        dim_feedforward=256,
-        dropout=0.0,
-        activation="gelu",
-        batch_first=True,
-        norm_first=True,
-    )
-    return nn.TransformerEncoder(layer, num_layers=layers, enable_nested_tensor=False)
 
 
 class TableEncoder(nn.Module):
@@ -249,12 +216,6 @@ class SpectrumEncoder(nn.Module):
         pooled = (encoded * patch_valid[..., None]).sum(1) / patch_valid.sum(1, keepdim=True)
         features = self.output(torch.cat((pooled, self.metadata(metadata[active])), 1))
         return EncodedModality(scatter_features(features, active, batch), available)
-
-
-def photoz_head(inputs: int) -> nn.Sequential:
-    return nn.Sequential(
-        nn.Linear(inputs, 256), nn.GELU(), nn.Linear(256, 128), nn.GELU(), nn.Linear(128, 1)
-    )
 
 
 class ITNetwork(nn.Module):

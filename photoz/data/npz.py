@@ -3,23 +3,41 @@ from pathlib import Path
 import numpy as np
 import numpy.typing as npt
 import torch
-import torch.nn.functional as F
 from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader, Dataset, WeightedRandomSampler
 
-from lib.dataloaders.common import subsample_indices
+from lib.dataloaders.common import center_crop, orient, resize_square, subsample_indices
 
 
 def _center_crop_resize(img: np.ndarray, crop_size: int, out_size: int = 224) -> np.ndarray:
-    h, w = img.shape[:2]
-    top = (h - crop_size) // 2
-    left = (w - crop_size) // 2
-    img = img[top : top + crop_size, left : left + crop_size]
-    if crop_size != out_size:
-        t = torch.from_numpy(img.transpose(2, 0, 1)).unsqueeze(0).float()
-        t = F.interpolate(t, size=(out_size, out_size), mode="bilinear", align_corners=False)
-        img = t.squeeze(0).permute(1, 2, 0).numpy()
+    crop = center_crop(img, crop_size)
+    if crop_size == out_size:
+        return crop
+    tensor = torch.from_numpy(crop).permute(2, 0, 1).float()
+    return resize_square(tensor, out_size).permute(1, 2, 0).numpy()
+
+
+def read_bands(path: Path, in_channels: int, w1w2_path: Path | None = None) -> np.ndarray:
+    with np.load(path, allow_pickle=False) as archive:
+        img: np.ndarray = archive["image"].astype(np.float32)[:, :, :in_channels]
+    if w1w2_path is not None:
+        with np.load(w1w2_path, allow_pickle=False) as archive:
+            extra = archive["image"].astype(np.float32)[:, :, :2]
+        img = np.concatenate([img, extra], axis=2)
     return img
+
+
+def normalized_image(
+    img: np.ndarray,
+    mean: npt.NDArray[np.floating],
+    std: npt.NDArray[np.floating],
+    crop_size: int | None,
+    out_size: int,
+) -> torch.Tensor:
+    if crop_size is not None and crop_size < img.shape[0]:
+        img = _center_crop_resize(img, crop_size, out_size)
+    return torch.from_numpy((img - mean) / (std + 1e-8)).permute(2, 0, 1)
+
 
 def parse_catalog(catalog_path: str | Path) -> dict[str, float]:
     mapping: dict[str, float] = {}
@@ -66,13 +84,9 @@ class PhotozDataset(Dataset[tuple[torch.Tensor, torch.Tensor]]):
         return len(self.files)
 
     def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor]:
-        img = np.load(self.files[idx])["image"].astype(np.float32)[:, :, : self.in_channels]
-
-        if self.w1w2_dir is not None:
-            w1w2_path = _resolve_w1w2_path(self.files[idx], self.w1w2_dir)
-            w1w2 = np.load(w1w2_path)["image"].astype(np.float32)[:, :, :2]
-            img = np.concatenate([img, w1w2], axis=2)
-
+        path = self.files[idx]
+        extra = _resolve_w1w2_path(path, self.w1w2_dir) if self.w1w2_dir is not None else None
+        img = read_bands(path, self.in_channels, extra)
         label_val = self.labels[idx]
 
         if self.augment and self.physics_augment and np.random.rand() < 0.4:
@@ -82,21 +96,12 @@ class PhotozDataset(Dataset[tuple[torch.Tensor, torch.Tensor]]):
             img = img * flux_factor
             label_val = z_aug
 
-        if self.crop_size is not None and self.crop_size < img.shape[0]:
-            img = _center_crop_resize(img, self.crop_size, out_size=self.out_size)
-
-        img = (img - self.mean) / (self.std + 1e-8)
-
+        tensor = normalized_image(img, self.mean, self.std, self.crop_size, self.out_size)
         if self.augment:
-            if np.random.rand() > 0.5:
-                img = np.flip(img, axis=0).copy()
-            if np.random.rand() > 0.5:
-                img = np.flip(img, axis=1).copy()
-            k = np.random.randint(0, 4)
-            if k > 0:
-                img = np.rot90(img, k).copy()
-
-        tensor = torch.from_numpy(img).permute(2, 0, 1)
+            tensor = orient(
+                tensor, vertical=np.random.rand() > 0.5, horizontal=np.random.rand() > 0.5,
+                turns=int(np.random.randint(0, 4)),
+            )
         label = torch.tensor(label_val, dtype=torch.float32)
         return tensor, label
 
@@ -110,11 +115,9 @@ def compute_stats(
     subset = rng.choice(len(files), size=min(n_samples, len(files)), replace=False)
     acc = []
     for i in subset:
-        img = np.load(files[i])["image"].astype(np.float32)[:, :, :in_channels]
-        if w1w2_dir is not None:
-            w1w2_path = _resolve_w1w2_path(files[i], w1w2_dir)
-            w1w2 = np.load(w1w2_path)["image"].astype(np.float32)[:, :, :2]
-            img = np.concatenate([img, w1w2], axis=2)
+        path = files[i]
+        extra = _resolve_w1w2_path(path, w1w2_dir) if w1w2_dir is not None else None
+        img = read_bands(path, in_channels, extra)
         acc.append(img.reshape(-1, img.shape[-1]))
     all_pixels: npt.NDArray[np.floating] = np.concatenate(acc, axis=0)
     return all_pixels.mean(axis=0).astype(np.float32), all_pixels.std(axis=0).astype(np.float32)
@@ -231,11 +234,5 @@ def load_npz(
     crop_size: int | None = None,
     out_size: int = 224,
 ) -> torch.Tensor:
-    img = np.load(path)["image"].astype(np.float32)[:, :, :in_channels]
-    if w1w2_path is not None:
-        w1w2 = np.load(w1w2_path)["image"].astype(np.float32)[:, :, :2]
-        img = np.concatenate([img, w1w2], axis=2)
-    if crop_size is not None and crop_size < img.shape[0]:
-        img = _center_crop_resize(img, crop_size, out_size=out_size)
-    img = (img - mean) / (std + 1e-8)
-    return torch.from_numpy(img).permute(2, 0, 1).unsqueeze(0)
+    img = read_bands(path, in_channels, w1w2_path)
+    return normalized_image(img, mean, std, crop_size, out_size).unsqueeze(0)

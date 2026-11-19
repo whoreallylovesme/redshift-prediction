@@ -35,6 +35,8 @@ def outlier_percent(y_true: pd.Series | Floats, y_pred: Floats, threshold: float
 
 
 def photoz_stats(pred: Floats, z: Floats) -> tuple[float, float, float]:
+    if not len(z):
+        return np.nan, np.nan, np.nan
     return nmad(z, pred), outlier_fraction(z, pred), bias(z, pred)
 
 

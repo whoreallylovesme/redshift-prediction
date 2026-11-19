@@ -19,13 +19,14 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from astropy.io import fits
 from numpy.typing import NDArray
-from pandas.api.types import is_integer_dtype
 from pydantic import BaseModel, Field, field_validator
 
+from lib.config.snapshot import record_config
 from lib.report.posterior_metadata import METADATA_KEY, PosteriorMetadata
 from lib.utils.log import get_logger
 from lib.utils.utils import check, load_yaml_as
 from photoz.data.euclid_transforms import BANDS
+from photoz.data.identifiers import exact_ids
 
 logger = get_logger()
 
@@ -166,10 +167,10 @@ SIDES = {side.name: side for side in (NORTH, SOUTH)}
 class SideConfig(BaseModel):
     posterior_axis: list[float] | None = None
     workspace: Path
-    model_grid_config: Path
-    galactic_grid_config: Path
+    model_grid_config: Path | None = None
+    galactic_grid_config: Path | None = None
     redshift_config: Path
-    grid_export: Path
+    grid_export: Path | None = None
 
 
     @field_validator("posterior_axis")
@@ -184,7 +185,7 @@ class SideConfig(BaseModel):
 
 class SetConfig(BaseModel):
     side: Literal["north", "south"]
-    photometry: Path
+    photometry: Path | None = None
     field_code: int | None = None
     split: str | None = None
     ids_table: Path | None = None
@@ -225,6 +226,7 @@ def sha256(path: Path) -> str:
 
 
 def config_values(path: Path) -> dict[str, str]:
+    record_config(path)
     values: dict[str, str] = {}
     for line in path.read_text().splitlines():
         if line.strip() and not line.lstrip().startswith("#") and "=" in line:
@@ -247,6 +249,11 @@ def select_rows(raw: Raw, cfg: SetConfig) -> NDArray[np.int64]:
         table = pd.read_parquet(cfg.ids_table, columns=columns)
         if cfg.subset_column is not None:
             table = table[table[cfg.subset_column] == cfg.subset_value]
+        if pd.api.types.infer_dtype(table[cfg.ids_column], skipna=False) == "string":
+            text = table[cfg.ids_column].astype("string")
+            check(text.str.fullmatch(r"[0-9]+").all(), "requested IDs must be decimal integers")
+            table = table.assign(**{cfg.ids_column: pd.to_numeric(text, errors="raise")})
+        exact_ids(table, (cfg.ids_column,))
         position = {int(v): i for i, v in enumerate(ids)}
         wanted = table[cfg.ids_column].to_numpy(np.int64)
         missing = [int(v) for v in wanted if int(v) not in position]
@@ -320,12 +327,7 @@ def observations(
 def manifest(frame: pd.DataFrame, side: Side, include_unused: bool = False) -> pd.DataFrame:
     columns = ["object_id", "tile", "split"]
     check(set(columns) <= set(frame.columns), "manifest columns missing")
-    for column in columns[:2]:
-        values = frame[column]
-        check(
-            not values.isna().any() and is_integer_dtype(values.dtype),
-            f"{column} must be non-null integers",
-        )
+    exact_ids(frame)
     check(not frame["object_id"].duplicated().any(), "duplicate object_id")
     check(frame["split"].isin(SPLITS).all(), "unknown split")
     check(
@@ -434,6 +436,8 @@ def write_fits(frame: pd.DataFrame, path: Path, side: Side) -> None:
 
 def prepare_set(cfg: PhosphorosConfig, name: str) -> None:
     set_cfg = cfg.sets[name]
+    if set_cfg.photometry is None:
+        raise ValueError(f"{name}: prepare requires the native photometry path")
     side = SIDES[set_cfg.side]
     raw = load_photometry(set_cfg.photometry)
     rows = select_rows(raw, set_cfg)
@@ -468,6 +472,7 @@ def predictions_dir(cfg: PhosphorosConfig, variant: str | None) -> Path:
 def variant_factors(variant: VariantConfig) -> tuple[dict[str, float], dict[str, float]]:
     multiply = dict(variant.multiply)
     if variant.multiply_json is not None:
+        record_config(variant.multiply_json)
         node: Any = json.loads(variant.multiply_json.read_text())
         for key in variant.multiply_json_keys:
             node = node[key]
@@ -608,9 +613,9 @@ def posterior(
     median = np.full(len(oid), np.nan)
     lo = np.full(len(oid), np.nan)
     hi = np.full(len(oid), np.nan)
-    median[valid] = expected_axis[quantile_index(good, 0.5)]
-    lo[valid] = expected_axis[quantile_index(good, 0.16)]
-    hi[valid] = expected_axis[quantile_index(good, 0.84)]
+    median[valid] = axis[quantile_index(good, 0.5)]
+    lo[valid] = axis[quantile_index(good, 0.16)]
+    hi[valid] = axis[quantile_index(good, 0.84)]
     frame = pd.DataFrame(
         {
             "object_id": oid,
@@ -714,13 +719,30 @@ def check_prepared_inputs(preparation: Path, side: Side) -> None:
     with fits.open(preparation / "computational_inputs.fits", memmap=True) as hdus:
         table = hdus[1]
         check(set(table.columns.names) == names | flux_columns, "unexpected computational columns")
-        check(table.columns["OBJECT_ID"].format == "K", "input OBJECT_ID must be signed int64")
+        identity = table.columns["OBJECT_ID"]
+        check(
+            identity.format == "K" and identity.bzero in (None, 0) and identity.bscale in (None, 1),
+            "input OBJECT_ID must be signed int64",
+        )
         check(all(table.columns[n].unit == "uJy" for n in flux_columns), "expected uJy flux")
+        check(
+            all(table.columns[n].unit == "mag" for n in ("GAL_EBV", "GAL_EBV_ERR")),
+            "expected Galactic reddening in mag",
+        )
         ids = np.asarray(table.data["OBJECT_ID"], dtype=np.int64)
-    ledger = pd.read_parquet(preparation / "ledger.parquet", columns=["object_id", "input_status"])
+    ledger = pd.read_parquet(
+        preparation / "ledger.parquet", columns=["object_id", "input_status", "field_code", "split"]
+    )
+    exact_ids(ledger, ("object_id",))
+    check(ledger.field_code.isin(side.field_codes).all(), f"ledger field outside {side.name}")
+    check(ledger.split.isin(ROLES).all(), "unknown prepared ledger split")
+    check(
+        ledger.input_status.isin([ELIGIBLE, INELIGIBLE, UNKNOWN_DETECTION]).all(),
+        "unknown prepared ledger input status",
+    )
     keys = ledger["object_id"]
-    check(is_integer_dtype(keys) and keys.notna().all() and keys.is_unique, "invalid ledger IDs")
-    expected = keys[ledger["input_status"] == ELIGIBLE].to_numpy()
+    check(keys.is_unique, "duplicate ledger IDs")
+    expected = keys[ledger["input_status"] == ELIGIBLE].to_numpy(np.int64)
     check(np.array_equal(np.sort(ids), np.sort(expected)), "input IDs differ from eligible ledger")
 
 
@@ -816,6 +838,10 @@ def build_south_workspace(cfg: PhosphorosConfig) -> None:
     spec = cfg.south_workspace
     if spec is None:
         raise ValueError("south_workspace section required")
+    grid_config = cfg.sides["south"].model_grid_config
+    if grid_config is None:
+        raise ValueError("workspace requires the south model_grid_config")
+    catalog_type = config_values(grid_config)["catalog-type"]
     root = cfg.sides["south"].workspace
     root.mkdir(parents=True, exist_ok=False)
     source = spec.north_workspace / "AuxiliaryData"
@@ -838,7 +864,6 @@ def build_south_workspace(cfg: PhosphorosConfig) -> None:
         copy_file(source / "ReddeningCurves" / relative, aux / "ReddeningCurves" / relative)
     copy_file(source / LUMINOSITY_CURVE, aux / LUMINOSITY_CURVE)
     (aux / "AxisPriors").mkdir()
-    catalog_type = config_values(cfg.sides["south"].model_grid_config)["catalog-type"]
     products = root / "IntermediateProducts" / catalog_type
     products.mkdir(parents=True)
     lines = [MAPPING_HEADER] + [
@@ -851,12 +876,28 @@ def build_south_workspace(cfg: PhosphorosConfig) -> None:
 
 def build_grids(cfg: PhosphorosConfig, side_name: str) -> None:
     side = cfg.sides[side_name]
+    if (
+        side.model_grid_config is None
+        or side.galactic_grid_config is None
+        or side.grid_export is None
+    ):
+        raise ValueError("grids requires model_grid_config, galactic_grid_config and grid_export")
     workspace = side.workspace.resolve()
     model = config_values(side.model_grid_config)
     galactic = config_values(side.galactic_grid_config)
     products = workspace / "IntermediateProducts" / model["catalog-type"]
     grid = products / "ModelGrids" / model["output-model-grid"]
-    check(not grid.exists(), f"refusing to overwrite {grid}")
+    check(
+        (galactic["catalog-type"], galactic["model-grid-file"])
+        == (model["catalog-type"], model["output-model-grid"]),
+        "the Galactic correction must use the model grid built by this recipe",
+    )
+    correction = (
+        products / "GalacticCorrectionCoefficientGrids"
+        / galactic["output-galactic-correction-coefficient-grid"]
+    )
+    for target in (grid, correction, side.grid_export):
+        check(not target.exists(), f"refusing to overwrite {target}")
     logs = (cfg.output_root / "grids" / side_name).resolve()
     logs.mkdir(parents=True, exist_ok=False)
     side.grid_export.parent.mkdir(parents=True, exist_ok=True)

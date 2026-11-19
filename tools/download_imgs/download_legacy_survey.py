@@ -31,9 +31,9 @@ from astropy.nddata import Cutout2D
 from astropy.wcs import WCS
 
 if TYPE_CHECKING or __package__:
-    from tools.download_imgs.workspace import brick_workspace
+    from tools.download_imgs.workspace import brick_workspace, download_destination
 else:
-    from workspace import brick_workspace
+    from workspace import brick_workspace, download_destination
 
 # ── Config ────────────────────────────────────────────────────────────────────
 STAMP_SIZE = 224
@@ -232,9 +232,9 @@ async def _download_file(
                         print(f"    404 {dest.name}", flush=True)
                         return False
                     resp.raise_for_status()
-                    data = await resp.read()
-                    dest.parent.mkdir(parents=True, exist_ok=True)
-                    dest.write_bytes(data)
+                    with download_destination(dest) as stream:
+                        async for chunk in resp.content.iter_chunked(1 << 20):
+                            stream.write(chunk)
                     return True
             except (aiohttp.ClientError, TimeoutError) as e:
                 if attempt == MAX_RETRIES - 1:

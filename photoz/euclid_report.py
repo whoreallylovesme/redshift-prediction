@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 
 from lib.report import render_report
+from lib.report.render import json_value
 from lib.utils.log import get_logger
 from lib.utils.utils import check, load_yaml_as
 from photoz.artifacts import HISTORY_NAME
@@ -18,6 +19,7 @@ from photoz.data.euclid_report import (
     HETDEX_SOURCE,
     NORTH_SETS,
     NORTH_SOURCE,
+    VALID_SET,
     ZVAL_SET,
     ReportConfig,
     SeedStack,
@@ -79,6 +81,8 @@ SCATTER_ZMAX = 2.0
 
 
 def cell(nmad: float, outliers: float) -> str:
+    if not np.isfinite([nmad, outliers]).all():
+        return "—"
     return f"{nmad:.4f} / {100 * outliers:.1f}\\%"
 
 
@@ -88,6 +92,8 @@ def count(x: int) -> str:
 
 def delta_cell(v: Mapping[str, Any]) -> str:
     lo, hi = v["ci"]
+    if not np.isfinite([v["d_nmad"], lo, hi]).all():
+        return "—"
     return f"${v['d_nmad']:+.4f}$ [${lo:+.4f}$; ${hi:+.4f}$]"
 
 
@@ -117,7 +123,8 @@ def classical_table(ns: Mapping[str, Any]) -> str:
 
 def write_json(path: Path, rec: Mapping[str, Any], as_float: bool) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    text = json.dumps(rec, indent=1, default=float) if as_float else json.dumps(rec, indent=1)
+    text = json.dumps(json_value(dict(rec)), indent=1, allow_nan=False,
+                      default=float if as_float else None)
     path.write_text(text + "\n")
 
 
@@ -133,6 +140,7 @@ def interactive_methods(
     histories: Mapping[str, Any],
     zval: np.ndarray,
     val_methods: Mapping[str, np.ndarray],
+    field_validation: pd.DataFrame | None = None,
 ) -> list[dict[str, Any]]:
     names = run_names(cfg.tag, cfg.seeds)
     labels = {
@@ -143,12 +151,15 @@ def interactive_methods(
         **{k: CLASSIC[k] for k in cfg.learners},
     }
     groups = [(str(k), f.copy()) for k, f in eligible.groupby("_set", sort=False)]
+    if field_validation is not None:
+        groups.append((VALID_SET, field_validation.copy()))
     groups.append(
         (ZVAL_SET, pd.DataFrame({"object_id": preds[ZVAL_SET].ids, "z": zval, **val_methods}))
     )
     methods = []
     for group, frame in groups:
-        development = group == ZVAL_SET
+        development = group in {VALID_SET, ZVAL_SET}
+        field = "F" if group == VALID_SET else "F+S" if group == ZVAL_SET else "N"
         stack_keys = NORTH_SETS if group == "north + nb" else (group,)
         for i, name in enumerate(names):
             series = pd.concat([pd.Series(preds[k].z[i], index=preds[k].ids) for k in stack_keys])
@@ -169,7 +180,7 @@ def interactive_methods(
             methods.append(
                 {
                     "name": label,
-                    "split": f"F+S · {group}" if development else f"N · {group}",
+                    "split": f"{field} · {group}",
                     "role": "development" if development else "held-out",
                     "predictions": frame,
                     "id_column": "object_id",
@@ -249,7 +260,15 @@ def build_report(config_path: Path) -> None:
         write_json(out, results, as_float=False)
     h6 = hetdex_results(cfg.tag, preds[HETDEX_SET], *hetdex_inputs(cfg, preds[HETDEX_SET]))
     write_json(cfg.out_dir / "metrics" / f"results_h6_{cfg.tag}.json", h6, as_float=True)
-    methods = interactive_methods(cfg, eligible, preds, fine, zval, val_methods)
+    _, valid_methods, valid_truth, valid_tiles = next(s for s in cl_sets if s[0] == "F_VALID")
+    valid_block = next(b for b in blocks if b.name == "F_VALID")
+    ids = preds[VALID_SET].ids
+    valid = pd.DataFrame({
+        "object_id": ids, "z": valid_truth, "tile": valid_tiles, **valid_methods,
+        "ppub": pub.reindex(ids).to_numpy(), "zpf": zpf.reindex(ids).to_numpy(),
+        "poff": valid_block.phz,
+    })
+    methods = interactive_methods(cfg, eligible, preds, fine, zval, val_methods, valid)
     interactive = render_report(
         cfg.out_dir,
         methods,

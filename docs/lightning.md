@@ -2,10 +2,10 @@
 
 ## Регрессия по снимку и таблице
 
-[Пример флоу](../configs/flows/fusion_example.yaml) использует двенадцать искусственных образцов. Для каждого ID подготовлен снимок 4×4 и две числовые характеристики в каталоге. [Рецепт](../configs/nn/fusion_example.yaml) задаёт имя столбца с целевой величиной, порядок признаков, число каналов и ширину сети. Конволюционная сеть кодирует снимок, MLP кодирует табличные признаки. Общая голова регрессии получает оба вектора.
+[Пример флоу](../examples/configs/fusion.yaml) использует двенадцать искусственных образцов. Для каждого ID подготовлен снимок 4×4 и две числовые характеристики в каталоге. [Рецепт](../examples/configs/models/fusion.yaml) задаёт имя столбца с целевой величиной, порядок признаков, число каналов и ширину сети. Конволюционная сеть кодирует снимок, MLP кодирует табличные признаки. Общая голова регрессии получает оба вектора.
 
 ```bash
-uv run python runtime/pipeline.py --config configs/flows/fusion_example.yaml
+uv run python runtime/pipeline.py --config examples/configs/fusion.yaml
 ```
 
 Статистики изображения и колонок рассчитываются на обучающей части, записываются с именами колонок и применяются к валидации и прогнозу. Изменение состава или порядка колонок при загрузке весов считается ошибкой. Флоу записывает прогнозы по ID, затем строит общий отчёт. Для своего набора данных замените пути, имена колонок и размеры входа.
@@ -18,7 +18,9 @@ Euclid CLIP использует Lightning для контрастивного �
 
 ## ResMLP и Transformer на фотометрии Euclid
 
-Пример [флоу](../configs/flows/euclid_table_neural.yaml) обучает две модели по 14 полосам и сравнивает их на фиксированной выборке F_VALID. На входе нужен архив проекции NPZ. В [рецепте ResMLP](../configs/nn/euclid_table_resmlp.yaml) и [рецепте Transformer](../configs/nn/euclid_table_transformer.yaml) укажите путь к нему в поле `projection`.
+Следующие команды используют исторические рецепты. Перед первым запуском восстановите каталог `configs/` по [инструкции для старых экспериментов](pipeline.md#исторические-рецепты).
+
+Пример [флоу](https://github.com/whoreallylovesme/redshift-prediction/blob/1f752b82a7f1f54ca74280ae4d85e1264105fdf6/configs/flows/euclid_table_neural.yaml) обучает две модели по 14 полосам и сравнивает их на фиксированной выборке F_VALID. На входе нужен архив проекции NPZ. В [рецепте ResMLP](https://github.com/whoreallylovesme/redshift-prediction/blob/1f752b82a7f1f54ca74280ae4d85e1264105fdf6/configs/nn/euclid_table_resmlp.yaml) и [рецепте Transformer](https://github.com/whoreallylovesme/redshift-prediction/blob/1f752b82a7f1f54ca74280ae4d85e1264105fdf6/configs/nn/euclid_table_transformer.yaml) укажите путь к нему в поле `projection`.
 
 ```bash
 uv run python runtime/pipeline.py --config configs/flows/euclid_table_neural.yaml
@@ -42,7 +44,7 @@ uv run python -m unittest discover -s tests -p test_table_neural.py
 
 ## Предобучение с маскированием фотометрических полос
 
-[Пример запуска](../configs/flows/masked_photometry.yaml) решает задачу восстановления измеренного потока в скрытой полосе. В [рецепте](../configs/nn/masked_photometry.yaml) укажите путь к NPZ. Нужны уникальные `object_id` типа int64, имена полос `bands`, непересекающиеся `fit_indices` и `valid_indices` типа int64, вместе покрывающие все строки. Массивы `raw_flux_ujy`, `raw_error_ujy` и булева `table_mask` имеют форму `[N, B]`. Допускается отрицательный поток. Для наблюдаемых полос погрешность строго положительна. Данные о красном смещении для обучения не требуются.
+[Пример запуска](https://github.com/whoreallylovesme/redshift-prediction/blob/1f752b82a7f1f54ca74280ae4d85e1264105fdf6/configs/flows/masked_photometry.yaml) решает задачу восстановления измеренного потока в скрытой полосе. В [рецепте](https://github.com/whoreallylovesme/redshift-prediction/blob/1f752b82a7f1f54ca74280ae4d85e1264105fdf6/configs/nn/masked_photometry.yaml) укажите путь к NPZ. Нужны уникальные `object_id` типа int64, имена полос `bands`, непересекающиеся `fit_indices` и `valid_indices` типа int64, вместе покрывающие все строки. Массивы `raw_flux_ujy`, `raw_error_ujy` и булева `table_mask` имеют форму `[N, B]`. Допускается отрицательный поток. Для наблюдаемых полос погрешность строго положительна. Данные о красном смещении для обучения не требуются.
 
 Для каждой полосы масштаб равен большему из двух значений на обучающих наблюдениях — 90-го процентиля абсолютного потока и медианы погрешности. Маска оставляет видимой минимум одну измеренную полосу. Объекты менее чем с двумя измеренными полосами пропускаются при вычислении целевой функции. Их число по выборкам записывается в `train_report.json`. В обучении маски меняются, для валидации одна маска фиксируется независимым генератором. Transformer получает видимые потоки, погрешности и признаки доступности, затем предсказывает условное среднее и внутреннюю дисперсию. В Gaussian NLL к ней добавляется дисперсия измерения.
 
@@ -50,7 +52,7 @@ uv run python -m unittest discover -s tests -p test_table_neural.py
 
 ## Граф прототипов
 
-[Пример запуска](../configs/flows/prototype_graph.yaml) обучает две остаточные графовые ступени и вероятностную голову по замороженным эмбеддингам. В [рецепте](../configs/nn/prototype_graph.yaml) укажите путь к NPZ. Идентификаторы и индексы выборок имеют ту же схему, что при маскировании. Остальные входы перечислены в таблице.
+[Пример запуска](https://github.com/whoreallylovesme/redshift-prediction/blob/1f752b82a7f1f54ca74280ae4d85e1264105fdf6/configs/flows/prototype_graph.yaml) обучает две остаточные графовые ступени и вероятностную голову по замороженным эмбеддингам. В [рецепте](https://github.com/whoreallylovesme/redshift-prediction/blob/1f752b82a7f1f54ca74280ae4d85e1264105fdf6/configs/nn/prototype_graph.yaml) укажите путь к NPZ. Идентификаторы и индексы выборок имеют ту же схему, что при маскировании. Остальные входы перечислены в таблице.
 
 | Массив | Содержимое |
 | --- | --- |

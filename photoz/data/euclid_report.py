@@ -145,12 +145,19 @@ def by_name(files: Sequence[Path]) -> list[Path]:
     return sorted(files, key=lambda f: f.name)
 
 
+def finite_phosphoros_rows(frame: pd.DataFrame) -> pd.DataFrame:
+    median = frame.ppub_median
+    valid = frame.loc[np.isfinite(median) & (median >= 0)]
+    return valid.drop_duplicates("object_id").set_index("object_id")
+
+
 def phosphoros_series(files: Sequence[Path]) -> pd.Series:
+    if not files:
+        return pd.Series(dtype=float)
     t = pd.concat(
         [pd.read_parquet(f, columns=["object_id", "ppub_median"]) for f in by_name(files)]
     )
-    s = t.drop_duplicates("object_id").set_index("object_id").ppub_median
-    return s.where(np.isfinite(s) & (s >= 0))
+    return finite_phosphoros_rows(t).ppub_median
 
 
 def phosphoros_points(files: Sequence[Path]) -> tuple[dict[int, float], dict[int, float]]:
@@ -172,9 +179,8 @@ def phosphoros_points(files: Sequence[Path]) -> tuple[dict[int, float], dict[int
 
 
 def phosphoros_column(path: Path, ids: IntArray) -> tuple[FloatArray, pd.DataFrame]:
-    t = pd.read_parquet(path).drop_duplicates("object_id").set_index("object_id").reindex(ids)
-    m = t.ppub_median.to_numpy(float)
-    return np.where(np.isfinite(m) & (m >= 0), m, np.nan), t
+    t = finite_phosphoros_rows(pd.read_parquet(path)).reindex(ids)
+    return t.ppub_median.to_numpy(float), t
 
 
 def phosphoros_width(lo: FloatArray, hi: FloatArray) -> FloatArray:
@@ -250,12 +256,7 @@ def hetdex_frame(
     ids = h6.ids
     lab = pd.read_parquet(cfg.hetdex_labels).set_index("object_id").reindex(ids)
     meta = pd.read_parquet(cfg.hetdex_meta).set_index("object_id").reindex(ids)
-    pub = (
-        pd.read_parquet(cfg.phosphoros.hetdex)
-        .drop_duplicates("object_id")
-        .set_index("object_id")
-        .ppub_median.reindex(ids)
-    )
+    pub = phosphoros_series([cfg.phosphoros.hetdex]).reindex(ids)
     d = pd.DataFrame(
         {
             "z": lab.z.to_numpy(float),
@@ -328,12 +329,7 @@ def sources_frame(
                 }
             )
         )
-    zh = (
-        pd.read_parquet(cfg.phosphoros_zpf.hetdex)
-        .drop_duplicates("object_id")
-        .set_index("object_id")
-        .ppub_median
-    )
+    zh = phosphoros_series([cfg.phosphoros_zpf.hetdex])
     h_ids, h_tiles = packet_tiles(cfg.hetdex_packet)
     th = pd.Series(h_tiles, index=h_ids)
     frames.append(

@@ -9,8 +9,9 @@ from typing import Any, Literal
 import torch
 from numpy.typing import ArrayLike
 from torch import nn
-from torch.nn import functional as F
 
+from lib.models.graph import ResidualMessage as ResidualPrototypeMessage
+from lib.models.graph import weighted_neighbors as _mean
 from photoz.models.density import DensityPrediction, PhotoZDensityHead
 
 ContextMode = Literal["graph", "self_only", "shuffled"]
@@ -65,35 +66,6 @@ def _assignments(
         raise ValueError("Every neighbour row must contain distinct indices")
     if exclude_self and (index == torch.arange(rows, device=bank.device)[:, None]).any():
         raise ValueError("Prototype neighbour rows exclude self; self has a separate skip")
-
-
-def _mean(features: torch.Tensor, index: torch.Tensor, weight: torch.Tensor) -> torch.Tensor:
-    # Normalize FIRST to avoid a large weighted product when the mean is finite.
-    normalized = weight / weight.sum(dim=1, keepdim=True)
-    result = (features[index] * normalized[..., None]).sum(dim=1)
-    if not torch.isfinite(result).all():
-        raise ValueError("Unrepresentable weighted prototype context")
-    return result
-
-
-class ResidualPrototypeMessage(nn.Module):
-    """h' = h + GELU(W_self h + W_context context + b), 64 -> 64."""
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.self_linear = nn.Linear(EMBEDDING_DIM, EMBEDDING_DIM)
-        self.context_linear = nn.Linear(EMBEDDING_DIM, EMBEDDING_DIM, bias=False)
-
-    def forward(self, own: torch.Tensor, context: torch.Tensor) -> torch.Tensor:
-        first = self.self_linear.weight
-        _features(own, None, "Self representation")
-        _features(context, len(own), "Context representation")
-        if any(x.dtype != first.dtype or x.device != first.device for x in (own, context)):
-            raise ValueError("Message inputs must match parameter dtype/device")
-        result = own + F.gelu(self.self_linear(own) + self.context_linear(context))
-        if not torch.isfinite(result).all():
-            raise ValueError("Nonfinite residual prototype representation")
-        return result
 
 
 class PrototypeGraphDensity(nn.Module):

@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import torch
 import yaml
 from torch.utils.data import DataLoader
 
@@ -52,6 +53,7 @@ def run_train(config_path: Path) -> None:
     else:
         raise ValueError(f"Unknown dataset: {dataset!r}")
 
+    torch.manual_seed(cfg.seed)
     module = CapsNetModule(cfg)
     final_ckpt = run_staged(module, train_a, val_a, train_b, val_b, cfg)
     logger.info(f"[train] done. final checkpoint: {final_ckpt}")
@@ -59,7 +61,7 @@ def run_train(config_path: Path) -> None:
 def _build_hayat(
     lk: dict[str, Any], cfg: TrainConfig, max_samples: int | None,
     rot90_prob: float, flip_prob: float,
-) -> tuple[DataLoader[Any], DataLoader[Any], DataLoader[Any], DataLoader[Any]]:
+) -> tuple[DataLoader[Any] | None, DataLoader[Any] | None, DataLoader[Any], DataLoader[Any]]:
     common = dict(
         h5_path=lk["h5_path"],
         morph_parquet=lk["morph_parquet"],
@@ -74,8 +76,9 @@ def _build_hayat(
         rot90_prob=rot90_prob,
         flip_prob=flip_prob,
     )
-    logger.info("[cli] building Hayat stage-A loaders (labeled GZ1 subset)")
-    train_a, val_a = get_hdf5_dataloaders(**common, labeled_only=True)
+    train_a, val_a = None, None
+    if cfg.stage_a_epochs > 0:
+        train_a, val_a = get_hdf5_dataloaders(**common, labeled_only=True)
     logger.info("[cli] building Hayat stage-B loaders (full set)")
     train_b, val_b = get_hdf5_dataloaders(**common, labeled_only=False)
     return train_a, val_a, train_b, val_b
@@ -83,7 +86,7 @@ def _build_hayat(
 def _build_teddy(
     lk: dict[str, Any], cfg: TrainConfig, max_samples: int | None,
     rot90_prob: float, flip_prob: float,
-) -> tuple[DataLoader[Any], DataLoader[Any], DataLoader[Any], DataLoader[Any]]:
+) -> tuple[DataLoader[Any] | None, DataLoader[Any] | None, DataLoader[Any], DataLoader[Any]]:
     common = dict(
         images_dir=lk["images_dir"],
         catalog_path=lk["catalog_path"],
@@ -100,10 +103,11 @@ def _build_teddy(
         rot90_prob=rot90_prob,
         flip_prob=flip_prob,
     )
-    logger.info("[cli] building Teddy stage-A loaders (labeled GZ1 subset, class-balanced)")
-    train_a, val_a = get_teddy_capsnet_dataloaders(
-        **common, weighted_sampling=True, labeled_only=True,
-    )
+    train_a, val_a = None, None
+    if cfg.stage_a_epochs > 0:
+        train_a, val_a = get_teddy_capsnet_dataloaders(
+            **common, weighted_sampling=True, labeled_only=True,
+        )
     logger.info("[cli] building Teddy stage-B loaders (full set, z-balanced)")
     train_b, val_b = get_teddy_capsnet_dataloaders(
         **common, weighted_sampling=lk.get("weighted_sampling", True), labeled_only=False,

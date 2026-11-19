@@ -154,13 +154,6 @@ def get_teddy_capsnet_dataloaders(
         f"(spiral={int((morph_all==1).sum())}, ellip={int((morph_all==0).sum())})",
     )
 
-    if labeled_only:
-        keep = ~np.isnan(morph_all)
-        files = [f for f, k in zip(files, keep, strict=True) if k]
-        z_all = z_all[keep]
-        morph_all = morph_all[keep]
-        logger.info(f"[teddy] labeled_only filter: {len(files)} kept")
-
     if max_samples is not None and len(files) > max_samples:
         keep_idx = subsample_indices(len(files), int(max_samples), seed)
         files = [files[i] for i in keep_idx]
@@ -170,6 +163,11 @@ def get_teddy_capsnet_dataloaders(
     train_pos, val_pos = train_test_split(
         np.arange(len(files)), train_size=train_ratio, random_state=seed,
     )
+    if labeled_only:
+        train_pos = train_pos[np.isfinite(morph_all[train_pos])]
+        val_pos = val_pos[np.isfinite(morph_all[val_pos])]
+        if not len(train_pos) or not len(val_pos):
+            raise ValueError("CapsNet stage A needs morphology labels in both splits")
     train_files = [files[i] for i in train_pos]
     val_files = [files[i] for i in val_pos]
     train_z = z_all[train_pos]

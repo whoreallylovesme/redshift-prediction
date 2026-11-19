@@ -7,10 +7,11 @@ from typing import Any, Literal
 
 import numpy as np
 import pandas as pd
-from pandas.api.types import is_integer_dtype
 from pydantic import BaseModel, Field
 
+from lib.config.snapshot import record_config
 from lib.utils.utils import load_yaml_as
+from photoz.data.identifiers import exact_ids as exact_ids
 
 COHORT_COLUMNS = ["object_id", "tile", "split", "z_train", "label_source", "sample_weight"]
 WEIGHTS = {"spe_halpha_quality": 1.0, "phz_quality": 0.3}
@@ -30,17 +31,6 @@ class PreparedCohort(TargetProtocol):
     provenance: Path
     provenance_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     manifest: Path
-
-
-def exact_ids(frame: pd.DataFrame, columns: tuple[str, ...] = ("object_id", "tile")) -> None:
-    for name in columns:
-        values = frame[name]
-        if (
-            not is_integer_dtype(values.dtype)
-            or values.isna().any()
-            or not values.between(0, np.iinfo(np.int64).max).all()
-        ):
-            raise ValueError(f"{name} requires exact nonnegative signed-64-bit identities")
 
 
 def validate_cohort(frame: pd.DataFrame, excluded: pd.DataFrame) -> None:
@@ -76,6 +66,7 @@ def load_prepared(recipe_path: Path) -> pd.DataFrame:
     cfg = load_yaml_as(str(recipe_path), PreparedCohort)
     root = recipe_path.parent
     receipt = checked_read(root / cfg.provenance, cfg.provenance_sha256, parquet=False)
+    record_config(root / cfg.protocol)
     protocol = checked_read(root / cfg.protocol, cfg.protocol_sha256, parquet=False)
     if (
         receipt.get("desi_used_as_training_target") is not False

@@ -70,3 +70,14 @@ def scores(task: ReportTask, truth: Floats, pred: Floats) -> dict[str, float | N
         key: metric.score(truth, pred) if len(truth) else None
         for key, metric in task.metrics.items()
     }
+
+
+def metric_suite(task_name: str) -> ReportTask:
+    from lib.utils.utils import symbol
+
+    if task_name == "regression":
+        return REGRESSION
+    suite = symbol(task_name)
+    if not isinstance(suite, ReportTask):
+        raise ValueError(f"{task_name} must export a ReportTask")
+    return suite

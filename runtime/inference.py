@@ -1,17 +1,9 @@
-from hydra import main as hydra_main
-from omegaconf import DictConfig
-
 from lib.inference import inference
-from lib.utils.hydra_utils import hydra_to_yaml
+from lib.utils.hydra_utils import run_recipe_cli
 
 
-@hydra_main(config_path="../configs", config_name="hydra", version_base="1.3")
-def main(cfg: DictConfig) -> None:
-    config_path = hydra_to_yaml(cfg)
-    try:
-        inference(config_path=str(config_path))
-    finally:
-        config_path.unlink(missing_ok=True)
+def main() -> None:
+    run_recipe_cli(lambda path: inference(config_path=path))
 
 
 if __name__ == "__main__":

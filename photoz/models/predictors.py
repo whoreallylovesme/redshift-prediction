@@ -3,7 +3,8 @@ from __future__ import annotations
 import lightning as L
 import torch
 
-from photoz.models.capsnet import CapsNet, logistic_to_z
+from lib.models.capsnet import CapsNet
+from photoz.targets import logistic_to_z
 
 
 class CapsNetPredictor(L.LightningModule):

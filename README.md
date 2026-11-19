@@ -6,16 +6,18 @@
 
 ```bash
 uv sync --frozen
-uv run python -m runtime.pipeline --config configs/flows/regression_example.yaml --check
-uv run python -m runtime.pipeline --config configs/flows/regression_example.yaml
+uv run python -m runtime.pipeline --config examples/configs/regression.yaml --check
+uv run python -m runtime.pipeline --config examples/configs/regression.yaml
 ```
 
-Команда печатает путь к интерактивному автономному `report.html`. Для примера со снимками и числовыми признаками замените рецепт на `configs/flows/fusion_example.yaml`. Для записи параметров, метрик и истории эпох в локальный MLflow выполните
+Команда печатает путь к интерактивному автономному `report.html`. Для примера со снимками и числовыми признаками замените рецепт на `examples/configs/fusion.yaml`. Для записи параметров, метрик и истории эпох в локальный MLflow выполните
 
 ```bash
 uv run --extra tracking python -m runtime.pipeline \
-  --config configs/flows/fusion_example.yaml --tracking-uri sqlite:///runs/mlflow.db
+  --config examples/configs/fusion.yaml --tracking-uri sqlite:///runs/mlflow.db
 ```
+
+Рабочий YAML можно хранить вне репозитория. Каждый запуск сохраняет конфигурацию вместе с результатами. Образцы для табличной модели, Lightning и Phosphoros собраны в [examples/configs](examples/configs/).
 
 | Где искать | Содержимое |
 | --- | --- |

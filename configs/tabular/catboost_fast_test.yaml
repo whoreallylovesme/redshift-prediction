@@ -1,3 +1,0 @@
-estimator: catboost
-split:
-  val_size: 0.25

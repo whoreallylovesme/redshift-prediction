@@ -14,6 +14,8 @@ from prefect.artifacts import create_table_artifact
 from prefect.cache_policies import NO_CACHE
 from prefect.client.orchestration import get_client
 from prefect.client.schemas.filters import FlowRunFilter, FlowRunFilterId
+from prefect.client.schemas.objects import TaskRun
+from prefect.client.schemas.sorting import TaskRunSort
 from prefect.context import TaskRunContext
 from prefect.futures import PrefectFuture
 from prefect.runtime import flow_run
@@ -29,8 +31,14 @@ from lib.config.experiment import (
     Saved,
     Tabular,
 )
-from lib.report.task import REGRESSION, ReportTask, scores
-from lib.tracking import Tracker, bind_run
+from lib.config.snapshot import (
+    create_snapshot,
+    public_config,
+    record_config,
+    recording_configs,
+)
+from lib.report.task import metric_suite, scores
+from lib.tracking import Tracker, bind_run, finish_with_snapshots
 from lib.train.sklearn import fit_regressor
 from lib.utils.utils import load_yaml_as
 from lib.workflow.data import code_version, digest, prepare_dataset, signature, symbol, table
@@ -44,22 +52,14 @@ def accelerator_lock() -> FileLock:
     return FileLock(str(_ACCELERATOR) + "-" + getpass.getuser() + ".lock")
 
 
-def metric_suite(task_name: str) -> ReportTask:
-    if task_name == "regression":
-        return REGRESSION
-    suite = symbol(task_name)
-    if not isinstance(suite, ReportTask):
-        raise ValueError(f"{task_name} must export a ReportTask")
-    return suite
-
-
 def cache_key(ctx: TaskRunContext, inputs: dict[str, Any]) -> str | None:
     return str(inputs["key"]) if inputs["key"] is not None else None
 
 
 @task(cache_policy=NO_CACHE)
-def prepare(cfg: Dataset, out: Path) -> dict[str, Any]:
-    return prepare_dataset(cfg, out)
+def prepare(cfg: Dataset, out: Path, snapshot: Path | None = None) -> dict[str, Any]:
+    with recording_configs(snapshot):
+        return prepare_dataset(cfg, out)
 
 
 @task(cache_key_fn=cache_key, persist_result=True)
@@ -112,10 +112,12 @@ def predict_table(
 
 
 @task(cache_policy=NO_CACHE)
-def external_prediction(cfg: External, out: Path, uri: str | None, run_id: str | None) -> str:
+def external_prediction(
+    cfg: External, out: Path, uri: str | None, run_id: str | None, snapshot: Path | None = None
+) -> str:
     out.parent.mkdir(parents=True, exist_ok=True)
     lock = accelerator_lock() if cfg.resource == "accelerator" else nullcontext()
-    with lock, bind_run(uri, run_id):
+    with lock, bind_run(uri, run_id), recording_configs(snapshot):
         return str(symbol(cfg.predictor)(config_path=cfg.recipe, out_dir=out, **cfg.options))
 
 
@@ -184,8 +186,9 @@ def submit_methods(
     data: dict[str, Any],
     version: str,
     run_ids: dict[str, str],
-) -> list[tuple[str, str, str | PrefectFuture[Any]]]:
-    submitted: list[tuple[str, str, str | PrefectFuture[Any]]] = []
+    dataset_error: Exception | None = None,
+) -> list[tuple[str, str, str | PrefectFuture[Any] | Exception]]:
+    submitted: list[tuple[str, str, str | PrefectFuture[Any] | Exception]] = []
     for name, method in config.methods.items():
         out = directory / "methods" / name
         if isinstance(method, Saved):
@@ -196,9 +199,14 @@ def submit_methods(
                 out,
                 config.tracking_uri,
                 run_ids.get(name),
+                snapshot=directory / "config_snapshot",
             )
             submitted.append((name, method.split, prediction))
         elif isinstance(method, Tabular):
+            if dataset_error is not None:
+                labels = list(config.dataset.evaluation_files) if config.dataset else []
+                submitted.extend((name, label, dataset_error) for label in labels or [method.split])
+                continue
             fingerprint = signature(
                 "tabular-fit",
                 version,
@@ -208,7 +216,7 @@ def submit_methods(
                 data.get("feature_set"),
                 data["target"],
                 data["weight_column"],
-                digest(method.recipe),
+                digest(method.recipe) if method.recipe.is_file() else str(method.recipe),
                 config.task,
                 config.threads_per_method,
             )
@@ -329,9 +337,15 @@ def report_record(
 
 def stage_history(flow_id: str) -> list[dict[str, Any]]:
     with get_client(sync_client=True) as client:
-        stages = client.read_task_runs(
-            flow_run_filter=FlowRunFilter(id=FlowRunFilterId(any_=[UUID(flow_id)])),
-        )
+        query = FlowRunFilter(id=FlowRunFilterId(any_=[UUID(flow_id)]))
+        stages: list[TaskRun] = []
+        while True:
+            page = client.read_task_runs(
+                flow_run_filter=query, sort=TaskRunSort.ID_DESC, limit=100, offset=len(stages)
+            )
+            stages.extend(page)
+            if len(page) < 100:
+                break
     return [
         {
             "stage": stage.name,
@@ -348,7 +362,8 @@ def experiment(config: Experiment) -> Path:
     if flow_run.run_count > 1:
         directory /= f"attempt-{flow_run.run_count}"
     directory.mkdir(parents=True, exist_ok=True)
-    snapshot = config.model_dump(mode="json", exclude={"tracking_uri"})
+    configuration = create_snapshot(directory / "config_snapshot", config)
+    snapshot = public_config(config.model_dump(mode="json"))
     (directory / "experiment.json").write_text(json.dumps(snapshot, indent=2))
     plugins = [
         config.task,
@@ -358,6 +373,7 @@ def experiment(config: Experiment) -> Path:
         plugins.extend(x for x in (config.dataset.reader, config.dataset.cleaner) if x)
     version = code_version(plugins)
     data: dict[str, Any] = {}
+    dataset_error: Exception | None = None
     run_ids: dict[str, str] = {}
     records: list[dict[str, Any]] = []
     tracker = Tracker(config.tracking_uri, config.name) if config.tracking_uri else None
@@ -365,7 +381,10 @@ def experiment(config: Experiment) -> Path:
     failures: list[str] = []
     try:
         if config.dataset is not None:
-            data = prepare(config.dataset, directory / "data")
+            try:
+                data = prepare(config.dataset, directory / "data", snapshot=configuration)
+            except Exception as exc:
+                dataset_error = ValueError(f"Dataset preparation failed: {exc}")
         if tracker:
             for name, method in config.methods.items():
                 params: dict[str, Any] = {
@@ -374,14 +393,19 @@ def experiment(config: Experiment) -> Path:
                     "code_sha256": version,
                 }
                 if not isinstance(method, Saved):
-                    params.update(recipe=str(method.recipe), recipe_sha256=digest(method.recipe))
+                    params["recipe"] = str(method.recipe)
+                    captured = record_config(method.recipe, configuration)
+                    if captured is not None:
+                        params["recipe_sha256"] = digest(captured)
                 if data:
                     params["dataset_sha256"] = data["source_sha256"]
                 run_ids[name] = tracker.start(name, params, str(flow_run.id))
         (directory / "tracking.json").write_text(json.dumps(run_ids, indent=2))
-        pending = submit_methods(config, directory, data, version, run_ids)
+        pending = submit_methods(config, directory, data, version, run_ids, dataset_error)
         for name, split, method_result in pending:
             try:
+                if isinstance(method_result, Exception):
+                    raise method_result
                 row = report_record(
                     name,
                     split,
@@ -420,7 +444,7 @@ def experiment(config: Experiment) -> Path:
             "mlflow_runs": run_ids,
             "code_sha256": version,
             "configuration": snapshot,
-            "data": data,
+            "data": data if dataset_error is None else {"error": str(dataset_error)},
             "sources": sources,
         }
         report["metadata"]["stages"] = stage_history(str(flow_run.id))
@@ -436,10 +460,12 @@ def experiment(config: Experiment) -> Path:
         if tracker:
             for method_name, run_id in run_ids.items():
                 method_cfg = config.methods[method_name]
-                settings = method_cfg.model_dump(mode="json")
+                settings = public_config(method_cfg.model_dump(mode="json"))
                 tracker.client.log_dict(run_id, settings, "method.json")
                 if not isinstance(method_cfg, Saved):
-                    tracker.client.log_artifact(run_id, str(method_cfg.recipe), "recipe")
+                    captured = record_config(method_cfg.recipe, configuration)
+                    if captured is not None:
+                        tracker.client.log_artifact(run_id, str(captured), "recipe")
                 summary = directory / "methods" / method_name / "train_report.json"
                 if isinstance(method_cfg, Tabular) and summary.is_file():
                     fitted = json.loads(summary.read_text())
@@ -451,15 +477,17 @@ def experiment(config: Experiment) -> Path:
             for row in report["rows"]:
                 tracker.log_metrics(run_ids[row["name"]], row["split"], row["metrics"])
         failures = [r["name"] for r in report["rows"] if r["status"] == "failed"]
+        if dataset_error and not any(isinstance(m, Tabular) for m in config.methods.values()):
+            failures.append("dataset preparation")
         failures.extend(
             f"{p['a']} / {p['b']}" for p in report["pairs"] if p.get("status") == "failed"
         )
         finished = True
     finally:
-        if tracker:
-            for name, run_id in run_ids.items():
-                ok = finished and name not in failures
-                tracker.finish(run_id, ok, directory)
+        finish_with_snapshots(
+            tracker, configuration, directory, flow_run.run_count,
+            {run_id: finished and name not in failures for name, run_id in run_ids.items()},
+        )
     if failures:
         raise RuntimeError(f"Failed methods: {', '.join(failures)}; report: {directory}")
     return directory

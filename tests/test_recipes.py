@@ -1,40 +1,97 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase
+from unittest.mock import patch
 
 import pandas as pd
+import yaml
+from click.testing import CliRunner
 from hydra import compose, initialize_config_dir
 
-from lib.config import PytorchTrainConfig
-from lib.config.check import check_recipe, mapping
-from lib.config.experiment import Dataset
+from lib.config import PytorchTrainConfig, load_flow
+from lib.config.experiment import Dataset, Experiment
 from lib.utils.hydra_utils import hydra_to_yaml
+from lib.utils.utils import load_yaml_as
 from lib.workflow.data import prepare_dataset
+from runtime.pipeline import main
 
 
 class RecipesTest(TestCase):
     def test_all_shipped_flows(self) -> None:
-        for path in sorted(Path("configs/flows").glob("*.yaml")):
+        flows = sorted(Path("examples/configs").glob("*.yaml"))
+        self.assertEqual({p.stem for p in flows}, {"fusion", "phosphoros", "regression"})
+        for path in flows:
             with self.subTest(path=str(path)):
-                check_recipe(path)
+                load_flow(path, check=True)
+
+    def test_check_and_execution_compose_the_same_flow(self) -> None:
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "methods").mkdir()
+            (root / "methods" / "saved.yaml").write_text(
+                "reference: {kind: saved, predictions: held.parquet}\n"
+            )
+            (root / "methods" / "alternate.yaml").write_text(
+                "alternate: {kind: saved, predictions: alternate.parquet}\n"
+            )
+            flow = root / "study.yaml"
+            flow.write_text(
+                "defaults: [ {methods: saved}, _self_ ]\nname: trial\noutput: runs/${name}\n"
+            )
+            runner = CliRunner()
+            with patch("runtime.pipeline._run") as run:
+                run.return_value = None
+                args = ["--config", str(flow), "--workers", "3", "methods=alternate", "name=demo"]
+                checked = runner.invoke(main, [*args, "--check"])
+                self.assertEqual(checked.exit_code, 0, checked.output)
+                run.assert_not_called()
+                launched = runner.invoke(main, args)
+                self.assertEqual(launched.exit_code, 0, launched.output)
+                actual = run.call_args.args[0]
+            self.assertIsInstance(actual, Experiment)
+            self.assertEqual(actual.output, Path("runs/demo"))
+            self.assertEqual(actual.workers, 3)
+            self.assertIn("alternate", actual.methods)
+            self.assertEqual(
+                actual,
+                load_flow(
+                    flow, check=True, workers=3, overrides=("methods=alternate", "name=demo")
+                ),
+            )
+
+    def test_check_reports_reference_and_schema_errors_without_training(self) -> None:
+        runner = CliRunner()
+        sample = yaml.safe_load(Path("examples/configs/regression.yaml").read_text())
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            recipe = root / "model.yaml"
+            recipe.write_text("estimator: misspelled_model\n")
+            for method, error in [
+                ({"kind": "tabular", "recipe": str(recipe)}, "misspelled_model"),
+                ({"kind": "external", "recipe": str(recipe), "predictor": "math:pi"}, "callable"),
+                ({"kind": "external", "recipe": str(recipe), "predictor": "math:typo"}, "typo"),
+                ({"kind": "tabular", "recipe": str(root / "missing.yaml")}, "missing.yaml"),
+            ]:
+                with self.subTest(error=error):
+                    flow = root / "flow.yaml"
+                    flow.write_text(yaml.safe_dump({**sample, "methods": {"bad": method}}))
+                    result = runner.invoke(main, ["--config", str(flow), "--check"])
+                    self.assertNotEqual(result.exit_code, 0)
+                    self.assertIn(error, result.output)
 
     def test_hydra_preserves_ids_and_training_overrides(self) -> None:
-        with initialize_config_dir(config_dir=str(Path("configs").resolve()), version_base="1.3"):
-            for model in ("capsnet", "convnext", "vit"):
-                cfg = compose(
-                    "hydra", overrides=[f"model={model}", "dataset=teddy", "train.lr=0.3"]
-                )
-                path = hydra_to_yaml(cfg)
-                try:
-                    raw = mapping(path)
-                    if model == "capsnet":
-                        self.assertEqual((raw["dataset"], raw["lr"]), ("teddy", 0.3))
-                    else:
-                        recipe = PytorchTrainConfig.model_validate(raw)
-                        self.assertEqual(recipe.lr, 0.3)
-                        self.assertEqual(recipe.data_dir, "teddyA_imgs")
-                finally:
-                    path.unlink()
+        folder = Path("examples/configs/hydra").resolve()
+        with initialize_config_dir(config_dir=str(folder), version_base="1.3"):
+            cfg = compose("hydra", overrides=["model=fusion", "dataset=synthetic", "train.lr=0.3"])
+            path = hydra_to_yaml(cfg)
+            try:
+                recipe = load_yaml_as(path, PytorchTrainConfig)
+                self.assertEqual(recipe.lr, 0.3)
+                self.assertIsNotNone(recipe.image_catalog)
+                assert recipe.image_catalog is not None
+                self.assertEqual(recipe.image_catalog.id_column, "sample")
+            finally:
+                path.unlink()
 
     def test_text_csv_ids_and_no_generated_id_collisions_across_sources(self) -> None:
         with TemporaryDirectory() as temp:

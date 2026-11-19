@@ -1,0 +1,8 @@
+defaults:
+  - _self_
+  - train: default
+  - model: fusion
+  - dataset: synthetic
+
+device: cpu
+out_dir: runs/hydra_fusion

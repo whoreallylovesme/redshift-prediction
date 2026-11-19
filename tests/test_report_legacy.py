@@ -9,7 +9,6 @@ from unittest import TestCase
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
-import yaml
 
 from lib.config import FlowConfig
 from photoz import legacy_flow as legacy
@@ -70,7 +69,7 @@ class LegacyReportTests(TestCase):
                 self.assertTrue((directory / "report.html").is_file())
                 self.assertEqual(row["coverage"]["evaluated"], 2)
 
-    def test_tracking_marks_training_failure_and_capsnet_config_is_effective(self) -> None:
+    def test_tracking_marks_training_failure(self) -> None:
         tracker = MagicMock()
         tracker.start.return_value = "rid"
         with patch.object(legacy, "Tracker", return_value=tracker):
@@ -78,15 +77,6 @@ class LegacyReportTests(TestCase):
                 with legacy.tracked_method("uri", "model", "recipe.yaml", Path("out")):
                     raise RuntimeError("failed fit")
             tracker.finish.assert_called_once_with("rid", False, Path("out"))
-        for name in ("capsnet_hayat", "capsnet_teddy"):
-            cfg = FlowConfig.model_validate(
-                yaml.safe_load(Path(f"configs/flows/{name}.yaml").read_text())
-            )
-            self.assertIsNotNone(cfg.train)
-            recipe = yaml.safe_load(Path((cfg.train or {})["config"]).read_text())
-            self.assertEqual(set(cfg.train or {}), {"config"})
-            self.assertTrue(Path(recipe["out_dir"]).is_relative_to(cfg.runs_root))
-            self.assertTrue("out" in recipe["inference"] or "splits" in recipe["inference"])
 
     def test_split_retains_configured_exact_string_ids(self) -> None:
         with TemporaryDirectory() as temp:

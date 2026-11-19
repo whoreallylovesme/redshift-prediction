@@ -30,3 +30,6 @@ build/
 dist/
 mlruns/
 mlartifacts/
+
+# Local experiment recipes are archived with their runs.
+/configs/

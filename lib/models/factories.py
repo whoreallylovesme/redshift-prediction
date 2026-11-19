@@ -194,6 +194,24 @@ def ridge() -> Any:
     )
 
 
+def capsnet(
+    image_channels: int = 3,
+    input_size: int = 64,
+    num_class: int = 2,
+    dim_capsule: int = 16,
+    routings: int = 3,
+) -> Any:
+    from lib.models.capsnet import CapsuleRegressor
+
+    return CapsuleRegressor(
+        in_channels=image_channels,
+        input_size=input_size,
+        num_class=num_class,
+        dim_capsule=dim_capsule,
+        routings=routings,
+    )
+
+
 def fusion_cnn(image_channels: int, features: int, width: int = 32) -> Any:
     from lib.models.fusion import FusionRegressor
 
@@ -202,6 +220,7 @@ def fusion_cnn(image_channels: int, features: int, width: int = 32) -> Any:
 
 FACTORIES: dict[str, Callable[..., Any]] = {
     "fusion_cnn": fusion_cnn,
+    "capsnet": capsnet,
     "convnext_tiny": convnext_tiny,
     "efficientnet_b0": efficientnet_b0,
     "vit_tiny": vit_tiny,

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import importlib
 import json
 from importlib.metadata import version
 from importlib.util import find_spec
@@ -12,17 +11,11 @@ import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
 
-from lib.config import DatasetConfig, FeaturesConfig
+from lib.config import DatasetConfig
 from lib.config.experiment import Dataset
 from lib.dataloaders.dataset import exact_index, matching_id_types
-from lib.utils.utils import load_yaml_as
-
-
-def symbol(spec: str) -> Any:
-    module, separator, name = spec.partition(":")
-    if not separator or not module or not name:
-        raise ValueError(f"Expected module:symbol, got {spec!r}")
-    return getattr(importlib.import_module(module), name)
+from lib.utils.utils import load_yaml_as, plugin
+from lib.utils.utils import symbol as symbol
 
 
 def digest(path: Path) -> str:
@@ -33,20 +26,25 @@ def digest(path: Path) -> str:
 def code_version(plugins: list[str]) -> str:
     root = Path(__file__).resolve().parents[2]
     packages = {"lib", "runtime"}
-    packages.update(p.split(":", 1)[0].split(".", 1)[0] for p in plugins if ":" in p)
+    packages.update(p.split(":", 1)[0].split(".", 1)[0] for p in plugins if ":" in p or "." in p)
     sha = hashlib.sha256()
     for package in sorted(packages):
         spec = find_spec(package)
         if spec is None:
-            raise ValueError(f"Unknown plugin package {package}")
+            # External methods resolve their own callable when their task starts.
+            sha.update(f"missing-package:{package}\0".encode())
+            continue
         for folder in spec.submodule_search_locations or []:
             base = Path(folder)
             for source in sorted(base.rglob("*.py")):
                 sha.update(f"{package}/{source.relative_to(base)}".encode())
                 sha.update(source.read_bytes())
-        if not spec.submodule_search_locations and spec.origin:
-            sha.update(package.encode())
-            sha.update(Path(spec.origin).read_bytes())
+        if spec.submodule_search_locations is None:
+            sha.update(f"module:{package}\0".encode())
+            if spec.origin and Path(spec.origin).is_file():
+                sha.update(Path(spec.origin).read_bytes())
+            else:
+                sha.update(str(spec.origin).encode())
     if (root / "uv.lock").exists():
         sha.update((root / "uv.lock").read_bytes())
     for dependency in ("scikit-learn", "numpy", "pandas", "pyarrow", "prefect"):
@@ -62,7 +60,7 @@ def table(path: Path) -> pd.DataFrame:
 
 def read_source(cfg: Dataset, path: Path, source_sha: str) -> pd.DataFrame:
     if cfg.reader:
-        frame: pd.DataFrame = symbol(cfg.reader)(path)
+        frame: pd.DataFrame = plugin(cfg.reader)(path)
     elif path.suffix.lower() == ".csv" and cfg.id_column:
         frame = pd.read_csv(path, dtype={cfg.id_column: cfg.csv_id_type}, low_memory=False)
     else:
@@ -77,24 +75,11 @@ def read_source(cfg: Dataset, path: Path, source_sha: str) -> pd.DataFrame:
 def prepare_dataset(cfg: Dataset, out: Path) -> dict[str, Any]:
     input_sha = digest(cfg.source)
     frame = read_source(cfg, cfg.source, input_sha)
-    if cfg.feature_catalog:
-        catalog = load_yaml_as(str(cfg.feature_catalog), FeaturesConfig)
-        target, features = catalog.target, catalog.feature_sets[str(cfg.feature_set)]
-    else:
-        target, features = str(cfg.target), cfg.features
-    if len(set(features)) != len(features) or {
-        target,
-        cfg.id_column or "__source_row",
-        cfg.split_column,
-        cfg.weight_column,
-    } & set(features):
-        raise ValueError("Features must be unique and exclude target, identifier, weight and split")
+    target, features = cfg.target_features()
     id_column = cfg.id_column or "__source_row"
-    if target == id_column:
-        raise ValueError("Dataset identifier and target must be distinct")
     source_ids = exact_index(frame[id_column], id_column)
     if cfg.cleaner:
-        frame = symbol(cfg.cleaner)(frame, target)
+        frame = plugin(cfg.cleaner)(frame, target)
         cleaned_ids = exact_index(frame[id_column], id_column)
         if not cleaned_ids.isin(source_ids).all():
             raise ValueError("Dataset cleaner introduced identifiers outside the source")

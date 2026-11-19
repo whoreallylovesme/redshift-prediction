@@ -16,11 +16,12 @@ from torch.optim import Adam
 from torch.optim.lr_scheduler import ExponentialLR
 from torch.utils.data import DataLoader
 
+from lib.models.capsnet import CapsNet, margin_loss
 from lib.tracking import lightning_logger
 from lib.utils.log import get_logger
 from lib.utils.utils import pick_device
 from photoz.metrics import bias, nmad, outlier_fraction
-from photoz.models.capsnet import CapsNet, logistic_to_z, margin_loss, z_to_logistic
+from photoz.targets import logistic_to_z, z_to_logistic
 
 logger = get_logger()
 

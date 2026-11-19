@@ -22,8 +22,8 @@ uv run pre-commit install          # хуки ruff + mypy
 uv run ruff check .                # перед каждым коммитом
 uv run mypy .
 
-uv run python runtime/pipeline.py --config configs/flows/fast_test.yaml   # smoke-тест
-uv run python runtime/pipeline.py --config configs/flows/<flow>.yaml
+uv run python runtime/pipeline.py --config examples/configs/regression.yaml   # smoke-тест
+uv run python runtime/pipeline.py --config path/to/flow.yaml
 ```
 
 **Всё запускается только через Prefect** — требование научного руководителя. Обучение, прогноз,
@@ -36,8 +36,8 @@ uv run python runtime/pipeline.py --config configs/flows/<flow>.yaml
 Проверка без научных каталогов:
 
 ```bash
-uv run python -m runtime.pipeline --config configs/flows/regression_example.yaml --check
-uv run python -m runtime.pipeline --config configs/flows/regression_example.yaml
+uv run python -m runtime.pipeline --config examples/configs/regression.yaml --check
+uv run python -m runtime.pipeline --config examples/configs/regression.yaml
 uv run --extra tracking python -m unittest discover -s tests
 ```
 

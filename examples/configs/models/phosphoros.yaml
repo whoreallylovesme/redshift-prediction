@@ -1,0 +1,11 @@
+# Set these paths to the installed Core and the prepared local resources.
+executables: external/phosphoros/env/bin
+output_root: datasets/euclid_q1/phosphoros/out
+threads: 1
+sides:
+  south:
+    workspace: datasets/euclid_q1/phosphoros/workspace_south
+    redshift_config: external/phosphoros/recipes/redshifts_south.conf
+sets:
+  F_VALID:
+    side: south

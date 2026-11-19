@@ -106,7 +106,8 @@ def get_hdf5_dataloaders(
         n = f["images"].shape[0]
         z_all = f["specz_redshift"][:].astype(np.float32)
 
-    assert len(morph_df) == n, f"morph parquet len {len(morph_df)} != h5 N {n}"
+    if len(morph_df) != n:
+        raise ValueError("Morphology table must have one row per HDF5 image")
 
     indices = np.arange(n)
     morph_all = morph_df["gz_morpho_binary"].to_numpy(dtype=np.float32)
@@ -117,15 +118,14 @@ def get_hdf5_dataloaders(
         z_all = z_all[keep]
         morph_all = morph_all[keep]
 
-    if labeled_only:
-        keep = ~np.isnan(morph_all)
-        indices = indices[keep]
-        z_all = z_all[keep]
-        morph_all = morph_all[keep]
-
     train_pos, val_pos = train_test_split(
         np.arange(len(indices)), train_size=train_ratio, random_state=seed
     )
+    if labeled_only:
+        train_pos = train_pos[np.isfinite(morph_all[train_pos])]
+        val_pos = val_pos[np.isfinite(morph_all[val_pos])]
+        if not len(train_pos) or not len(val_pos):
+            raise ValueError("CapsNet stage A needs morphology labels in both splits")
     train_idx = indices[train_pos]
     val_idx = indices[val_pos]
     train_z = z_all[train_pos]
@@ -173,7 +173,7 @@ def get_hdf5_dataloaders(
         pin_memory=True,
         worker_init_fn=_worker_init_fn,
         persistent_workers=num_workers > 0,
-        drop_last=True,
+        drop_last=len(train_ds) >= batch_size,
     )
     val_loader = DataLoader(
         val_ds,

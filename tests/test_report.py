@@ -201,6 +201,17 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(d["pairs"][0]["status"], "failed")
         self.assertIn("inconsistent", d["pairs"][0]["reason"])
 
+    def test_integer_status_is_preserved_across_an_incomplete_reference_join(self) -> None:
+        row = build_report_data([{
+            "name": "m", "split": "s", "id_column": "id", "truth_column": "truth",
+            "predictions": pd.DataFrame({"id": [1, 2], "y_pred": [0.5, 99.0], "status": [0, 9]}),
+            "reference": pd.DataFrame({"id": [1, 2, 3], "truth": [0.5, 1.0, 1.0]}),
+            "ok_statuses": [0],
+        }], REGRESSION, "Report", strict=True)["rows"][0]
+        self.assertEqual(row["coverage"]["evaluated"], 1)
+        self.assertEqual(row["coverage"]["reasons"], {"9": 1, "missing prediction row": 1})
+        self.assertEqual(row["metrics"]["mae"], 0)
+
     def test_metrics_match_historical_and_density_uses_all_rows(self) -> None:
         t = np.linspace(0.1, 3.0, 1021)
         p = t + np.linspace(-0.2, 0.6, len(t))
@@ -222,6 +233,47 @@ class ReportTests(unittest.TestCase):
 
 
 class EuclidReportTests(unittest.TestCase):
+    def test_phosphoros_display_and_bootstrap_choose_same_valid_measurement(self) -> None:
+        from photoz.data.euclid_report import (
+            phosphoros_column,
+            phosphoros_points,
+            phosphoros_series,
+        )
+
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "posterior.parquet"
+            ids = np.array([2**60 + 1, 2**60 + 2])
+            pd.DataFrame({
+                "object_id": [ids[0], ids[0], ids[1]], "ppub_median": [-1, 0.5, -1],
+                "ppub_lo68": [0, 0.4, 0], "ppub_hi68": [0, 0.6, 0],
+            }).to_parquet(path)
+            points, _ = phosphoros_points([path])
+            native = phosphoros_series([path]).reindex(ids).to_numpy()
+            local, _ = phosphoros_column(path, ids)
+            np.testing.assert_equal(native, [points[int(ids[0])], np.nan])
+            np.testing.assert_equal(local, native)
+
+    def test_empty_scientific_comparisons_and_nonbracketing_ci_render(self) -> None:
+        from photoz.bootstrap import arm_summary, tile_boot
+        from photoz.euclid_report import write_json
+        from photoz.figures import fig_baselines, fig_scatter
+
+        empty = np.array([])
+        interval = tile_boot(empty, None, empty, empty)
+        self.assertTrue(np.isnan(interval).all())
+        self.assertEqual(arm_summary({}, {}, empty, empty)["n"], 0)
+        frame = pd.DataFrame({"z": empty, "ml": empty, "ppub": empty})
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            fig_scatter(folder, frame, "Empty", "scatter.pdf", 2)
+            result = {"nmad": 0.1, "nmad_ci": [0.2, 0.3]}
+            fig_baselines(folder, {"keys": [], "ALL": {
+                "n": 2, "ml": result, "ppub": result, "poff": result,
+            }})
+            self.assertTrue((folder / "fig_baselines.pdf").is_file())
+            write_json(folder / "facts.json", {"ci": interval}, as_float=True)
+            self.assertEqual(json.loads((folder / "facts.json").read_text()), {"ci": [None, None]})
+
     def test_method_denominators_and_real_seed_identifiers(self) -> None:
         from photoz.data.euclid_report import ReportConfig, SeedStack
         from runtime.euclid_report import interactive_methods
@@ -232,6 +284,7 @@ class EuclidReportTests(unittest.TestCase):
             "north": SeedStack(ids[:1], values[:, :1], values[:, :1]),
             "nb": SeedStack(ids[1:], values[:, 1:], values[:, 1:]),
             "zval": SeedStack(ids, values, values),
+            "valid": SeedStack(ids, values, values),
         }
         frame = pd.DataFrame(
             {
@@ -260,7 +313,8 @@ class EuclidReportTests(unittest.TestCase):
         )
         val = {"ppub": np.array([0.9, 1.0]), "ml": values.mean(0)}
         methods = interactive_methods(
-            cfg, frame, preds, {"clip_7": [{"epoch": 1, "loss": 0.2}]}, np.array([1.0, 1.2]), val
+            cfg, frame, preds, {"clip_7": [{"epoch": 1, "loss": 0.2}]}, np.array([1.0, 1.2]), val,
+            field_validation=frame.drop(columns=["_set", "src"]),
         )
         result = build_report_data(methods, PHOTOZ, "Euclid", strict=True)
         north = {r["name"]: r for r in result["rows"] if r["split"] == "N · north + nb"}
@@ -270,6 +324,9 @@ class EuclidReportTests(unittest.TestCase):
         self.assertEqual(north["clip_7"]["details"]["seed"], 7)
         self.assertEqual(north["clip_7"]["history"][0]["loss"], 0.2)
         self.assertIn("euclid_phz", north)
+        validation = {r["name"]: r for r in result["rows"] if r["split"] == "F · valid"}
+        self.assertEqual(validation["CatBoost"]["role"], "development")
+        self.assertEqual(validation["CatBoost"]["coverage"]["requested"], 2)
         self.assertTrue(result["overlaps"])
 
 

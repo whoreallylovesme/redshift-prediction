@@ -1,9 +1,0 @@
-projection: data/masked_photometry.npz
-hidden_dim: 64
-heads: 4
-layers: 2
-dropout: 0.1
-mask_fraction: 0.35
-epochs: 20
-batch_size: 128
-device: cpu

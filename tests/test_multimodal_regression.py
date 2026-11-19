@@ -15,7 +15,7 @@ class MultimodalRegressionTests(TestCase):
     def test_fusion_fits_training_statistics_and_preserves_held_ids(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)
-            recipe = Path("configs/nn/fusion_example.yaml")
+            recipe = Path("examples/configs/models/fusion.yaml")
             cfg = yaml.safe_load(recipe.read_text())
             training = pd.read_csv(cfg["catalog"])
             fitted, _ = train_test_split(training, train_size=0.75, random_state=194)

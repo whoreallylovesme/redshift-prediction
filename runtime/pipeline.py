@@ -2,9 +2,10 @@ from pathlib import Path
 from typing import Any
 
 import click
-import yaml
+from hydra.errors import HydraException
+from omegaconf.errors import OmegaConfBaseException
 
-from lib.config.experiment import Experiment
+from lib.config import Experiment, FlowConfig, load_flow
 
 _LEGACY_STAGES = (
     "derived_config",
@@ -46,24 +47,23 @@ def pipeline(
     tracking_uri: str | None = None,
     workers: int | None = None,
 ) -> Path | None:
-    raw = yaml.safe_load(Path(config_path).read_text())
-    if not isinstance(raw, dict):
-        raise ValueError("A flow recipe must be a YAML mapping")
-    if tracking_uri:
-        raw["tracking_uri"] = tracking_uri
-    if workers is not None:
-        raw["workers"] = workers
-    if "pipeline" in raw:
+    config = load_flow(Path(config_path), workers=workers, tracking_uri=tracking_uri)
+    return _run(config)
+
+
+def _run(config: Experiment | FlowConfig) -> Path | None:
+    if isinstance(config, FlowConfig):
         from photoz.legacy_flow import legacy_pipeline
 
-        legacy_pipeline(config_path, tracking_uri=tracking_uri, workers=workers)
+        legacy_pipeline(config)
         return None
     from lib.workflow.experiment import run
 
-    return run(Experiment.model_validate(raw))
+    return run(config)
 
 
 @click.command()
+@click.argument("overrides", nargs=-1, metavar="[KEY=VALUE]...")
 @click.option("--config", "config_path", type=click.Path(exists=True, dir_okay=False))
 @click.option(
     "--render",
@@ -74,6 +74,7 @@ def pipeline(
 @click.option("--tracking-uri", envvar="MLFLOW_TRACKING_URI", help="MLflow Tracking URI.")
 @click.option("--workers", type=click.IntRange(min=1), help="Maximum concurrent method tasks.")
 def main(
+    overrides: tuple[str, ...],
     config_path: str | None,
     render: Path | None,
     check: bool,
@@ -81,21 +82,24 @@ def main(
     workers: int | None,
 ) -> None:
     if render:
-        if config_path or check:
+        if config_path or check or overrides:
             raise click.UsageError("Choose --render or --config")
         from lib.workflow.experiment import rebuild_report
 
         rebuild_report(render)
         click.echo(render / "report.html")
         return
-    path = config_path or "configs/flows/run_all.yaml"
+    path = config_path or "examples/configs/regression.yaml"
+    try:
+        config = load_flow(
+            Path(path), check=check, overrides=overrides, workers=workers, tracking_uri=tracking_uri
+        )
+    except (ValueError, OSError, HydraException, OmegaConfBaseException) as exc:
+        raise click.ClickException(str(exc)) from exc
     if check:
-        from lib.config.check import check_recipe
-
-        check_recipe(Path(path))
         click.echo(f"OK {path}")
         return
-    directory = pipeline(path, tracking_uri, workers)
+    directory = _run(config)
     if directory:
         click.echo(directory / "report.html")
 

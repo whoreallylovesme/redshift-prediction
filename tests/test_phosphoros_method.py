@@ -25,7 +25,7 @@ class PhosphorosMethodTests(TestCase):
         self.out = root / "experiment" / "method"
         self.ids = np.array([2**60 + n for n in (1, 3, 5)], dtype=np.int64)
         self.native_axis = phosphoros.AXIS.copy()
-        self.native_axis[20] += 1e-12
+        self.native_axis[82] += 1e-12
         preparation = root / "prepared/sample/preparation"
         preparation.mkdir(parents=True)
         self.catalog = preparation / "computational_inputs.fits"
@@ -76,13 +76,10 @@ class PhosphorosMethodTests(TestCase):
                     "sides": {
                         "north": {
                             "workspace": str(resources),
-                            "model_grid_config": "unused",
-                            "galactic_grid_config": "unused",
                             "redshift_config": str(conf),
-                            "grid_export": "unused",
                         }
                     },
-                    "sets": {"sample": {"side": "north", "photometry": "unused"}},
+                    "sets": {"sample": {"side": "north"}},
                     "variants": {"corrected": {"sets": ["sample"], "multiply": {"VIS": 2.0}}},
                 }
             )
@@ -127,7 +124,7 @@ class PhosphorosMethodTests(TestCase):
                 self.assertEqual(path, self.out / "predictions.parquet")
                 frame = pd.read_parquet(path)
                 np.testing.assert_array_equal(frame.object_id, self.ids)
-                np.testing.assert_array_equal(frame.y_pred, [np.nan, np.nan, 0.82])
+                np.testing.assert_array_equal(frame.y_pred, [np.nan, np.nan, self.native_axis[82]])
                 np.testing.assert_array_equal(frame.y_pred, frame.ppub_median)
                 self.assertEqual(list(frame.engine_present), [True, False, True])
                 self.assertEqual(list(frame.has_prediction), [False, False, True])
@@ -139,8 +136,8 @@ class PhosphorosMethodTests(TestCase):
         self.assertEqual(self.catalog.read_bytes(), original)
 
     def test_native_posterior_reaches_the_report_with_and_without_truth(self) -> None:
-        manifest = Path(__file__).resolve().parents[1] / "configs/flows/phosphoros.yaml"
-        options = yaml.safe_load(manifest.read_text())["methods"]["phosphoros_public"]
+        manifest = Path(__file__).resolve().parents[1] / "examples/configs/phosphoros.yaml"
+        (options,) = yaml.safe_load(manifest.read_text())["methods"].values()
         method = External.model_validate(options)
         with patch.object(phosphoros, "call", self.fake_core):
             path = phosphoros.predict(
@@ -159,7 +156,9 @@ class PhosphorosMethodTests(TestCase):
         charts = output["rows"][0]["slices"]["All objects"]["charts"]
         self.assertEqual([e["id"] for e in charts["posterior_examples"]], [str(self.ids[2])])
         reference = self.out / "independent.parquet"
-        pd.DataFrame({"object_id": self.ids, "z_ref": [1.1, 1.2, 0.82]}).to_parquet(reference)
+        pd.DataFrame({"object_id": self.ids, "z_ref": [1.1, 1.2, self.native_axis[82]]}).to_parquet(
+            reference
+        )
         record.update(reference=str(reference), reference_truth_column="z_ref")
         with_truth = build_report_data([record], PHOTOZ, "Independent truth", strict=True)
         calibration = with_truth["rows"][0]["slices"]["All objects"]["charts"]["posterior"]
@@ -175,6 +174,56 @@ class PhosphorosMethodTests(TestCase):
         phosphoros.write_predictions(pd.DataFrame({"pdf": [None, float("nan")]}), target, spec)
         self.assertEqual(PosteriorMetadata.read(target), spec)
         self.assertTrue(pd.read_parquet(target).pdf.isna().all())
+
+    def test_subset_rejects_lossy_ids_and_preserves_decimal_int64_strings(self) -> None:
+        path = self.config.with_suffix(".parquet")
+        cfg = phosphoros.SetConfig(side="north", photometry=self.catalog, ids_table=path)
+        raw = {"object_id": self.ids}
+        pd.DataFrame({"object_id": self.ids[1::-1].astype(str)}).to_parquet(path)
+        np.testing.assert_array_equal(phosphoros.select_rows(raw, cfg), [1, 0])
+        pd.DataFrame({"object_id": self.ids[:1].astype(float)}).to_parquet(path)
+        with self.assertRaisesRegex(ValueError, "exact"):
+            phosphoros.select_rows(raw, cfg)
+
+    def test_invalid_prepared_ledger_is_rejected_before_native_execution(self) -> None:
+        ledger = self.catalog.parent / "ledger.parquet"
+        original = pd.read_parquet(ledger)
+        overflow = self.ids.astype(np.uint64)
+        overflow[1] = np.uint64(2**63)
+        for changed, error in (
+            (original.assign(object_id=overflow), "exact"),
+            (original.assign(field_code=1), "outside north"),
+            (original.assign(input_status="stale"), "input status"),
+        ):
+            with self.subTest(error=error), patch.object(phosphoros, "call") as core:
+                changed.to_parquet(ledger, index=False)
+                with self.assertRaisesRegex(ValueError, error):
+                    phosphoros.predict(self.config, "sample", self.out)
+                core.assert_not_called()
+                self.assertFalse(self.out.exists())
+
+    def test_grids_refuse_existing_galactic_grid_and_export_before_native_execution(self) -> None:
+        cfg = phosphoros.load_config(self.config)
+        side = cfg.sides["north"]
+        side.model_grid_config = self.config.with_name("model.conf")
+        side.model_grid_config.write_text("catalog-type=fake\noutput-model-grid=new-grid\n")
+        side.galactic_grid_config = self.config.with_name("gal.conf")
+        side.galactic_grid_config.write_text(
+            "catalog-type=fake\nmodel-grid-file=new-grid\noutput-galactic-correction-coefficient-grid=dust\n"
+        )
+        side.grid_export = self.config.with_suffix(".fits")
+        correction = (
+            side.workspace / "IntermediateProducts/fake/GalacticCorrectionCoefficientGrids/dust"
+        )
+        with patch.object(phosphoros, "call") as core:
+            with self.assertRaisesRegex(ValueError, "refusing to overwrite"):
+                phosphoros.build_grids(cfg, "north")
+            correction.unlink()
+            side.grid_export.write_bytes(b"existing export")
+            with self.assertRaisesRegex(ValueError, "refusing to overwrite"):
+                phosphoros.build_grids(cfg, "north")
+            self.assertEqual(side.grid_export.read_bytes(), b"existing export")
+            core.assert_not_called()
 
     def test_unknown_set_invalid_variant_and_missing_resource_do_not_call_core(self) -> None:
         with patch.object(phosphoros, "call") as runner:
