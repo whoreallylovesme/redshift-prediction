@@ -24,6 +24,7 @@ from lib.config.experiment import (
     RecipeMethod,
     image_splits,
 )
+from lib.utils.artifacts import sha256_file
 
 _TEXT_CONFIG = {".yaml", ".yml", ".json", ".conf", ".toml"}
 _active: ContextVar[Path | None] = ContextVar("config_snapshot", default=None)
@@ -203,7 +204,7 @@ def seal_snapshot(directory: Path) -> None:
     files += sorted((directory / "resolved").glob("*.yaml"))
     files += sorted(p for p in (directory / "files").rglob("*") if p.is_file())
     hashes = {
-        p.relative_to(directory).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
+        p.relative_to(directory).as_posix(): sha256_file(p)
         for p in files
     }
     data = {"version": 1, "working_directory": str(Path.cwd()), "sha256": hashes}

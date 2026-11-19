@@ -1,39 +1,15 @@
 from __future__ import annotations
 
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable
 from typing import Any
 
 import lightning as L
-import numpy as np
 import torch
-from numpy.typing import NDArray
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import LambdaLR
-from torch.utils.data import DataLoader, IterableDataset
 
+from lib.dataloaders.batches import ShuffledRowBatches as ShuffledRowBatches
 from photoz.data.euclid_packet import WARMUP_EPOCHS, schedule_lr
-
-
-class ShuffledRowBatches(IterableDataset[torch.Tensor]):
-    def __init__(self, rows: NDArray[np.int64], seed: int, size: int, drop_last: bool) -> None:
-        self.rows = rows
-        self.rng = np.random.default_rng(seed)
-        self.size = size
-        self.drop_last = drop_last
-
-    def __len__(self) -> int:
-        return (len(self.rows) + (0 if self.drop_last else self.size - 1)) // self.size
-
-    def __iter__(self) -> Iterator[torch.Tensor]:
-        order = self.rng.permutation(self.rows)
-        for start in range(0, len(self) * self.size, self.size):
-            yield torch.from_numpy(order[start : start + self.size])
-
-    def loader(self) -> DataLoader:
-        if not len(self):
-            raise ValueError("Training requires at least one batch")
-        return DataLoader(self, batch_size=None, generator=torch.Generator())
-
 
 type OptimizerSchedule = tuple[list[AdamW], list[LambdaLR]]
 

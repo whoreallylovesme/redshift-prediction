@@ -10,12 +10,12 @@ from torch.utils.data import DataLoader, Dataset, WeightedRandomSampler
 
 from lib.dataloaders.common import (
     center_crop,
+    inverse_bin_weights,
     random_rot90_flip,
     subsample_indices,
-    z_sample_weights,
 )
 from lib.utils.log import get_logger
-from photoz.data.npz import parse_catalog
+from photoz.data.npz import _resolve_w1w2_path, parse_catalog, read_bands
 
 logger = get_logger()
 
@@ -81,11 +81,8 @@ class TeddyCapsnetDataset(Dataset[tuple[torch.Tensor, torch.Tensor, torch.Tensor
     def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         path = self.files[idx]
         n_griz = self.in_channels - 2 if self.w1w2_dir is not None else self.in_channels
-        img = np.load(path)["image"].astype(np.float32)[:, :, :n_griz]
-        if self.w1w2_dir is not None:
-
-            wise = np.load(self.w1w2_dir / f"{path.stem}_wise.npz")["image"]
-            img = np.concatenate([img, wise.astype(np.float32)[:, :, :2]], axis=2)
+        extra = _resolve_w1w2_path(path, self.w1w2_dir) if self.w1w2_dir is not None else None
+        img = read_bands(path, n_griz, extra)
         if self.crop_size < img.shape[0]:
             img = center_crop(img, self.crop_size)
         if self.per_channel_norm:
@@ -121,7 +118,7 @@ def _scan(
         z = z_map.get(objid)
         if z is None:
             continue
-        if w1w2_dir is not None and not (w1w2_dir / f"{objid}_wise.npz").exists():
+        if w1w2_dir is not None and not _resolve_w1w2_path(npz, w1w2_dir).exists():
             continue
         files.append(npz)
         zs.append(z)
@@ -202,7 +199,7 @@ def get_teddy_capsnet_dataloaders(
             ellip_w = 1.0 / max(int((train_m == 0).sum()), 1)
             w = np.where(train_m == 1, spiral_w, ellip_w).astype(np.float64)
         else:
-            w = z_sample_weights(train_z)
+            w = inverse_bin_weights(train_z)
         sampler = WeightedRandomSampler(
             weights=torch.from_numpy(w).double().tolist(),
             num_samples=len(train_ds),

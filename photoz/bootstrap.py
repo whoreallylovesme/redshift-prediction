@@ -6,6 +6,7 @@ from typing import Any
 import numpy as np
 from numpy.typing import NDArray
 
+from lib.metrics.bootstrap import Indices, bootstrap_distribution, group_members
 from photoz.metrics import photoz_stats
 
 N_BOOT = 2000
@@ -29,8 +30,7 @@ def metric_record(pred: FloatArray, z: FloatArray) -> dict[str, float]:
 
 
 def tile_members(tiles: NDArray[Any]) -> list[NDArray[np.intp]]:
-    uniq, inv = np.unique(tiles, return_inverse=True)
-    return [np.flatnonzero(inv == i) for i in range(len(uniq))]
+    return group_members(tiles)
 
 
 def tile_boot(
@@ -44,13 +44,14 @@ def tile_boot(
     if not len(z):
         return [np.nan, np.nan]
     mem = tile_members(tiles)
-    rng = np.random.default_rng(seed)
-    reps: list[float] = []
-    for _ in range(n_boot):
-        ix = np.concatenate([mem[i] for i in rng.integers(0, len(mem), len(mem))])
+
+    def difference(draw: Indices) -> float:
+        ix = np.concatenate([mem[i] for i in draw])
         base = photoz_stats(b[ix], z[ix])[0] if b is not None else 0.0
-        reps.append(photoz_stats(a[ix], z[ix])[0] - base)
-    return [float(x) for x in np.percentile(reps, [2.5, 97.5])]
+        return photoz_stats(a[ix], z[ix])[0] - base
+
+    reps = bootstrap_distribution(difference, (len(mem),), n_boot, seed)
+    return [float(v) for v in np.percentile(reps, [2.5, 97.5])]
 
 
 def seed_tile_boot(
@@ -64,18 +65,17 @@ def seed_tile_boot(
     if not len(z):
         return [np.nan, np.nan], [np.nan, np.nan]
     mem = tile_members(tiles)
-    rng = np.random.default_rng(seed)
     pb = pb[None] if pb.ndim == 1 else pb
-    reps: list[tuple[float, float]] = []
-    for _ in range(n_boot):
-        ix = np.concatenate([mem[i] for i in rng.integers(0, len(mem), len(mem))])
-        ea = pa[rng.integers(0, len(pa), len(pa))].mean(0)[ix]
-        eb = pb[rng.integers(0, len(pb), len(pb))].mean(0)[ix]
-        na, oa, _ = photoz_stats(ea, z[ix])
-        nb, ob, _ = photoz_stats(eb, z[ix])
-        reps.append((na - nb, oa - ob))
-    lo, hi = np.percentile(np.array(reps), [2.5, 97.5], axis=0)
-    return [float(lo[0]), float(hi[0])], [float(lo[1]), float(hi[1])]
+
+    def difference(draw: Indices, seeds_a: Indices, seeds_b: Indices) -> FloatArray:
+        ix = np.concatenate([mem[i] for i in draw])
+        na, oa, _ = photoz_stats(pa[seeds_a].mean(0)[ix], z[ix])
+        nb, ob, _ = photoz_stats(pb[seeds_b].mean(0)[ix], z[ix])
+        return np.array([na - nb, oa - ob])
+
+    reps = bootstrap_distribution(difference, (len(mem), len(pa), len(pb)), n_boot, seed)
+    bounds = np.percentile(reps, [2.5, 97.5], axis=-1)
+    return bounds[:, 0].tolist(), bounds[:, 1].tolist()
 
 
 def seed_summary(
@@ -132,19 +132,26 @@ def arm_boot(
     seed: int = ARM_SEED,
 ) -> dict[str, dict[str, FloatArray]]:
     mem = tile_members(tiles)
-    rng = np.random.default_rng(seed)
-    out = {m: {c: np.empty((n_boot, 2)) for c in comps} for m in models}
+    if not models or not comps or n_boot == 0:
+        return {m: {c: np.empty((n_boot, 2)) for c in comps} for m in models}
     counts = sorted({len(v) for v in models.values()})
-    for r in range(n_boot):
-        ix = np.concatenate([mem[i] for i in rng.integers(0, len(mem), len(mem))])
+
+    def differences(draw: Indices, *seeds: Indices) -> FloatArray:
+        ix = np.concatenate([mem[i] for i in draw])
         zz = z[ix]
-        cs = {c: photoz_stats(v[ix], zz) for c, v in comps.items()}
-        pick = {k: rng.integers(0, k, k) for k in counts}
-        for m, v in models.items():
-            nm, om, _ = photoz_stats(v[pick[len(v)]].mean(0)[ix], zz)
-            for c, (nc, oc, _) in cs.items():
-                out[m][c][r] = (nm - nc, om - oc)
-    return out
+        picks = dict(zip(counts, seeds, strict=True))
+        reference = np.array([photoz_stats(v[ix], zz)[:2] for v in comps.values()])
+        predicted = np.array([
+            photoz_stats(v[picks[len(v)]].mean(0)[ix], zz)[:2] for v in models.values()
+        ])
+        delta: FloatArray = predicted[:, None, :] - reference
+        return delta
+
+    reps = bootstrap_distribution(differences, (len(mem), *counts), n_boot, seed)
+    return {
+        m: {c: reps[i, j].T for j, c in enumerate(comps)}
+        for i, m in enumerate(models)
+    }
 
 
 def arm_summary(

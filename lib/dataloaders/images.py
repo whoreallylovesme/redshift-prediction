@@ -7,6 +7,7 @@ import pandas as pd
 import torch
 from numpy.typing import NDArray
 from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
 from torch.utils.data import DataLoader, Dataset, WeightedRandomSampler
 
 from lib.config import PytorchTrainConfig
@@ -14,7 +15,9 @@ from lib.config.schemas import ImageCatalogConfig
 from lib.dataloaders.common import (
     center_crop,
     inverse_bin_weights,
+    read_npz_pixels,
     resize_square,
+    standardize_channels,
     subsample_indices,
 )
 from lib.dataloaders.dataset import exact_index
@@ -51,8 +54,7 @@ def catalog(path: Path, spec: ImageCatalogConfig) -> pd.DataFrame:
 
 
 def pixels(path: Path, key: str) -> NDArray[np.float32]:
-    with np.load(path, allow_pickle=False) as archive:
-        array = np.asarray(archive[key], dtype=np.float32)
+    array = read_npz_pixels(path, key)
     if array.ndim == 2:
         array = array[:, :, None]
     if array.ndim != 3 or not all(array.shape) or not np.isfinite(array).all():
@@ -61,26 +63,13 @@ def pixels(path: Path, key: str) -> NDArray[np.float32]:
 
 
 def channel_stats(paths: list[Path], key: str) -> Stats:
-    count = 0
-    mean = np.zeros(0, dtype=np.float64)
-    moment = np.zeros(0, dtype=np.float64)
+    if not paths:
+        raise ValueError("Image training split is empty")
+    scaler = StandardScaler()
     for path in paths:
         image = pixels(path, key)
-        values = image.reshape(-1, image.shape[-1]).astype(np.float64)
-        batch_mean = values.mean(axis=0)
-        if not count:
-            mean = np.zeros_like(batch_mean)
-            moment = np.zeros_like(batch_mean)
-        if mean.shape != batch_mean.shape:
-            raise ValueError(f"{path}: inconsistent image channel count")
-        delta = batch_mean - mean
-        n = len(values)
-        moment += np.sum((values - batch_mean) ** 2, axis=0) + delta**2 * count * n / (count + n)
-        mean += delta * n / (count + n)
-        count += n
-    if not count:
-        raise ValueError("Image training split is empty")
-    return mean.astype(np.float32), np.sqrt(moment / count).astype(np.float32)
+        scaler.partial_fit(image.reshape(-1, image.shape[-1]))
+    return scaler.mean_.astype(np.float32), np.sqrt(scaler.var_).astype(np.float32)
 
 
 class Images(Dataset[tuple[ImageInput, torch.Tensor]]):
@@ -127,7 +116,7 @@ class Images(Dataset[tuple[ImageInput, torch.Tensor]]):
             if self.crop > min(h, w):
                 raise ValueError(f"{path}: requested crop exceeds image dimensions")
             image = center_crop(image, self.crop)
-        tensor = torch.from_numpy((image - self.mean) / (self.std + 1e-8)).permute(2, 0, 1)
+        tensor = standardize_channels(image, self.mean, self.std)
         tensor = resize_square(tensor, self.size)
         target = torch.tensor(self.targets[index])
         if self.features is not None:

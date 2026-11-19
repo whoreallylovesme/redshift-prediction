@@ -9,6 +9,7 @@ import numpy as np
 from numpy.typing import NDArray
 from pydantic import BaseModel
 
+from lib.metrics.dispersion import scaled_mad
 from lib.utils.utils import check
 
 BANDS = (
@@ -173,11 +174,12 @@ def transform_spectrum(
     f = a["spectrum_flux_cgs"].astype(np.float64)
     e = a["spectrum_error_cgs"].astype(np.float64)
     w = a["spectrum_wavelength_angstrom"].astype(np.float64)
-    centre = float(np.median(f[valid]))
-    mad = float(1.4826 * np.median(np.abs(f[valid] - centre)))
+    observed_flux = f[valid]
+    centre = float(np.median(observed_flux))
+    mad = scaled_mad(observed_flux, median=centre)
     scale = max(mad, float(np.median(e[valid])), float(floor))
     check(np.isfinite(scale) and scale > 0, "positive spectrum scale")
-    result[valid, 0] = ((f[valid] - centre) / scale).astype(np.float32)
+    result[valid, 0] = ((observed_flux - centre) / scale).astype(np.float32)
     result[valid, 1] = (e[valid] / scale).astype(np.float32)
     result[valid, 2] = 1
     result[valid, 3] = np.log(w[valid] / 15000.0).astype(np.float32)

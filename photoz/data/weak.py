@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 from pathlib import Path
 from typing import Any, Literal
@@ -10,6 +9,7 @@ import pandas as pd
 from pydantic import BaseModel, Field
 
 from lib.config.snapshot import record_config
+from lib.utils.artifacts import open_verified
 from lib.utils.utils import load_yaml_as
 from photoz.data.identifiers import exact_ids as exact_ids
 
@@ -55,10 +55,7 @@ def validate_cohort(frame: pd.DataFrame, excluded: pd.DataFrame) -> None:
 
 
 def checked_read(path: Path, sha: str, *, parquet: bool, columns: list[str] | None = None) -> Any:
-    with path.open("rb") as stream:
-        if hashlib.file_digest(stream, "sha256").hexdigest() != sha:
-            raise ValueError(f"Frozen digest mismatch: {path}")
-        stream.seek(0)
+    with open_verified(path, sha) as stream:
         return pd.read_parquet(stream, columns=columns) if parquet else json.load(stream)
 
 

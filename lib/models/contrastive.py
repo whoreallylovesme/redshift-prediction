@@ -3,8 +3,10 @@ from collections.abc import Mapping, Sequence
 from itertools import combinations
 
 import torch
-from torch import Tensor
+from torch import Tensor, nn
 from torch.nn import functional as F
+
+from lib.models.encoders import EncodedModality, boolean_mask
 
 
 def masked_pairwise_clip(
@@ -50,3 +52,20 @@ def masked_pairwise_clip(
     if not losses:
         raise ValueError("no modality pair has two distinct observed objects")
     return torch.stack(losses).mean(), counts
+
+
+class ProjectionHead(nn.Module):
+    def __init__(self, in_features: int, out_features: int) -> None:
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(in_features, in_features), nn.GELU(), nn.Linear(in_features, out_features)
+        )
+
+    def forward(self, value: EncodedModality) -> Tensor:
+        features = value.features
+        if features.ndim != 2:
+            raise ValueError("Projection input must be a matrix of feature vectors")
+        available = boolean_mask(value.available, (len(features),), features.device)[:, None]
+        clean = torch.where(available, features, 0.0)
+        projected = F.normalize(self.net(clean), dim=1, eps=1e-6)
+        return torch.where(available, projected, torch.zeros_like(projected))

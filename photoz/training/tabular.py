@@ -13,12 +13,13 @@ from pydantic import BaseModel, ConfigDict, Field
 from torch import Tensor
 from torch.utils.data import DataLoader, TensorDataset
 
+from lib.dataloaders.batches import ShuffledRowBatches
 from lib.train.lightning import fit_best, predict_batches
 from lib.utils.utils import load_yaml_as, pick_device
 from photoz.data.euclid_transforms import BANDS
 from photoz.models.euclid_clip import DESCRIPTOR_DIM, TABLE_BANDS
 from photoz.models.tabular import Architecture, TableRegressor
-from photoz.training.clip_epochs import OptimizerSchedule, ShuffledRowBatches, scheduled_adamw
+from photoz.training.clip_epochs import OptimizerSchedule, scheduled_adamw
 
 
 class TableRecipe(BaseModel):

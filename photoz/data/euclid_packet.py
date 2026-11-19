@@ -11,6 +11,7 @@ import torch
 from numpy.typing import NDArray
 from torch import Tensor, nn
 
+from lib.dataloaders.common import d4 as d4
 from lib.utils.utils import check
 from photoz.models.euclid_clip import CLIPModel, ITNetwork
 
@@ -146,21 +147,6 @@ def holdout_tiles(
         held += rng.choice(tiles, n_held, replace=False).tolist()
     mask = np.isin(owner[ssl], held)
     return ssl[~mask], ssl[mask], sorted(int(t) for t in held), owner
-
-
-def d4(image: Tensor, codes: Tensor) -> Tensor:
-    if image.ndim != 4 or image.shape[-1] != image.shape[-2] or codes.shape != (len(image),):
-        raise ValueError("square image batch and one D4 code per object")
-    if torch.any((codes < 0) | (codes > 7)):
-        raise ValueError("D4 code outside 0..7")
-    transformed = torch.empty_like(image)
-    for code in range(8):
-        selected = codes == code
-        if not torch.any(selected):
-            continue
-        x = torch.rot90(image[selected], code % 4, dims=(-2, -1))
-        transformed[selected] = x.flip(-1) if code >= 4 else x
-    return transformed
 
 
 def schedule_lr(

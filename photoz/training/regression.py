@@ -6,7 +6,7 @@ from torch import nn
 from lib.config import PytorchTrainConfig
 from lib.train.regression import RegressionTask
 from lib.train.utils import WeightedHuberLoss
-from photoz.metrics import bias, evaluate_regression, nmad, outlier_percent
+from photoz.metrics import bias, nmad, outlier_percent
 
 
 def epoch_metrics(truth: pd.Series, prediction: NDArray[np.float64]) -> dict[str, float]:
@@ -22,6 +22,3 @@ def photoz_regression_task(cfg: PytorchTrainConfig) -> RegressionTask:
     if cfg.z_weight_alpha > 0:
         criterion = WeightedHuberLoss(delta=0.1, alpha=cfg.z_weight_alpha)
     return RegressionTask(criterion=criterion, epoch_metrics=epoch_metrics, monitor="val/nmad")
-
-
-sklearn_metrics = evaluate_regression

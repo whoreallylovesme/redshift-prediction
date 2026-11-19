@@ -10,7 +10,15 @@ from numpy.typing import NDArray
 from torch import Tensor, nn
 from torch.nn import functional as F
 
+from lib.models.contrastive import ProjectionHead as ContrastiveProjectionHead
 from lib.models.contrastive import masked_pairwise_clip as masked_pairwise_clip
+from lib.models.encoders import (
+    EncodedModality,
+    MaskedTableEncoder,
+    boolean_mask,
+    declared_mask,
+    finite_observations,
+)
 from lib.models.encoders import ResidualBlock as ResidualBlock
 from lib.models.encoders import attention_stack as attention_stack
 from lib.models.encoders import regression_head as photoz_head
@@ -24,35 +32,6 @@ NBIN = 200
 LMAX = float(np.log1p(6.0))
 EDGES: NDArray[np.float64] = np.linspace(0.0, LMAX, NBIN + 1)
 CENTRES: NDArray[np.float64] = 0.5 * (EDGES[1:] + EDGES[:-1])
-
-
-def declared_mask(value: Tensor | None, batch: int, device: torch.device) -> Tensor:
-    if value is None:
-        return torch.ones(batch, dtype=torch.bool, device=device)
-    check(
-        value.shape == (batch,) and value.dtype == torch.bool and value.device == device,
-        "availability must be boolean (batch,) on the input device",
-    )
-    return value
-
-
-def boolean_mask(value: Tensor, shape: tuple[int, ...], device: torch.device) -> Tensor:
-    check(
-        value.shape == shape and value.dtype == torch.bool and value.device == device,
-        "native validity must be boolean and match the input shape and device",
-    )
-    return value
-
-
-def finite_observations(values: Tensor, valid: Tensor) -> Tensor:
-    check(torch.isfinite(values[valid]).all(), "observed input contains NaN or Inf")
-    return torch.where(valid, values, torch.zeros((), device=values.device, dtype=values.dtype))
-
-
-@dataclass
-class EncodedModality:
-    features: Tensor
-    available: Tensor
 
 
 @dataclass
@@ -110,52 +89,11 @@ class ImageEncoder(nn.Module):
         return EncodedModality(scatter_features(h, active, batch), available)
 
 
-class TableEncoder(nn.Module):
-    def __init__(self) -> None:
-        super().__init__()
-        self.token = nn.Sequential(
-            nn.Linear(2 + DESCRIPTOR_DIM, 128), nn.GELU(), nn.Linear(128, 128)
-        )
-        self.attention = attention_stack(2)
-        self.norm = nn.LayerNorm(128)
-        self.output = nn.Linear(128, FEATURE_DIM)
+class TableEncoder(MaskedTableEncoder):
+    input_shape = (TABLE_BANDS, 2, DESCRIPTOR_DIM)
 
-    def forward(
-        self,
-        table_values: Tensor,
-        table_mask: Tensor,
-        table_descriptor: Tensor,
-        table_available: Tensor | None = None,
-    ) -> EncodedModality:
-        check(
-            table_values.ndim == 3 and table_values.shape[1:] == (TABLE_BANDS, 2),
-            "table values must be Bx14x2",
-        )
-        batch = len(table_values)
-        valid = boolean_mask(table_mask, (batch, TABLE_BANDS), table_values.device)
-        declared = declared_mask(table_available, batch, table_values.device)
-        valid = valid & declared[:, None]
-        available = valid.any(1)
-        check(table_descriptor.device == table_values.device, "filter descriptors on input device")
-        if table_descriptor.shape == (TABLE_BANDS, DESCRIPTOR_DIM):
-            descriptor = table_descriptor.unsqueeze(0).expand(batch, -1, -1)
-        else:
-            check(
-                table_descriptor.shape == (batch, TABLE_BANDS, DESCRIPTOR_DIM),
-                "filter descriptor shape 14x18 or Bx14x18",
-            )
-            descriptor = table_descriptor
-        check(torch.isfinite(descriptor).all(), "physical filter constants must all be finite")
-        clean = finite_observations(table_values, valid[..., None].expand_as(table_values))
-        active = torch.nonzero(available, as_tuple=False).flatten()
-        if not len(active):
-            return EncodedModality(table_values.new_zeros((batch, FEATURE_DIM)), available)
-        mask = valid[active]
-        tokens = self.token(torch.cat((clean[active], descriptor[active]), -1))
-        encoded = self.norm(self.attention(tokens, src_key_padding_mask=~mask))
-        pooled = (encoded * mask[..., None]).sum(1) / mask.sum(1, keepdim=True)
-        features = self.output(pooled)
-        return EncodedModality(scatter_features(features, active, batch), available)
+    def __init__(self) -> None:
+        super().__init__(*self.input_shape, FEATURE_DIM)
 
 
 class SpectrumEncoder(nn.Module):
@@ -243,16 +181,9 @@ class ITNetwork(nn.Module):
         return EncodedIT(im, tab)
 
 
-class ProjectionHead(nn.Module):
+class ProjectionHead(ContrastiveProjectionHead):
     def __init__(self) -> None:
-        super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(FEATURE_DIM, FEATURE_DIM), nn.GELU(), nn.Linear(FEATURE_DIM, 128)
-        )
-
-    def forward(self, value: EncodedModality) -> Tensor:
-        projected = F.normalize(self.net(value.features), dim=1, eps=1e-6)
-        return torch.where(value.available[:, None], projected, torch.zeros_like(projected))
+        super().__init__(FEATURE_DIM, 128)
 
 
 class CLIPModel(nn.Module):

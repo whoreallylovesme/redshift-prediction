@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 from numpy.typing import NDArray
 
+from lib.metrics.dispersion import scaled_mad
 from lib.metrics.regression import Floats, mae, r2, rmse
 
 
@@ -22,8 +23,7 @@ def bias(y_true: pd.Series | Floats, y_pred: Floats) -> float:
 
 
 def nmad(y_true: pd.Series | Floats, y_pred: Floats) -> float:
-    dz = delta(y_true, y_pred)
-    return float(1.4826 * np.median(np.abs(dz - np.median(dz))))
+    return scaled_mad(delta(y_true, y_pred))
 
 
 def outlier_fraction(y_true: pd.Series | Floats, y_pred: Floats, threshold: float = 0.15) -> float:

@@ -11,10 +11,11 @@ from torch import Tensor
 from torch.utils.data import TensorDataset
 
 from lib.train.lightning import predict_batches
+from lib.train.likelihood import LikelihoodModule, row_loader
 from lib.utils.utils import load_yaml_as
 from photoz.models.density import piecewise_uniform_nll, posterior_quantiles
 from photoz.models.prototype_graph import ContextMode, PrototypeGraphDensity
-from photoz.training.likelihood import LikelihoodModule, LikelihoodRecipe, partition, row_loader
+from photoz.training.likelihood import LikelihoodRecipe, partition
 
 
 class GraphRecipe(LikelihoodRecipe):

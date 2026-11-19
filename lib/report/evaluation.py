@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 
 from lib.dataloaders.dataset import exact_index, matching_id_types
+from lib.metrics.bootstrap import Indices, bootstrap_distribution, group_members
 
 from .examples import example_assets, native_posteriors, posterior_diagnostics
 from .task import Floats, ReportTask, resolve_task, scores
@@ -361,20 +362,30 @@ def interval_for_delta(
 ) -> dict[str, list[float]] | None:
     if repeats < 2 or "_group" not in frame or frame._group.isna().any():
         return None
-    groups = list(frame.groupby("_group", sort=True).indices.values())
+    groups = group_members(frame["_group"])
     if len(groups) < 2:
         return None
-    rng = np.random.default_rng(0)
     truth, a, b = (numeric(frame[c]) for c in ("_truth", "_pred", "_other"))
-    draws: dict[str, list[float]] = {key: [] for key in task.metrics}
-    for _ in range(repeats):
-        ix = np.concatenate([groups[int(i)] for i in rng.integers(len(groups), size=len(groups))])
-        left, right = scores(task, truth[ix], a[ix]), scores(task, truth[ix], b[ix])
-        for key in draws:
-            x, y = left[key], right[key]
-            if x is not None and y is not None:
-                draws[key].append(x - y)
-    return {k: np.percentile(values, [2.5, 97.5]).tolist() for k, values in draws.items() if values}
+
+    def differences(draw: Indices) -> Floats:
+        ix = np.concatenate([groups[i] for i in draw])
+        observed = truth[ix]
+        left, right = scores(task, observed, a[ix]), scores(task, observed, b[ix])
+        result = np.empty((len(task.metrics), 2))
+        for i, name in enumerate(task.metrics):
+            x, y = left[name], right[name]
+            if x is None or y is None:
+                result[i] = (np.nan, False)
+            else:
+                result[i] = (x - y, True)
+        return result
+
+    draws = bootstrap_distribution(differences, (len(groups),), repeats, 0)
+    intervals = {}
+    for name, (delta, defined) in zip(task.metrics, draws, strict=True):
+        if defined.any():
+            intervals[name] = np.percentile(delta[defined.astype(bool)], [2.5, 97.5]).tolist()
+    return intervals
 
 
 def examples(
@@ -424,6 +435,8 @@ def paired(
         raise ValueError("Paired IDs have inconsistent group membership")
     good = af._evaluated & bf._evaluated
     frame = af.loc[good].assign(_other=bf.loc[good, "_pred"])
+    if "_group" not in frame and "_group" in bf:
+        frame["_group"] = bf.loc[good, "_group"]
     t, x, y = (numeric(frame[key]) for key in ("_truth", "_pred", "_other"))
     left, right = scores(task, t, x), scores(task, t, y)
     delta = {}

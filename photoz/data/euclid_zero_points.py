@@ -10,6 +10,8 @@ import numpy as np
 from numpy.typing import NDArray
 from pydantic import BaseModel
 
+from lib.metrics.bootstrap import Indices, bootstrap_distribution
+from lib.metrics.dispersion import scaled_mad
 from lib.utils.log import get_logger
 from lib.utils.utils import check
 from photoz.data.euclid_translation import (
@@ -148,11 +150,14 @@ def run(d: Sample, zpc: F64, grids: Grids, bands: Sequence[int] = ALL_BANDS) -> 
 
 def tile_draws(tile: I64, nboot: int, seed: int) -> Draws:
     tu, ti = np.unique(tile, return_inverse=True)
-    rng = np.random.default_rng(seed)
-    cnt = np.stack(
-        [np.bincount(rng.integers(0, len(tu), len(tu)), minlength=len(tu)) for _ in range(nboot)]
-    )
-    return tu, ti, cnt
+    if not len(tu):
+        return tu, ti, np.empty((nboot, 0), dtype=np.int64)
+
+    def counts(selected: Indices) -> I64:
+        return np.bincount(selected, minlength=len(tu))
+
+    multiplicities = bootstrap_distribution(counts, (len(tu),), nboot, seed)
+    return tu, ti, multiplicities.T
 
 
 def boot_median(x: F64, ti: I64, cnt: I64) -> F64:
@@ -160,7 +165,7 @@ def boot_median(x: F64, ti: I64, cnt: I64) -> F64:
 
 
 def nmad(x: F64) -> float | None:
-    return float(1.4826 * np.median(np.abs(x - np.median(x)))) if len(x) else None
+    return scaled_mad(x) if len(x) else None
 
 
 def summarize(d: Sample, pred: F64, use: Bool, zpc: F64, draws: Draws) -> dict[str, BandFit]:

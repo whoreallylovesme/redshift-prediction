@@ -12,9 +12,10 @@ from torch import Tensor
 from torch.utils.data import TensorDataset
 
 from lib.train.lightning import predict_batches
+from lib.train.likelihood import LikelihoodModule, row_loader
 from lib.utils.utils import load_yaml_as
 from photoz.models.masked_photometry import MaskedFluxEncoder, masked_gaussian_nll, sample_mask
-from photoz.training.likelihood import LikelihoodModule, LikelihoodRecipe, partition, row_loader
+from photoz.training.likelihood import LikelihoodRecipe, partition
 
 
 class MaskedRecipe(LikelihoodRecipe):

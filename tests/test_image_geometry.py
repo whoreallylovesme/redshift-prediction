@@ -64,6 +64,34 @@ class ImageGeometryTests(TestCase):
             self.assertEqual(big_endian.dtype, native_stamps.dtype)
             np.testing.assert_array_equal(big_endian, old_crop(native_stamps, 6))
 
+    def test_numpy_crop_and_quarter_turns_preserve_source_dtype_and_spatial_axes(self) -> None:
+        state = np.random.get_state()
+        self.addCleanup(np.random.set_state, state)
+        for dtype in (np.uint16, np.uint32, np.uint64, np.longdouble):
+            wide = np.arange(35, dtype=dtype).reshape(7, 5)
+            if dtype is np.uint64:
+                wide = wide.astype(np.uint64) + np.uint64(2**63 + 1)
+            for image in (wide[::-1], wide[1:2, :, None], wide[:, :, None, None]):
+                with self.subTest(dtype=dtype, shape=image.shape):
+                    cropped = center_crop(image, 3)
+                    np.testing.assert_array_equal(cropped, old_crop(image, 3), strict=True)
+                    for seed in range(8):
+                        rng = np.random.RandomState(seed)
+                        draw = rng.rand()
+                        if draw < 0.5:
+                            turns = int(rng.randint(4))
+                            expected = np.rot90(image, turns)
+                            changed = bool(turns)
+                        else:
+                            expected = np.flip(image, axis=int(rng.randint(2)))
+                            changed = True
+                        np.random.seed(seed)
+                        actual = random_rot90_flip(image, 0.5, 0.5)
+                        np.testing.assert_array_equal(actual, expected, strict=True)
+                        self.assertEqual(np.random.rand(), rng.rand())
+                        if changed and dtype is not np.longdouble:
+                            torch.from_numpy(actual)
+
     def test_seeded_orientations_preserve_band_alignment_and_rng_state(self) -> None:
         random_state = np.random.get_state()
         self.addCleanup(np.random.set_state, random_state)

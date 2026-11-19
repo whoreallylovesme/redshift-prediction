@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import re
@@ -23,6 +22,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from lib.config.snapshot import record_config
 from lib.report.posterior_metadata import METADATA_KEY, PosteriorMetadata
+from lib.utils.artifacts import sha256_file as sha256
 from lib.utils.log import get_logger
 from lib.utils.utils import check, load_yaml_as
 from photoz.data.euclid_transforms import BANDS
@@ -218,11 +218,6 @@ class PhosphorosConfig(BaseModel):
     sets: dict[str, SetConfig]
     variants: dict[str, VariantConfig] = Field(default_factory=dict)
     south_workspace: SouthWorkspaceConfig | None = None
-
-
-def sha256(path: Path) -> str:
-    with path.open("rb") as stream:
-        return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
 def config_values(path: Path) -> dict[str, str]:

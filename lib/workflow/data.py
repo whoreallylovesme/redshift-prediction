@@ -16,13 +16,9 @@ from sklearn.model_selection import train_test_split
 from lib.config import DatasetConfig
 from lib.config.experiment import Dataset, DatasetFactory
 from lib.dataloaders.dataset import exact_index, matching_id_types
+from lib.utils.artifacts import sha256_file as digest
 from lib.utils.utils import load_yaml_as, plugin
 from lib.utils.utils import symbol as symbol
-
-
-def digest(path: Path) -> str:
-    with path.open("rb") as stream:
-        return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
 def code_version(plugins: list[str]) -> str:

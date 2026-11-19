@@ -6,7 +6,14 @@ import torch
 from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader, Dataset, WeightedRandomSampler
 
-from lib.dataloaders.common import center_crop, orient, subsample_indices
+from lib.dataloaders.common import (
+    center_crop,
+    inverse_bin_weights,
+    orient,
+    read_npz_pixels,
+    standardize_channels,
+    subsample_indices,
+)
 
 
 def _center_crop_resize(img: np.ndarray, crop_size: int, out_size: int = 224) -> np.ndarray:
@@ -14,11 +21,9 @@ def _center_crop_resize(img: np.ndarray, crop_size: int, out_size: int = 224) ->
 
 
 def read_bands(path: Path, in_channels: int, w1w2_path: Path | None = None) -> np.ndarray:
-    with np.load(path, allow_pickle=False) as archive:
-        img: np.ndarray = archive["image"].astype(np.float32)[:, :, :in_channels]
+    img = read_npz_pixels(path, "image")[:, :, :in_channels]
     if w1w2_path is not None:
-        with np.load(w1w2_path, allow_pickle=False) as archive:
-            extra = archive["image"].astype(np.float32)[:, :, :2]
+        extra = read_npz_pixels(w1w2_path, "image")[:, :, :2]
         img = np.concatenate([img, extra], axis=2)
     return img
 
@@ -32,7 +37,7 @@ def normalized_image(
 ) -> torch.Tensor:
     if crop_size is not None and crop_size < img.shape[0]:
         img = _center_crop_resize(img, crop_size, out_size)
-    return torch.from_numpy((img - mean) / (std + 1e-8)).permute(2, 0, 1)
+    return standardize_channels(img, mean, std)
 
 
 def parse_catalog(catalog_path: str | Path) -> dict[str, float]:
@@ -119,15 +124,7 @@ def compute_stats(
     return all_pixels.mean(axis=0).astype(np.float32), all_pixels.std(axis=0).astype(np.float32)
 
 def _compute_sample_weights(labels: list[float], n_bins: int = 20) -> npt.NDArray[np.float64]:
-    arr = np.array(labels)
-    bins = np.linspace(arr.min(), arr.max() + 1e-8, n_bins + 1)
-    bin_idx = np.digitize(arr, bins) - 1
-    bin_idx = np.clip(bin_idx, 0, n_bins - 1)
-    counts = np.bincount(bin_idx, minlength=n_bins).astype(np.float64)
-    counts[counts == 0] = 1.0
-    bin_weights = 1.0 / counts
-    sample_weights: npt.NDArray[np.float64] = bin_weights[bin_idx]
-    return sample_weights
+    return inverse_bin_weights(np.asarray(labels), n_bins)
 
 def get_npz_dataloaders(
     data_dir: str | Path,

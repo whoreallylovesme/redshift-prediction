@@ -11,6 +11,8 @@ from numpy.typing import NDArray
 from pydantic import BaseModel
 from torch import Tensor
 
+from lib.dataloaders.batches import ShuffledRowBatches
+from lib.dataloaders.common import d4
 from lib.train.lightning import single_device_trainer
 from lib.utils.log import log_event
 from lib.utils.torch_utils import configure_torch
@@ -25,7 +27,6 @@ from photoz.data.euclid_packet import (
     WD,
     Packet,
     Rows,
-    d4,
     reset_rng,
     state_copy,
 )
@@ -33,7 +34,6 @@ from photoz.models.euclid_clip import CLIPModel, ITNetwork
 from photoz.training.clip_epochs import (
     ClipTrainingEpoch,
     OptimizerSchedule,
-    ShuffledRowBatches,
     scheduled_adamw,
 )
 

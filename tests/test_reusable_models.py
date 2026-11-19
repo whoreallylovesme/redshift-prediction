@@ -11,6 +11,21 @@ from lib.models.masked import MaskedPrediction, masked_gaussian_nll, sample_mask
 
 
 class ReusableModelTests(TestCase):
+    def test_signed_bounded_target_and_historical_redshift_limits(self) -> None:
+        from lib.models.targets import bounded_logit, scaled_sigmoid
+        from photoz.targets import logistic_to_z, z_to_logistic
+
+        signed = torch.tensor([-4.5, 0.0, 7.0], dtype=torch.float64, requires_grad=True)
+        restored = scaled_sigmoid(bounded_logit(signed, -5, 10), -5, 10)
+        torch.testing.assert_close(restored, signed)
+        restored.sum().backward()
+        torch.testing.assert_close(signed.grad, torch.ones_like(signed))
+
+        z = torch.tensor([-0.02, 0.0, 0.2, 0.4, 0.42])
+        historical = torch.log(z.clamp_min(1e-6) / (0.4 - z).clamp_min(1e-6))
+        torch.testing.assert_close(z_to_logistic(z), historical, rtol=0, atol=0)
+        torch.testing.assert_close(logistic_to_z(historical), 0.4 * historical.sigmoid())
+
     def test_old_serialized_class_names_resolve_to_current_estimators(self) -> None:
         from lib.models.gam import GAMRegressor
         from lib.models.llr import LocalLinearRegression

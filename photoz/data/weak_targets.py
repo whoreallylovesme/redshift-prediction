@@ -9,22 +9,20 @@ from tempfile import NamedTemporaryFile
 from typing import Literal
 
 import pandas as pd
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
+from lib.utils.artifacts import PinnedFile
 from lib.utils.utils import load_yaml_as
 from photoz.data.identifiers import exact_ids
 from photoz.data.weak import WEIGHTS, TargetProtocol, checked_read, validate_cohort
 
-
-class CandidateTable(BaseModel):
-    path: Path
-    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+CandidateTable = PinnedFile
 
 
 class TargetSources(BaseModel):
-    population: CandidateTable
-    halpha: CandidateTable
-    ambiguous_spe: CandidateTable
+    population: PinnedFile
+    halpha: PinnedFile
+    ambiguous_spe: PinnedFile
 
 
 def assign_weak_targets(
@@ -96,7 +94,7 @@ def prepare_targets(recipe: Path, sources: Path, output: Path) -> Path:
     inputs = load_yaml_as(str(sources), TargetSources)
     frozen = checked_read(recipe.parent / cfg.protocol, cfg.protocol_sha256, parquet=False)
 
-    def read_candidate(item: CandidateTable, columns: list[str]) -> pd.DataFrame:
+    def read_candidate(item: PinnedFile, columns: list[str]) -> pd.DataFrame:
         return checked_read(sources.parent / item.path, item.sha256, parquet=True, columns=columns)
 
     def read_protocol(key: str, path: Path, columns: list[str]) -> pd.DataFrame:
