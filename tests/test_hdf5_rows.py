@@ -113,6 +113,31 @@ class HDF5RowsTest(TestCase):
             legacy_photoz._worker_init_fn,
         )
 
+    def test_checkout_restores_pickle_with_stale_editable_metadata(self) -> None:
+        directory = self.path.parent
+        metadata = directory / "astro-0.1.0.dist-info"
+        metadata.mkdir()
+        (metadata / "METADATA").write_text(
+            "Metadata-Version: 2.1\nName: astro\nVersion: 0.1.0\n"
+        )
+        source = """
+import pickle
+import sys
+from importlib.metadata import entry_points
+
+sys.path.insert(0, sys.argv[1])
+assert not entry_points(group="astro.legacy.lib.dataloaders.hdf5")
+from lib.dataloaders import hdf5
+
+assert "photoz" not in sys.modules
+assert not hasattr(hdf5, "unknown")
+assert "HDF5Dataset" in hdf5.__all__
+dataset = pickle.loads(b"clib.dataloaders.hdf5\\nHDF5Dataset\\n.")
+from photoz.data.hayat import HayatDataset
+assert dataset is HayatDataset
+"""
+        subprocess.run([sys.executable, "-c", source, str(directory)], check=True)
+
     def test_legacy_hayat_tuple_preserves_subset_labels_and_cropped_pixels(self) -> None:
         from lib.dataloaders.hdf5 import HDF5Dataset
 
