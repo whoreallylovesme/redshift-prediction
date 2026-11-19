@@ -16,7 +16,7 @@ from torch.optim import Adam
 from torch.optim.lr_scheduler import ExponentialLR
 from torch.utils.data import DataLoader
 
-from lib.models.capsnet import CapsNet, margin_loss
+from lib.models.nn.capsnet import CapsNet, margin_loss
 from lib.train.lightning import export_weights, single_device_trainer
 from lib.utils.log import get_logger
 from lib.utils.utils import pick_device

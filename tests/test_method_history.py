@@ -16,17 +16,17 @@ class MethodHistoryTests(TestCase):
             predictions.touch()
             expected = [{"epoch": 1, "FVALID_logMSE": 0.07}]
             (directory / "train_report.json").write_text(json.dumps({"history": expected}))
-            external = External(
-                kind="external", predictor="fixtures:predict", recipe=Path("r.yaml")
-            )
-            record = report_record("table", "val", external, str(predictions), {})
+            external = External(kind="external", model="fixtures:predict")
+            record = report_record("table", "val", external, str(predictions), None)
             self.assertEqual(load_history(record), expected)
 
             staged = directory / "log.jsonl"
             staged.write_text('{"stage":"A","epoch":1,"val":{"margin":0.5}}\n')
             external.report = PredictionColumns(history=staged)
-            record = report_record("staged", "val", external, str(predictions), {})
+            record = report_record("staged", "val", external, str(predictions), None)
             self.assertEqual(load_history(record)[0]["val.margin"], 0.5)
 
             saved = Saved(kind="saved", predictions=predictions)
-            self.assertNotIn("history", report_record("saved", "val", saved, str(predictions), {}))
+            self.assertNotIn(
+                "history", report_record("saved", "val", saved, str(predictions), None)
+            )

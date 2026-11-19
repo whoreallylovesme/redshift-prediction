@@ -3,16 +3,17 @@ from typing import Literal
 import torch
 from torch import Tensor, nn
 
-from lib.models.encoders import ResidualLayer as ResidualLayer
-from lib.models.encoders import ResidualMLPFeatures
-from photoz.models.euclid_clip import (
+from lib.models.nn.encoders import (
+    EncodedModality,
+    ResidualMLPFeatures,
+    finite_observations,
+    regression_head,
+)
+from photoz.models.nn.euclid_clip import (
     DESCRIPTOR_DIM,
     FEATURE_DIM,
     TABLE_BANDS,
-    EncodedModality,
     TableEncoder,
-    finite_observations,
-    photoz_head,
 )
 
 type Architecture = Literal["resmlp", "table_transformer"]
@@ -52,7 +53,7 @@ class TableRegressor(nn.Module):
         else:
             raise ValueError(f"Unknown table architecture {architecture!r}")
         torch.manual_seed(seed + 5000)
-        self.photoz_head = photoz_head(FEATURE_DIM + 1)
+        self.photoz_head = regression_head(FEATURE_DIM + 1)
 
     def forward(self, values: Tensor, mask: Tensor, descriptor: Tensor) -> Tensor:
         encoded = self.table_encoder(values, mask, descriptor, mask.sum(1) >= 2)

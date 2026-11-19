@@ -20,25 +20,26 @@ from prefect.futures import PrefectFuture
 from prefect.runtime import flow_run
 from prefect.task_runners import TaskRunner, ThreadPoolTaskRunner
 
-from lib.config import SklearnTrainConfig
+from lib.config import PytorchTrainConfig, SklearnTrainConfig
 from lib.config.experiment import (
     Dataset,
     Experiment,
     External,
+    ImageSplit,
     Lightning,
     MethodConfig,
     Saved,
     Tabular,
+    image_splits,
 )
 from lib.config.snapshot import (
     create_snapshot,
     public_config,
-    record_config,
     recording_configs,
-    resolve_methods,
+    write_method_recipes,
 )
 from lib.report.task import metric_suite, scores
-from lib.tracking import Tracker, bind_run, finish_with_snapshots
+from lib.tracking.mlflow import Tracker, bind_run, finish_with_snapshots
 from lib.train.sklearn import fit_regressor
 from lib.utils.utils import load_yaml_as
 from lib.workflow.data import code_version, digest, prepare_dataset, symbol, table
@@ -79,9 +80,6 @@ def fit(
         weight_column=data.get("weight_column"),
         metrics=lambda y, pred: scores(suite, y.to_numpy(), pred),
     )
-    summary.update(
-        missing_features=data.get("missing_features", []), feature_set=data.get("feature_set")
-    )
     return model, summary
 
 
@@ -110,20 +108,21 @@ def predict_table(
 
 @task(cache_policy=NO_CACHE)
 def external_prediction(
-    cfg: External, out: Path, uri: str | None, run_id: str | None, snapshot: Path | None = None
+    cfg: External, recipe: Path, out: Path, uri: str | None, run_id: str | None,
+    snapshot: Path | None = None,
 ) -> str:
     out.parent.mkdir(parents=True, exist_ok=True)
     lock = accelerator_lock() if cfg.resource == "accelerator" else nullcontext()
     with lock, bind_run(uri, run_id), recording_configs(snapshot):
-        return str(symbol(cfg.predictor)(config_path=cfg.recipe_path, out_dir=out, **cfg.options))
+        return str(symbol(cfg.model)(config_path=recipe, out_dir=out, **cfg.options))
 
 
 @task(cache_policy=NO_CACHE)
-def image_fit(cfg: Lightning, out: Path, uri: str | None, run_id: str | None) -> str:
-    from runtime.train import train
+def image_fit(recipe: Path, out: Path, uri: str | None, run_id: str | None) -> str:
+    from lib.train.regression_lightning import fit_images
 
     with accelerator_lock(), bind_run(uri, run_id):
-        train(str(cfg.recipe_path), outdir=str(out))
+        fit_images(load_yaml_as(recipe, PytorchTrainConfig), out)
     weights = out / "best_model.pt"
     if not weights.is_file():
         raise FileNotFoundError(weights)
@@ -131,21 +130,18 @@ def image_fit(cfg: Lightning, out: Path, uri: str | None, run_id: str | None) ->
 
 
 @task(cache_policy=NO_CACHE)
-def image_predict(cfg: Lightning, weights: str, split: str, out: Path) -> str:
-    from lib.inference import inference
+def image_predict(
+    recipe: Path, weights: str, split: str, dataset: ImageSplit, out: Path, id_column: str
+) -> str:
+    from lib.inference.images import predict_catalog
 
-    dataset = cfg.predict_on[split]
     output = out / f"predictions_{split}.parquet"
     with accelerator_lock():
-        inference(
-            weights,
-            str(output),
-            str(cfg.recipe_path),
-            data_dir=str(dataset.images),
-            catalog=str(dataset.catalog),
-            id_column=cfg.report.id_column,
-            held_out=(dataset.role or cfg.report.role or "").lower().replace("_", "-")
-            in {"held-out", "heldout", "holdout", "test"},
+        recipe_cfg = load_yaml_as(recipe, PytorchTrainConfig)
+        predict_catalog(
+            recipe_cfg, recipe_cfg.image_catalog, Path(weights), dataset.images, dataset.catalog,
+            output, id_column,
+            held_out=True,
         )
     return str(output)
 
@@ -184,14 +180,13 @@ def submit_methods(
     data: dict[str, Any],
     version: str,
     run_ids: dict[str, str],
+    recipes: dict[str, Path],
     dataset_error: Exception | None = None,
 ) -> list[tuple[str, str, str | PrefectFuture[Any] | Exception]]:
     submitted: list[tuple[str, str, str | PrefectFuture[Any] | Exception]] = []
     for name, method in config.methods.items():
         out = directory / "methods" / name
-        if dataset_error is not None and (
-            isinstance(method, Tabular) or (isinstance(method, Lightning) and method.recipe is None)
-        ):
+        if dataset_error is not None and isinstance(method, (Tabular, Lightning)):
             labels = list(config.dataset.evaluation_files) if config.dataset else []
             submitted.extend((name, label, dataset_error) for label in labels or [method.split])
             continue
@@ -200,6 +195,7 @@ def submit_methods(
         elif isinstance(method, External):
             prediction = external_prediction.with_options(task_run_name=f"{name}-predict").submit(
                 method,
+                recipes[name],
                 out,
                 config.tracking_uri,
                 run_ids.get(name),
@@ -214,20 +210,19 @@ def submit_methods(
                     "train_sha256",
                     "features",
                     "missing_features",
-                    "feature_set",
                     "target",
                     "weight_column",
                 )
                 cache_inputs = {key: data.get(key) for key in keys}
                 cache_inputs.update(
                     code=version,
-                    recipe=digest(method.recipe_path) if method.recipe_path.is_file() else None,
+                    recipe=digest(recipes[name]),
                 )
             fitted = fit.with_options(
                 task_run_name=f"{name}-fit",
                 cache_policy=_FIT_CACHE if config.cache else NO_CACHE,
                 persist_result=config.cache,
-            ).submit(data, method.recipe_path, config.task, config.threads_per_method, cache_inputs)
+            ).submit(data, recipes[name], config.task, config.threads_per_method, cache_inputs)
             model_path = save_tabular_model.with_options(task_run_name=f"{name}-save").submit(
                 fitted, out, return_state=False
             )
@@ -248,15 +243,19 @@ def submit_methods(
                 )
                 submitted.append((name, split, pred))
         elif isinstance(method, Lightning):
+            assert config.dataset is not None and config.dataset.id_column is not None
             weights = image_fit.with_options(task_run_name=f"{name}-fit").submit(
-                method,
-                out,
-                config.tracking_uri,
-                run_ids.get(name),
+                recipes[name], out, config.tracking_uri, run_ids.get(name)
             )
-            splits = list(method.predict_on)
+            images = image_splits(config.dataset, method.split)
+            catalogs = data["evaluation_files"] or {method.split: data["test"]}
+            splits = list(catalogs)
+            datasets = [
+                ImageSplit(images=images[label], catalog=catalogs[label]) for label in splits
+            ]
             predictions = image_predict.with_options(task_run_name=f"{name}-{{split}}").map(
-                unmapped(method), unmapped(weights), splits, unmapped(out)
+                unmapped(recipes[name]), unmapped(weights), splits, datasets, unmapped(out),
+                unmapped(config.dataset.id_column),
             )
             submitted.extend(
                 (name, split, prediction)
@@ -298,13 +297,15 @@ def report_record(
     split: str,
     method: MethodConfig,
     prediction: str | PrefectFuture[Any],
-    data: dict[str, Any],
+    id_column: str | None,
     directory: Path | None = None,
 ) -> dict[str, Any]:
     record: dict[str, Any] = method.report.model_dump(mode="json", exclude_unset=True)
     record.update(name=name, split=split)
-    if isinstance(method, Lightning) and method.predict_on[split].role:
-        record["role"] = method.predict_on[split].role
+    if isinstance(method, Lightning):
+        record.setdefault("role", "held-out")
+    if id_column and not isinstance(method, Saved):
+        record.setdefault("id_column", id_column)
     path = prediction if isinstance(prediction, str) else prediction.result()
     if not Path(path).is_file():
         raise FileNotFoundError(path)
@@ -324,7 +325,6 @@ def report_record(
                 raise ValueError(f"Configured {key} disagrees with predictor metadata")
             record[key] = value
     if isinstance(method, Tabular):
-        record.setdefault("id_column", data["id_column"])
         summary = Path(path).with_name("train_report.json")
         record["details"] = json.loads(summary.read_text())
     if isinstance(method, (Lightning, External)) and "history" not in record:
@@ -364,7 +364,7 @@ def experiment(config: Experiment) -> Path:
     (directory / "experiment.json").write_text(json.dumps(snapshot, indent=2))
     plugins = [
         config.task,
-        *(m.predictor for m in config.methods.values() if isinstance(m, External)),
+        *(m.model for m in config.methods.values() if isinstance(m, External)),
     ]
     if config.dataset:
         plugins.extend(x for x in (config.dataset.reader, config.dataset.cleaner) if x)
@@ -378,17 +378,15 @@ def experiment(config: Experiment) -> Path:
     failures: list[str] = []
     try:
         uses_catalog = any(
-            isinstance(m, Tabular) or (isinstance(m, Lightning) and m.recipe is None)
+            isinstance(m, (Tabular, Lightning))
             for m in config.methods.values()
         )
-        if config.dataset is not None and (
-            uses_catalog or config.dataset.features or config.dataset.feature_catalog
-        ):
+        if config.dataset is not None and (uses_catalog or config.dataset.features):
             try:
                 data = prepare(config.dataset, directory / "data", snapshot=configuration)
             except Exception as exc:
                 dataset_error = ValueError(f"Dataset preparation failed: {exc}")
-        config = resolve_methods(config, configuration, data)
+        recipes = write_method_recipes(config, configuration, data)
         if tracker:
             for name, method in config.methods.items():
                 params: dict[str, Any] = {
@@ -396,16 +394,13 @@ def experiment(config: Experiment) -> Path:
                     "task": config.task,
                     "code_sha256": version,
                 }
-                if not isinstance(method, Saved) and method.recipe is not None:
-                    params["recipe"] = str(method.recipe_path)
-                    captured = record_config(method.recipe_path, configuration)
-                    if captured is not None:
-                        params["recipe_sha256"] = digest(captured)
+                if name in recipes:
+                    params["recipe_sha256"] = digest(recipes[name])
                 if data:
                     params["dataset_sha256"] = data["source_sha256"]
                 run_ids[name] = tracker.start(name, params, str(flow_run.id))
         (directory / "tracking.json").write_text(json.dumps(run_ids, indent=2))
-        pending = submit_methods(config, directory, data, version, run_ids, dataset_error)
+        pending = submit_methods(config, directory, data, version, run_ids, recipes, dataset_error)
         for name, split, method_result in pending:
             try:
                 if isinstance(method_result, Exception):
@@ -415,7 +410,7 @@ def experiment(config: Experiment) -> Path:
                     split,
                     config.methods[name],
                     method_result,
-                    data,
+                    data.get("id_column") or (config.dataset.id_column if config.dataset else None),
                     directory / "methods" / name,
                 )
             except Exception as exc:
@@ -456,10 +451,8 @@ def experiment(config: Experiment) -> Path:
                 method_cfg = config.methods[method_name]
                 settings = public_config(method_cfg.model_dump(mode="json"))
                 tracker.client.log_dict(run_id, settings, "method.json")
-                if not isinstance(method_cfg, Saved) and method_cfg.recipe is not None:
-                    captured = record_config(method_cfg.recipe_path, configuration)
-                    if captured is not None:
-                        tracker.client.log_artifact(run_id, str(captured), "recipe")
+                if method_name in recipes:
+                    tracker.client.log_artifact(run_id, str(recipes[method_name]), "recipe")
                 summary = directory / "methods" / method_name / "train_report.json"
                 if isinstance(method_cfg, Tabular) and summary.is_file():
                     fitted = json.loads(summary.read_text())

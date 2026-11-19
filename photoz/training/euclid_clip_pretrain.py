@@ -30,7 +30,7 @@ from photoz.data.euclid_packet import (
     reset_rng,
     state_copy,
 )
-from photoz.models.euclid_clip import CLIPModel, ITNetwork
+from photoz.models.nn.euclid_clip import CLIPModel, ITNetwork
 from photoz.training.clip_epochs import (
     ClipTrainingEpoch,
     OptimizerSchedule,

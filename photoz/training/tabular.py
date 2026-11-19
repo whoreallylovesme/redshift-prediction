@@ -19,8 +19,8 @@ from lib.train.lightning import fit_best, predict_batches
 from lib.utils.utils import load_yaml_as, pick_device
 from photoz.data.euclid_transforms import BANDS, transform_table
 from photoz.data.euclid_transforms import fit_table as fit_table_normalizer
-from photoz.models.euclid_clip import DESCRIPTOR_DIM, TABLE_BANDS
-from photoz.models.tabular import Architecture, TableRegressor
+from photoz.models.nn.euclid_clip import DESCRIPTOR_DIM, TABLE_BANDS
+from photoz.models.nn.tabular import Architecture, TableRegressor
 from photoz.training.clip_epochs import OptimizerSchedule, scheduled_adamw
 
 

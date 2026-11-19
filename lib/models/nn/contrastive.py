@@ -6,7 +6,7 @@ import torch
 from torch import Tensor, nn
 from torch.nn import functional as F
 
-from lib.models.encoders import EncodedModality, boolean_mask
+from lib.models.nn.encoders import EncodedModality, boolean_mask
 
 
 def masked_pairwise_clip(

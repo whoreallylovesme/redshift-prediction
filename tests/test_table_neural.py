@@ -8,7 +8,7 @@ import torch
 import yaml
 
 from photoz.data.euclid_transforms import BANDS
-from photoz.models.tabular import Architecture, TableRegressor
+from photoz.models.nn.tabular import Architecture, TableRegressor
 from photoz.training.tabular import read_projection, run_method
 
 

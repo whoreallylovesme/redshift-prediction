@@ -13,11 +13,10 @@ from hydra.utils import instantiate
 from omegaconf import OmegaConf
 from sklearn.model_selection import train_test_split
 
-from lib.config import DatasetConfig
 from lib.config.experiment import Dataset, DatasetFactory
 from lib.dataloaders.dataset import exact_index, matching_id_types
 from lib.utils.artifacts import sha256_file as digest
-from lib.utils.utils import load_yaml_as, plugin
+from lib.utils.utils import plugin
 from lib.utils.utils import symbol as symbol
 
 
@@ -88,6 +87,10 @@ def prepare_dataset(cfg: Dataset, out: Path) -> dict[str, Any]:
     frame, input_sha = read_source(cfg, cfg.source)
     target, features = cfg.target_features()
     id_column = cfg.id_column or "__source_row"
+    required = {target, id_column, *features}
+    required.update(name for name in (cfg.weight_column, cfg.split_column) if name)
+    if absent := required.difference(frame.columns):
+        raise ValueError(f"Training source lacks configured columns {sorted(absent)}")
     source_ids = exact_index(frame[id_column], id_column)
     if cfg.cleaner:
         frame = plugin(cfg.cleaner)(frame, target)
@@ -107,6 +110,12 @@ def prepare_dataset(cfg: Dataset, out: Path) -> dict[str, Any]:
             held, sha = read_source(cfg, path)
             if sha == input_sha:
                 raise ValueError(f"Evaluation split {label} repeats the training source")
+            if held.empty:
+                raise ValueError(f"Empty evaluation split {label}")
+            if absent := {id_column, *features}.difference(held.columns):
+                raise ValueError(
+                    f"Evaluation split {label} lacks configured columns {sorted(absent)}"
+                )
             identities = exact_index(held[id_column], id_column)
             if not matching_id_types(source_ids, identities):
                 raise ValueError(
@@ -121,29 +130,16 @@ def prepare_dataset(cfg: Dataset, out: Path) -> dict[str, Any]:
         train = frame[frame[cfg.split_column] == cfg.train_label]
         test = frame[frame[cfg.split_column] == cfg.test_label]
     else:
-        if cfg.split_config:
-            split = load_yaml_as(str(cfg.split_config), DatasetConfig)
-            size, seed, shuffle = split.test_size, split.random_seed, split.shuffle
-        else:
-            size, seed, shuffle = cfg.test_size, cfg.seed, cfg.shuffle
-        train, test = train_test_split(frame, test_size=size, random_state=seed, shuffle=shuffle)
+        train, test = train_test_split(
+            frame, test_size=cfg.test_size, random_state=cfg.seed, shuffle=cfg.shuffle
+        )
     if train.empty or (test is not None and test.empty):
         raise ValueError("Both train and evaluation splits need observations")
-    eligible = frame.select_dtypes(include=["number", "bool"]) if cfg.feature_catalog else frame
-    missing = [name for name in features if name not in eligible]
-    if missing and not cfg.feature_catalog:
-        raise ValueError(f"Missing configured features: {missing}")
-    features = [name for name in features if name in eligible]
-    if not features and (missing or cfg.images is None):
-        raise ValueError("None of the configured features are available")
     out.mkdir(parents=True, exist_ok=True)
     train.to_parquet(out / "train.parquet", index=False)
     files = {}
     for label, held in (separate or {"test": test}).items():
-        if held is None or held.empty:
-            raise ValueError(f"Empty evaluation split {label}")
-        if absent := set(features).difference(held.columns):
-            raise ValueError(f"Evaluation split {label} lacks features {sorted(absent)}")
+        assert held is not None
         destination = out / (f"held_{label}.parquet" if separate else "test.parquet")
         held.to_parquet(destination, index=False)
         files[label] = str(destination)
@@ -152,8 +148,6 @@ def prepare_dataset(cfg: Dataset, out: Path) -> dict[str, Any]:
         "evaluation_files": files if separate else {},
         "test": files.get("test") if not separate else None,
         "features": features,
-        "missing_features": missing,
-        "feature_set": cfg.feature_set,
         "target": target,
         "id_column": id_column,
         "weight_column": cfg.weight_column,

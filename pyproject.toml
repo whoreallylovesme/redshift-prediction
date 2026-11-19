@@ -41,11 +41,6 @@ dependencies = [
 [project.optional-dependencies]
 tracking = ["mlflow-skinny>=3.0,<4", "sqlalchemy>=2", "alembic>=1.13"]
 
-[project.entry-points."astro.legacy.lib.dataloaders.hdf5"]
-HDF5Dataset = "photoz.data.hayat:HayatDataset"
-get_hdf5_dataloaders = "photoz.data.hayat:get_hayat_dataloaders"
-_worker_init_fn = "photoz.data.hayat:_worker_init_fn"
-
 [dependency-groups]
 dev = [
     "ruff",
@@ -63,7 +58,6 @@ include = ["lib*", "photoz*", "runtime*", "tools*"]
 
 [tool.setuptools.package-data]
 "lib.report" = ["view.html"]
-"runtime" = ["templates/*.j2"]
 
 [tool.ruff]
 target-version = "py313"

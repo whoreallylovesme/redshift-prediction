@@ -11,9 +11,9 @@ from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 
 from lib.config import PytorchTrainConfig
+from lib.models.nn.capsnet import CapsNet
 from lib.train.regression import RegressionTask
 from lib.train.regression_lightning import run_regression
-from photoz.models.capsnet import CapsNet
 from photoz.training import euclid_classical, labels
 from photoz.training.clip_epochs import ShuffledRowBatches
 from photoz.training.regression import photoz_regression_task

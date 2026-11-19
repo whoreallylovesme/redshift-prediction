@@ -7,7 +7,7 @@ import numpy as np
 import torch
 
 from photoz.data.euclid_packet import IT_ARGS, Rows, load_it_from_clip, masked
-from photoz.models.euclid_clip import BinNet, ITNetwork, bin_summary
+from photoz.models.nn.euclid_clip import BinNet, ITNetwork, bin_summary
 from photoz.training import euclid_clip_finetune as fine
 from photoz.training import euclid_clip_pretrain as ssl
 

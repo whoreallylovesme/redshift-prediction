@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import time
 import warnings
-from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -339,19 +338,6 @@ def fit_annz(z: Floats, y: Floats, groups: NDArray[np.int64], q: Floats, threads
         preds.append(torch.cat(predictions).cpu().numpy())
     out: Floats = np.mean(preds, 0)
     return out
-
-
-def annz_closure(
-    net: torch.nn.Module, opt: torch.optim.Optimizer, xt: torch.Tensor, yt: torch.Tensor
-) -> Callable[[], torch.Tensor]:
-    """Return the original optimizer closure for callers of the ANNz training API."""
-    def closure() -> torch.Tensor:
-        opt.zero_grad()
-        loss = F.mse_loss(net(xt).squeeze(1), yt)
-        loss.backward()
-        return loss
-
-    return closure
 
 
 def fit_gam(z: Floats, y: Floats, q: Floats) -> tuple[Floats, float]:

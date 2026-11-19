@@ -1,6 +1,6 @@
 import torch
 
-from lib.models.targets import bounded_logit, scaled_sigmoid
+from lib.models.nn.targets import bounded_logit, scaled_sigmoid
 
 
 def z_to_logistic(z: torch.Tensor, z_min: float = 0.0, z_max: float = 0.4) -> torch.Tensor:

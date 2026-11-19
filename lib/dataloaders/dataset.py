@@ -3,10 +3,6 @@ import pandas as pd
 from pandas.api.types import infer_dtype
 
 
-def read_dataset(path: str) -> pd.DataFrame:
-    return pd.read_parquet(path, engine="pyarrow", use_threads=False)
-
-
 def clean_regression_data(df: pd.DataFrame, target: str) -> pd.DataFrame:
     return df.loc[df[target].notna()].drop(columns=["Unnamed: 0"], errors="ignore").replace(
         [np.inf, -np.inf], np.nan,

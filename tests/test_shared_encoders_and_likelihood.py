@@ -10,8 +10,8 @@ from torch.nn import functional as F
 from torch.utils.data import DataLoader, TensorDataset
 
 from lib.dataloaders.batches import ShuffledRowBatches
-from lib.models.contrastive import ProjectionHead
-from lib.models.encoders import EncodedModality, MaskedTableEncoder
+from lib.models.nn.contrastive import ProjectionHead
+from lib.models.nn.encoders import EncodedModality, MaskedTableEncoder
 from lib.train.likelihood import LikelihoodConfig, LikelihoodModule, row_loader
 
 

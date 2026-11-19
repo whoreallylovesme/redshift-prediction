@@ -1,6 +1,8 @@
 # Euclid Q1: фотометрические красные смещения, финальная модель P_final
 
-Для команд этого протокола восстановите исторические `configs/` из снимка эксперимента или [зафиксированной версии в Git](../pipeline.md#исторические-рецепты).
+Текущий запуск Phosphoros F_VALID использует единый YAML с разделами `dataset` и `methods`. Подготовив входы, запустите `uv run python -m runtime.pipeline --config examples/configs/euclid.yaml`. [Схема пайплайна](../pipeline.md) · [Конфигурация Euclid](../../examples/configs/euclid.yaml)
+
+Ниже задокументирован научный протокол публикации. Команды подготовки данных и пути вида `configs/euclid_q1/` относятся к версии, в которой собирались результаты. [Конфигурации протокола](https://github.com/whoreallylovesme/redshift-prediction/tree/1f752b82a7f1f54ca74280ae4d85e1264105fdf6/configs/euclid_q1)
 
 Здесь описано, как из публичных данных Euclid Q1 получить финальную модель P_final и числа отчёта
 `reports/weekly/2026-11-06` (и раздела 2.1–2.5 месячного отчёта
@@ -75,7 +77,7 @@
 «Внешний вход» — артефакт, который этот MR не строит: он получен раньше (скачивание вырезок,
 сбор меток DESI/SDSS/MUSE, реестр объектов). Его кладут по указанному пути как есть.
 
-## Порядок запуска
+## Ход эксперимента публикации
 
 Ниже `T=tools/euclid_q1` и `C=configs/euclid_q1`.
 
@@ -276,11 +278,7 @@ uv run python $T/phosphoros.py postprocess --variant north_zpf --config $C/phosp
 
 ### 10. Модель: предобучение, дообучение, предсказания, классические модели, отчёт
 
-```bash
-uv run python runtime/pipeline.py --config configs/flows/euclid_clip_p_final.yaml
-```
-
-Флоу `pipeline: euclid_clip` выполняет пять этапов по порядку:
+Для публикации следовали пяти этапам. Пути ниже указывают на сохранённые артефакты эксперимента.
 
 1. **Предобучение CLIP** (`configs/nn/euclid_clip_pretrain.yaml`, сиды 20261025 и 20261026,
    12 эпох, батч 256, AdamW 3e-4/1e-4, 5 эпох прогрева, затем косинус, клиппинг 5, D4-аугментации,
@@ -311,48 +309,11 @@ uv run python runtime/pipeline.py --config configs/flows/euclid_clip_p_final.yam
 5. **Отчёт** (`configs/euclid_q1/report.yaml`), см. шаг 11. Результат:
    `runs/euclid_clip_p_final/report/`.
 
-Флоу ничего не удаляет. Этап пропускается, если его результат уже есть: `clip_state.pt`,
-`P_final_<сид>.json`, `inference/P_final_<сид>_pred.npz`, `classical/<модель>/complete.json` или
-`report/facts.json`.
-Чтобы пересчитать этап, его результат удаляют вручную. Каждый этап можно отключить в
-`configs/flows/euclid_clip_p_final.yaml`:
+Конфигурации с подставленными сидами и путями сохранены в `runs/euclid_clip_p_final/configs/`.
 
-- `pretrain.enabled: false` вместе с `finetune.clip_root: <директория с clip_1m_<сид>/>` — взять
-  готовые веса CLIP;
-- `finetune.enabled: false` вместе с `finetune.out_dir: <директория с P_final_<сид>_state.pt>` —
-  только предсказания из готовых весов;
-- `inference: false`;
-- `classical.enabled: false`;
-- `report.enabled: false`.
+### 11. Отчёт публикации
 
-Конфиг каждого запуска с подставленными сидом и путями сохраняется в
-`runs/euclid_clip_p_final/configs/`. Любой этап можно повторить отдельно:
-
-```bash
-uv run python -c "from runtime.train import train; train('runs/euclid_clip_p_final/configs/P_final_20261027.yaml')"
-uv run python -c "from lib.inference import inference; inference(config_path='runs/euclid_clip_p_final/configs/P_final_inference.yaml')"
-```
-
-В YAML моделей `model_type: torch` и `model: <ключ>` выбирают тренер из реестра
-(`euclid_clip_pretrain`, `euclid_clip`, `euclid_classical`) и предиктор `euclid_clip`.
-
-### 11. Отчёт
-
-Отчёт строится последним этапом того же флоу:
-
-```bash
-uv run python runtime/pipeline.py --config configs/flows/euclid_clip_p_final.yaml
-```
-
-Этап вызывает `runtime/euclid_report.build_report` с конфигом
-`runs/euclid_clip_p_final/configs/report.yaml`. Это `configs/euclid_q1/report.yaml`, в котором
-флоу подставляет тег, сиды, директории метаданных (`P_final/`), предсказаний (`inference/`, а при
-`inference: false` — `P_final/`), весов CLIP (`clip_1m_<сид>/ssl_history.json`), классических
-моделей и `out_dir`. Повторить только отчёт (файлы в `report/` перезаписываются):
-
-```bash
-uv run python -c "from pathlib import Path; from runtime.euclid_report import build_report; build_report(Path('runs/euclid_clip_p_final/configs/report.yaml'))"
-```
+Параметры расчёта из публикации записаны в `runs/euclid_clip_p_final/configs/report.yaml`. Для нового эксперимента Prefect создаёт интерактивный `report.html` вместе с `report-data.json`. Чтобы повторно собрать такой HTML из готового результата, выполните `uv run python -m runtime.pipeline --render <каталог-запуска>`. [Формат отчёта](../pipeline.md#что-попадает-в-отчёт)
 
 На одном ядре CPU отчёт строится около 16 мин, почти всё время уходит на бутстрап.
 
@@ -375,7 +336,7 @@ uv run python -c "from pathlib import Path; from runtime.euclid_report import bu
 
 | Файл | Что внутри | Код |
 |---|---|---|
-| `facts.json` | все метрики, интервалы, бины, кривые обучения, счётчики меток | `runtime/euclid_report.py` |
+| `facts.json` | все метрики, интервалы, бины, кривые обучения, счётчики меток | `photoz/euclid_report.py` |
 | `tables/metrics.tex`, `tables/metrics_delta.tex` | таблица метрик и ΔNMAD с 95 % ДИ | `metrics_tables` |
 | `tables/classical.tex` | классические модели против нашей | `classical_table` |
 | `figures/fig_{dist,scatter_N,scatter_Nall,modes,bins,baselines,train}.pdf` | рисунки отчёта | `photoz/figures.py` |

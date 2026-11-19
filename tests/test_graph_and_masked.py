@@ -9,9 +9,9 @@ import pandas as pd
 import torch
 import yaml
 
-from photoz.models.density import posterior_quantiles
-from photoz.models.masked_photometry import MaskedFluxEncoder
-from photoz.models.prototype_graph import PrototypeGraphDensity
+from photoz.models.nn.density import posterior_quantiles
+from photoz.models.nn.masked_photometry import MaskedFluxEncoder
+from photoz.models.nn.prototype_graph import PrototypeGraphDensity
 from photoz.training.masked_photometry import run_method as masked_method
 from photoz.training.prototype_graph import run_method as graph_method
 

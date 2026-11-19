@@ -1,39 +1,19 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase
-from unittest.mock import Mock, patch
 
 import numpy as np
 import pandas as pd
 import torch
-import yaml
 
-from lib.inference import inference
-from lib.models.capsnet import CapsNet
-from lib.models.factories import capsnet
-from lib.utils.registry import TORCH_PREDICTORS, TORCH_TRAINERS
-from runtime.train import train
+from lib.config import PytorchTrainConfig
+from lib.inference.images import predict_catalog
+from lib.models.nn.capsnet import CapsNet
+from lib.models.nn.factories import capsnet
+from lib.train.regression_lightning import fit_images
 
 
 class CapsuleRegressorTest(TestCase):
-    def test_registered_capsnet_handlers_take_precedence(self) -> None:
-        fit, predict = Mock(), Mock()
-        with (
-            TemporaryDirectory() as tmp,
-            patch.dict(TORCH_TRAINERS, {"capsnet": fit}),
-            patch.dict(TORCH_PREDICTORS, {"capsnet": predict}),
-        ):
-            recipe = Path(tmp) / "custom.yaml"
-            for spec in ({}, {"image_catalog": {"id_column": "id", "target_column": "mass"}}):
-                recipe.write_text(
-                    yaml.safe_dump({"model_type": "lightning", "model": "capsnet", **spec})
-                )
-                train(str(recipe))
-                inference(config_path=str(recipe))
-                self.assertEqual(fit.call_args.args, (str(recipe),))
-                self.assertEqual(predict.call_args.args, (str(recipe),))
-            self.assertEqual((fit.call_count, predict.call_count), (2, 2))
-
     def test_generic_one_channel_fit_predict_and_native_state_compatibility(self) -> None:
         previous = torch.get_num_threads()
         self.addCleanup(torch.set_num_threads, previous)
@@ -54,34 +34,18 @@ class CapsuleRegressorTest(TestCase):
             frame.iloc[6:].to_csv(root / "test.csv", index=False)
             params = dict(image_channels=1, input_size=16, num_class=3, routings=2, dim_capsule=8)
             out = root / "run"
-            recipe = root / "model.yaml"
-            recipe.write_text(
-                yaml.safe_dump(
-                    dict(
-                        model_type="lightning",
-                        model="capsnet",
-                        estimator="capsnet",
-                        estimator_params=params,
-                        device="cpu",
-                        out_size=16,
-                        out_dir=str(out),
-                        data_dir=str(images),
-                        catalog=str(root / "train.csv"),
-                        image_catalog={"id_column": "sensor", "target_column": "temperature"},
-                        train=dict(
-                            epochs=1,
-                            batch_size=3,
-                            train_ratio=0.5,
-                            num_workers=0,
-                            lr=0.0005,
-                            weight_decay=0.0,
-                            freeze_epochs=0,
-                        ),
-                    )
-                )
+            cfg = PytorchTrainConfig.model_validate({
+                "model_type": "lightning", "device": "cpu", "estimator": "capsnet",
+                "estimator_params": params, "out_size": 16, "data_dir": str(images),
+                "catalog": str(root / "train.csv"),
+                "image_catalog": {"id_column": "sensor", "target_column": "temperature"},
+                "epochs": 1, "batch_size": 3, "train_ratio": 0.5, "num_workers": 0, "lr": 0.0005,
+            })
+            weights = fit_images(cfg, out)
+            predict_catalog(
+                cfg, cfg.image_catalog, weights, images, root / "test.csv",
+                out / "preds.parquet", "sensor", held_out=True,
             )
-            train(str(recipe))
-            inference(config_path=str(recipe), catalog=str(root / "test.csv"), held_out=True)
             pred = pd.read_parquet(out / "preds.parquet")
             self.assertEqual(pred.sensor.tolist(), ids[6:])
             np.testing.assert_allclose(pred.y_true, target[6:])

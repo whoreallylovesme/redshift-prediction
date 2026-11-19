@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import math
 from pathlib import Path
+from typing import cast
 
 import lightning as L
 import numpy as np
@@ -15,10 +16,12 @@ from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader
 
 from lib.config import PytorchTrainConfig
+from lib.dataloaders.images import image_loaders
 from lib.train.lightning import export_weights, single_device_trainer
 from lib.train.regression import RegressionTask, scalar_predictions
+from lib.utils.estimator_loader import load_estimator
 from lib.utils.log import get_logger
-from lib.utils.utils import pick_device
+from lib.utils.utils import pick_device, plugin
 
 type ModelInput = torch.Tensor | dict[str, torch.Tensor]
 
@@ -179,3 +182,13 @@ def run_regression(
     if ckpt.last_model_path:
         _extract_model_state(Path(ckpt.last_model_path), out / "last_model.pt")
     return out / "best_model.pt"
+
+
+def fit_images(cfg: PytorchTrainConfig, output: Path) -> Path:
+    torch.manual_seed(cfg.seed)
+    train, valid = image_loaders(cfg, cfg.image_catalog, output)
+    model = cast(nn.Module, load_estimator(cfg.estimator, nn.Module, params=cfg.estimator_params))
+    task = plugin(cfg.training_task)(cfg) if cfg.training_task else None
+    return run_regression(
+        cfg, model, train, valid, str(output), task=task, device=pick_device(cfg.device)
+    )

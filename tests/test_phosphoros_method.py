@@ -14,7 +14,7 @@ from lib.report.posterior_metadata import PosteriorMetadata
 from lib.workflow.experiment import report_record
 from photoz.methods import phosphoros
 from photoz.report import PHOTOZ
-from tools.euclid_q1 import phosphoros as legacy_cli
+from tools.euclid_q1.phosphoros import cli
 
 
 class PhosphorosMethodTests(TestCase):
@@ -157,7 +157,7 @@ class PhosphorosMethodTests(TestCase):
         frame = pd.read_parquet(path)
         self.assertEqual(frame[meta.posterior_column].isna().tolist(), [True, True, False])
         self.assertEqual(frame[meta.posterior_column][2][82], 1.0)
-        record = report_record("Phosphoros", "test", method, str(path), {}, self.out)
+        record = report_record("Phosphoros", "test", method, str(path), None, self.out)
         output = build_report_data([record], PHOTOZ, "Native result", strict=True)
         charts = output["rows"][0]["slices"]["All objects"]["charts"]
         self.assertEqual([e["id"] for e in charts["posterior_examples"]], [str(self.ids[2])])
@@ -171,7 +171,7 @@ class PhosphorosMethodTests(TestCase):
         self.assertEqual(calibration["count"], 1)
         self.assertEqual(calibration["empirical"], [1.0] * 5)
         with self.assertRaisesRegex(ValueError, "run directory"):
-            report_record("Phosphoros", "test", method, str(path), {}, self.out / "unrelated")
+            report_record("Phosphoros", "test", method, str(path), None, self.out / "unrelated")
 
     def test_all_invalid_posterior_still_has_a_typed_nullable_vector(self) -> None:
         self.out.mkdir(parents=True)
@@ -243,8 +243,7 @@ class PhosphorosMethodTests(TestCase):
             runner.assert_not_called()
         self.assertFalse(self.out.exists())
 
-    def test_legacy_imports_and_subcommands(self) -> None:
-        self.assertIs(legacy_cli.PhosphorosConfig, phosphoros.PhosphorosConfig)
+    def test_preparation_subcommands(self) -> None:
         self.assertEqual(
-            set(legacy_cli.cli.commands), {"grids", "workspace", "run", "postprocess", "prepare"}
+            set(cli.commands), {"grids", "workspace", "run", "postprocess", "prepare"}
         )

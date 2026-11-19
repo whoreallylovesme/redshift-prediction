@@ -3,7 +3,7 @@ from __future__ import annotations
 import lightning as L
 import torch
 
-from lib.models.capsnet import CapsNet
+from lib.models.nn.capsnet import CapsNet
 from photoz.targets import logistic_to_z
 
 

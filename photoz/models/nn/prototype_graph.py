@@ -10,9 +10,10 @@ import torch
 from numpy.typing import ArrayLike
 from torch import nn
 
-from lib.models.graph import ResidualMessage as ResidualPrototypeMessage
-from lib.models.graph import weighted_neighbors as _mean
-from photoz.models.density import DensityPrediction, PhotoZDensityHead
+from lib.models.nn.density import DensityPrediction
+from lib.models.nn.graph import ResidualMessage as ResidualPrototypeMessage
+from lib.models.nn.graph import weighted_neighbors as _mean
+from photoz.models.nn.density import PhotoZDensityHead
 
 ContextMode = Literal["graph", "self_only", "shuffled"]
 EMBEDDING_DIM = 64

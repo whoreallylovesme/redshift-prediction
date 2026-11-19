@@ -22,7 +22,7 @@ logger = get_logger()
 
 
 def build_predictor(raw: dict[str, Any], weights: Path) -> Any:
-    from photoz.models.predictors import CapsNetPredictor
+    from photoz.models.nn.predictors import CapsNetPredictor
     from photoz.training.capsnet_lightning import TrainConfig
 
     device = pick_device(str(raw.get("device", "auto")))

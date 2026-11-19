@@ -40,7 +40,7 @@ from photoz.data.euclid_packet import (
     state_copy,
 )
 from photoz.metrics import bias, delta, nmad, outlier_fraction
-from photoz.models.euclid_clip import BinNet, ITNetwork, bin_summary, soft_target
+from photoz.models.nn.euclid_clip import BinNet, ITNetwork, bin_summary, soft_target
 from photoz.training.clip_epochs import (
     ClipTrainingEpoch,
     OptimizerSchedule,

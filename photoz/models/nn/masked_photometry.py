@@ -12,11 +12,10 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
-from lib.models.encoders import attention_stack
-from lib.models.masked import MaskedPrediction as MaskedFluxPrediction
-from lib.models.masked import check_mask
-from lib.models.masked import masked_gaussian_nll as _gaussian_nll
-from lib.models.masked import sample_mask as sample_mask
+from lib.models.nn.encoders import attention_stack
+from lib.models.nn.masked import MaskedPrediction as MaskedFluxPrediction
+from lib.models.nn.masked import check_mask
+from lib.models.nn.masked import masked_gaussian_nll as _gaussian_nll
 
 COMMON_BANDS = ("VIS", "Y", "J", "H")
 _VERSION = 1

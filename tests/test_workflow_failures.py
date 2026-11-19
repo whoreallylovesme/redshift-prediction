@@ -41,12 +41,11 @@ class WorkflowFailuresTest(TestCase):
                         "published": {"kind": "saved", "predictions": predictions},
                         "absent": {
                             "kind": "external",
-                            "recipe": predictions,
-                            "predictor": "absent_optional_regression_plugin.inference:run",
+                            "model": "absent_optional_regression_plugin.inference:run",
                         },
                         "table": {
                             "kind": "tabular",
-                            "recipe": "tests/fixtures/legacy/models/ridge.yaml",
+                            "model": "ridge",
                         },
                     },
                 }

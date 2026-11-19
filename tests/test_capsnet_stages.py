@@ -3,7 +3,6 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
 from unittest import TestCase
-from unittest.mock import patch
 
 import h5py
 import numpy as np
@@ -11,57 +10,12 @@ import pandas as pd
 import torch
 import yaml
 
-from lib.config.schemas import FlowConfig
-from photoz import legacy_flow
-from photoz.data.hdf5 import HDF5Dataset, get_hdf5_dataloaders
-from photoz.models.capsnet import CapsNet
-from runtime.train import train
+from lib.models.nn.capsnet import CapsNet
+from photoz.data.hayat import HayatDataset, get_hayat_dataloaders
+from photoz.training.capsnet import run_train
 
 
 class CapsNetStagesTest(TestCase):
-    def test_repeated_reports_use_only_epochs_appended_by_each_fit(self) -> None:
-        with TemporaryDirectory() as temp:
-            root = Path(temp)
-            log = root / "log.jsonl"
-            old = {"stage": "B", "epoch": 9}
-            log.write_text(json.dumps(old) + "\n")
-            recipe = root / "recipe.yaml"
-            recipe.write_text(
-                yaml.safe_dump(
-                    {
-                        "out_dir": str(root),
-                        "inference": {"out": str(root / "predictions.parquet")},
-                    }
-                )
-            )
-            config = FlowConfig(pipeline="capsnet", runs_root=temp, train={"config": str(recipe)})
-            histories = [
-                [{"stage": "A", "epoch": 1}, {"stage": "B", "epoch": 1}],
-                [{"stage": "B", "epoch": 1}],
-            ]
-            with (
-                patch.object(legacy_flow, "fit_capsnet") as fit,
-                patch.object(legacy_flow, "predict_capsnet_splits"),
-                patch.object(legacy_flow, "evaluate_capsnet_split"),
-                patch.object(legacy_flow, "combined_report") as report,
-            ):
-                batches = iter(histories)
-
-                def append_epochs(*_: Any) -> None:
-                    with log.open("a") as stream:
-                        for epoch in next(batches):
-                            stream.write(json.dumps(epoch) + "\n")
-
-                fit.side_effect = append_epochs
-                for epochs in histories:
-                    legacy_flow.run_capsnet_pipeline(config)
-                    [row] = report.call_args.args[1]
-                    self.assertEqual(row["history"], epochs)
-            self.assertEqual(
-                [json.loads(line) for line in log.read_text().splitlines()],
-                [old, *histories[0], *histories[1]],
-            )
-
     def test_stage_b_continues_optimizer_without_training_on_validation_objects(self) -> None:
         old_threads = torch.get_num_threads()
         self.addCleanup(torch.set_num_threads, old_threads)
@@ -86,15 +40,13 @@ class CapsNetStagesTest(TestCase):
                 weighted_sampling=False,
                 seed=9,
             )
-            a_train, a_val = get_hdf5_dataloaders(**args, labeled_only=True)
-            b_train, b_val = get_hdf5_dataloaders(**args)
+            a_train, a_val = get_hayat_dataloaders(**args, labeled_only=True)
+            b_train, b_val = get_hayat_dataloaders(**args)
             for a, b in ((a_train, b_train), (a_val, b_val)):
-                assert isinstance(a.dataset, HDF5Dataset) and isinstance(b.dataset, HDF5Dataset)
+                assert isinstance(a.dataset, HayatDataset) and isinstance(b.dataset, HayatDataset)
                 a_ids, b_ids = a.dataset.indices, b.dataset.indices
                 np.testing.assert_array_equal(a_ids, b_ids[np.isfinite(labels[b_ids])])
             cfg = dict(
-                model_type="lightning",
-                model="capsnet",
                 crop_size=16,
                 device="cpu",
                 stage_a_epochs=1,
@@ -104,7 +56,7 @@ class CapsNetStagesTest(TestCase):
             )
             recipe = root / "stages.yaml"
             recipe.write_text(yaml.safe_dump(cfg))
-            train(str(recipe))
+            run_train(recipe)
             weights = root / "out/weights"
             steps = []
             for tag in ("a", "b"):
@@ -125,6 +77,6 @@ class CapsNetStagesTest(TestCase):
             pd.DataFrame({"gz_morpho_binary": np.full(n, np.nan)}).to_parquet(morph)
             cfg.update(stage_a_epochs=0, out_dir=str(root / "b"))
             recipe.write_text(yaml.safe_dump(cfg))
-            train(str(recipe))
+            run_train(recipe)
             self.assertTrue((root / "b/weights/stage_b_best.pt").is_file())
             self.assertFalse((root / "b/weights/stage_a_last.pt").exists())

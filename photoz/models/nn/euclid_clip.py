@@ -10,18 +10,18 @@ from numpy.typing import NDArray
 from torch import Tensor, nn
 from torch.nn import functional as F
 
-from lib.models.contrastive import ProjectionHead as ContrastiveProjectionHead
-from lib.models.contrastive import masked_pairwise_clip as masked_pairwise_clip
-from lib.models.encoders import (
+from lib.models.nn.contrastive import ProjectionHead as ContrastiveProjectionHead
+from lib.models.nn.contrastive import masked_pairwise_clip
+from lib.models.nn.encoders import (
     EncodedModality,
     MaskedTableEncoder,
+    ResidualBlock,
+    attention_stack,
     boolean_mask,
     declared_mask,
     finite_observations,
+    regression_head,
 )
-from lib.models.encoders import ResidualBlock as ResidualBlock
-from lib.models.encoders import attention_stack as attention_stack
-from lib.models.encoders import regression_head as photoz_head
 from lib.utils.utils import check
 
 FEATURE_DIM = 256
@@ -161,7 +161,7 @@ class ITNetwork(nn.Module):
         super().__init__()
         self.image_encoder = ImageEncoder()
         self.table_encoder = TableEncoder()
-        self.photoz_head = photoz_head(2 * FEATURE_DIM + 2)
+        self.photoz_head = regression_head(2 * FEATURE_DIM + 2)
 
     def encode(
         self,
@@ -241,7 +241,7 @@ class BinNet(nn.Module):
     def __init__(self, it: ITNetwork) -> None:
         super().__init__()
         self.it = it
-        self.head = photoz_head(2 * FEATURE_DIM + 2)
+        self.head = regression_head(2 * FEATURE_DIM + 2)
         self.head[-1] = nn.Linear(128, NBIN)
 
     def forward(

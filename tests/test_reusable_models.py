@@ -1,18 +1,32 @@
-import pickle
+import subprocess
+import sys
 from unittest import TestCase
 
 import numpy as np
 import torch
 
-from lib.models.density import BinnedDensityHead, piecewise_uniform_nll, posterior_quantiles
-from lib.models.encoders import ResidualBlock, ResidualMLP, attention_stack, regression_head
-from lib.models.graph import ResidualMessage, weighted_neighbors
-from lib.models.masked import MaskedPrediction, masked_gaussian_nll, sample_mask
+from lib.models.nn.density import BinnedDensityHead, piecewise_uniform_nll, posterior_quantiles
+from lib.models.nn.encoders import ResidualBlock, ResidualMLP, attention_stack, regression_head
+from lib.models.nn.graph import ResidualMessage, weighted_neighbors
+from lib.models.nn.masked import MaskedPrediction, masked_gaussian_nll, sample_mask
 
 
 class ReusableModelTests(TestCase):
+    def test_tabular_factories_work_without_torch(self) -> None:
+        subprocess.run([sys.executable, "-c", """
+import sys
+sys.modules["torch"] = None
+from lib.models.registry import FACTORIES
+from lib.models.tabular import factories
+
+for name in ("catboost", "imputed_catboost", "gam", "llr", "mlp", "rf", "ridge"):
+    assert FACTORIES[name] is getattr(factories, name)
+    assert callable(FACTORIES[name]().fit)
+assert "lightning" not in sys.modules
+"""], check=True)
+
     def test_signed_bounded_target_and_historical_redshift_limits(self) -> None:
-        from lib.models.targets import bounded_logit, scaled_sigmoid
+        from lib.models.nn.targets import bounded_logit, scaled_sigmoid
         from photoz.targets import logistic_to_z, z_to_logistic
 
         signed = torch.tensor([-4.5, 0.0, 7.0], dtype=torch.float64, requires_grad=True)
@@ -25,13 +39,6 @@ class ReusableModelTests(TestCase):
         historical = torch.log(z.clamp_min(1e-6) / (0.4 - z).clamp_min(1e-6))
         torch.testing.assert_close(z_to_logistic(z), historical, rtol=0, atol=0)
         torch.testing.assert_close(logistic_to_z(historical), 0.4 * historical.sigmoid())
-
-    def test_old_serialized_class_names_resolve_to_current_estimators(self) -> None:
-        from lib.models.gam import GAMRegressor
-        from lib.models.llr import LocalLinearRegression
-
-        self.assertIs(pickle.loads(b"clib.gam\nGAMRegressor\n."), GAMRegressor)
-        self.assertIs(pickle.loads(b"clib.llr\nLocalLinearRegression\n."), LocalLinearRegression)
 
     def test_residual_attention_and_graph_on_arbitrary_feature_dimensions(self) -> None:
         values = torch.randn(3, 7)

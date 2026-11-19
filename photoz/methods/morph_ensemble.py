@@ -11,7 +11,7 @@ from numpy.typing import NDArray
 from pydantic import BaseModel, Field
 from torch.utils.data import DataLoader, TensorDataset
 
-from lib.models.capsnet import CapsNet
+from lib.models.nn.capsnet import CapsNet
 from lib.train.lightning import single_device_trainer
 from lib.utils.artifacts import PinnedFile, open_verified
 from lib.utils.utils import load_yaml_as

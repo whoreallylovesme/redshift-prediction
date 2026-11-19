@@ -232,6 +232,25 @@ class ReportTests(unittest.TestCase):
         self.assertLess(len(chart["sample"]["x"]), len(t))
 
 
+    def test_native_missing_predictions_remain_visible_but_unscored(self) -> None:
+
+        preds = self.path / "preds.parquet"
+        pd.DataFrame(
+            {
+                "object_id": [1, 2, 3, 4],
+                "y_true": [0.1, 0.2, 0.3, None],
+                "y_pred": [0.4, None, 99, 0.4],
+                "status": ["ok", "unreadable", "rejected", "ok"],
+            }
+        ).to_parquet(preds)
+        row = build_report_data(
+            [{"name": "CNN", "split": "test", "predictions": preds}], PHOTOZ, "x"
+        )["rows"][0]
+        self.assertAlmostEqual(row["metrics"]["mae"], 0.3)
+        self.assertEqual(row["coverage"]["evaluated"], 1)
+        self.assertEqual(row["coverage"]["requested"], 4)
+
+
 class EuclidReportTests(unittest.TestCase):
     def test_phosphoros_display_and_bootstrap_choose_same_valid_measurement(self) -> None:
         from photoz.data.euclid_report import (
@@ -276,7 +295,7 @@ class EuclidReportTests(unittest.TestCase):
 
     def test_method_denominators_and_real_seed_identifiers(self) -> None:
         from photoz.data.euclid_report import ReportConfig, SeedStack
-        from runtime.euclid_report import interactive_methods
+        from photoz.euclid_report import interactive_methods
 
         ids = np.array([2**56 + 1, 2**56 + 2], dtype=np.int64)
         values = np.array([[0.8, 1.2], [1.0, 1.4]])
@@ -417,23 +436,3 @@ class OptionalAssetsTests(unittest.TestCase):
             write_report(work / "replay", json.loads((work / "report-data.json").read_text()))
             for file in ("report-data.json", "metrics.json", "metrics.csv", "report.html"):
                 self.assertEqual((work / file).read_bytes(), (work / "replay" / file).read_bytes())
-
-
-class HistoricalReportTests(unittest.TestCase):
-    def test_existing_reports_cover_extra_metrics_and_normalized_threshold(self) -> None:
-        from photoz.legacy_plots import redshift_scatter
-        from runtime.render_table import Row, all_metrics, best_map, is_best
-
-        rows = [
-            Row("a", {"r2": 0.2, "mae": 1.0, "bias": -0.2, "custom": 7.0}),
-            Row("b", {"r2": 0.8, "mae": 0.5, "bias": 0.09}),
-        ]
-        keys = all_metrics(rows)
-        self.assertEqual(set(keys), set(rows[0].test))
-        self.assertEqual(best_map(rows, keys), {"mae": 0.5, "r2": 0.8, "bias": 0.09})
-        self.assertTrue(is_best(0.8, 0.8, "r2"))
-        self.assertFalse(is_best(0.2, 0.8, "r2"))
-        self.assertFalse(is_best(-0.2, 0.09, "bias"))
-        fig = redshift_scatter(pd.Series([0.0, 1.0]), np.array([0.0, 1.0]), "sample", 0.0, 1.0)
-        self.assertEqual(float(fig.data[-2].y[-1]), 1.3)
-        self.assertEqual(float(fig.data[-1].y[-1]), 0.7)

@@ -84,8 +84,6 @@ class HDF5RowsTest(TestCase):
             "import sys\n"
             "sys.modules['photoz'] = None\n"
             "from lib.dataloaders.hdf5_rows import HDF5Rows\n"
-            "from lib.dataloaders import hdf5\n"
-            "assert hdf5.HDF5Rows is HDF5Rows\n"
             "rows = HDF5Rows(sys.argv[1], 'survey/run/id')\n"
             "assert [int(rows[i]) for i in range(len(rows))] == [2**60 + i for i in range(3)]\n"
             "rows.close()\n"
@@ -98,23 +96,8 @@ class HDF5RowsTest(TestCase):
         )
         self.assertEqual(run.returncode, 0, run.stderr)
 
-    def test_legacy_imports_resolve_to_hayat_implementation(self) -> None:
-        from lib.dataloaders import hdf5 as legacy_lib
-        from photoz.data import hdf5 as legacy_photoz
-        from photoz.data.hayat import HayatDataset, get_hayat_dataloaders
-
-        for module in (legacy_lib, legacy_photoz):
-            self.assertIs(module.HDF5Dataset, HayatDataset)
-            self.assertIs(module.get_hdf5_dataloaders, get_hayat_dataloaders)
-        # Pickle resolves both references when restoring a loader built by the original factory.
-        self.assertIs(pickle.loads(b"clib.dataloaders.hdf5\nHDF5Dataset\n."), HayatDataset)
-        self.assertIs(
-            pickle.loads(b"clib.dataloaders.hdf5\n_worker_init_fn\n."),
-            legacy_photoz._worker_init_fn,
-        )
-
-    def test_legacy_hayat_tuple_preserves_subset_labels_and_cropped_pixels(self) -> None:
-        from lib.dataloaders.hdf5 import HDF5Dataset
+    def test_hayat_tuple_preserves_subset_labels_and_cropped_pixels(self) -> None:
+        from photoz.data.hayat import HayatDataset
 
         pixels = np.arange(3 * 5 * 8 * 7, dtype=np.int16).reshape(3, 5, 8, 7)
         with h5py.File(self.path, "w") as file:
@@ -122,7 +105,7 @@ class HDF5RowsTest(TestCase):
         indices = np.array([2, 0])
         redshifts = np.array([0.25, 0.5], dtype=np.float32)
         morphologies = np.array([np.nan, 1], dtype=np.float32)
-        dataset = HDF5Dataset(
+        dataset = HayatDataset(
             self.path,
             indices,
             z_labels=redshifts,

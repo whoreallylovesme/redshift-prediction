@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import argparse
 import hashlib
 import json
 import os
@@ -15,13 +14,12 @@ from typing import Any
 
 import yaml
 
-from lib.config import FlowConfig
 from lib.config.experiment import (
     Experiment,
     External,
-    ImageSplit,
     Lightning,
-    RecipeMethod,
+    Saved,
+    Tabular,
     image_splits,
 )
 from lib.utils.artifacts import sha256_file
@@ -106,9 +104,8 @@ def recording_configs(directory: Path | None) -> Iterator[None]:
         _active.reset(token)
 
 
-def create_snapshot(directory: Path, config: Experiment | FlowConfig) -> Path:
+def create_snapshot(directory: Path, config: Experiment) -> Path:
     directory.mkdir(parents=True, exist_ok=True)
-    # Preserve fields_set. For example, split_config owns the seed and train/test proportions.
     replay = public_config(config.model_dump(mode="json", exclude_unset=True))
     effective = public_config(config.model_dump(mode="json"))
     _create(
@@ -118,59 +115,30 @@ def create_snapshot(directory: Path, config: Experiment | FlowConfig) -> Path:
     _create(
         directory / "effective.json", json.dumps(effective, indent=2, ensure_ascii=False).encode()
     )
-    files: list[str | Path | None] = []
-    if isinstance(config, Experiment):
-        if config.dataset:
-            files.extend((config.dataset.feature_catalog, config.dataset.split_config))
-        files.extend(
-            method.recipe for method in config.methods.values() if isinstance(method, RecipeMethod)
-        )
-    else:
-        if config.dataset:
-            files.extend(config.dataset.get(key) for key in ("features", "data_config"))
-        if config.train:
-            files.append(config.train.get("config"))
-        files.extend(m.get("config") for m in config.models)
-        if config.euclid:
-            e = config.euclid
-            files.extend(
-                s.config for s in (e.pretrain, e.finetune, e.classical, e.report) if s and s.enabled
-            )
-    for source in files:
-        if source is not None:
-            record_config(source, directory)
     seal_snapshot(directory)
     return directory
 
 
-def resolve_methods(config: Experiment, snapshot: Path, data: dict[str, Any]) -> Experiment:
-    """Expose inline parameters as run-owned files for the existing backend APIs."""
-    methods = dict(config.methods)
-    for name, method in methods.items():
-        if not isinstance(method, RecipeMethod) or method.recipe is not None:
+def write_method_recipes(
+    config: Experiment, snapshot: Path, data: dict[str, Any]
+) -> dict[str, Path]:
+    recipes: dict[str, Path] = {}
+    for name, method in config.methods.items():
+        if isinstance(method, Saved):
             continue
         path = snapshot / "resolved" / f"{name}.yaml"
         raw = (
             method.params
             if isinstance(method, External)
-            else {
-                "estimator": method.model,
-                "estimator_params": method.params,
-            }
+            else {"estimator": method.model, "estimator_params": method.params}
         )
-        update: dict[str, Any] = {"recipe": path, "params": {}}
-        if not isinstance(method, External):
-            update["model"] = None
-        if config.dataset and config.dataset.id_column and not method.report.id_column:
-            update["report"] = method.report.model_copy(
-                update={"id_column": config.dataset.id_column}
-            )
+        if isinstance(method, Tabular):
+            raw.update(method.train.model_dump(exclude_unset=True))
         if isinstance(method, Lightning):
             if not data:
-                continue  # Dataset preparation failed. Its error is reported against this method.
-            assert config.dataset is not None
-            assert method.train is not None
+                continue
             ds = config.dataset
+            assert ds is not None
             images = image_splits(ds, method.split)
             raw.update(
                 model_type="lightning",
@@ -187,16 +155,11 @@ def resolve_methods(config: Experiment, snapshot: Path, data: dict[str, Any]) ->
                 crop_size=ds.crop_size,
                 train=method.train.model_dump(exclude_unset=True),
             )
-            held = data["evaluation_files"] or {method.split: data["test"]}
-            update["predict_on"] = {
-                label: ImageSplit(images=images[label], catalog=catalog, role="held-out")
-                for label, catalog in held.items()
-            }
         _create(
             path, yaml.safe_dump(public_config(raw), sort_keys=False, allow_unicode=True).encode()
         )
-        methods[name] = method.model_copy(update=update)
-    return config.model_copy(update={"methods": methods})
+        recipes[name] = path
+    return recipes
 
 
 def seal_snapshot(directory: Path) -> None:
@@ -251,7 +214,7 @@ def restore_snapshot(
             target = (Path("/") / key.relative_to("files/absolute")).resolve()
             if not any(target.is_relative_to(root) for root in (workspace, *allowed)):
                 raise ValueError(
-                    f"Restoring {target} requires --absolute-root for its original location"
+                    f"Restoring {target} requires an allowed absolute root"
                 )
         else:
             raise ValueError(f"Unknown snapshot path {key}")
@@ -261,12 +224,3 @@ def restore_snapshot(
     for path, content in pending:
         _create(path, content)
     return directory.resolve() / "flow.yaml"
-
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Restore configuration files from a run snapshot.")
-    parser.add_argument("snapshot", type=Path)
-    parser.add_argument("--workspace", type=Path, default=Path.cwd())
-    parser.add_argument("--absolute-root", type=Path, action="append", default=[])
-    args = parser.parse_args()
-    print(restore_snapshot(args.snapshot, args.workspace, absolute_roots=tuple(args.absolute_root)))

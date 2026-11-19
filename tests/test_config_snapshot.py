@@ -21,15 +21,9 @@ from lib.config.snapshot import (
     restore_snapshot,
     seal_snapshot,
 )
-from lib.tracking import Tracker, finish_with_snapshots
-from photoz.legacy_flow import derived_config
+from lib.tracking.mlflow import Tracker, finish_with_snapshots
 from photoz.methods.phosphoros import VariantConfig, config_values, variant_factors
 from runtime.pipeline import pipeline
-from tests.test_legacy_pipeline_e2e import table_flow
-
-
-def use_saved_predictions(config_path: Path, out_dir: Path) -> Path:
-    return config_path
 
 
 class SnapshotTests(TestCase):
@@ -45,7 +39,6 @@ class SnapshotTests(TestCase):
             factors = Path("cfg/calibration.json")
             factors.write_text('{"VIS": 1.5}')
             Path("objects.parquet").write_bytes(b"catalog contents")
-            Path("split.yaml").write_text("split: {test_size: 0.2}")
             exp = Experiment.model_validate(
                 {
                     "name": "external",
@@ -56,18 +49,16 @@ class SnapshotTests(TestCase):
                         "source": "objects.parquet",
                         "target": "y",
                         "features": ["x"],
-                        "split_config": "split.yaml",
                     },
                     "methods": {
                         "native": {
                             "kind": "external",
-                            "recipe": str(cfg),
-                            "predictor": "example:predict",
+                            "model": "example:predict",
+                            "params": {"native_config": str(cfg)},
                         },
                         "payload": {
-                            "kind": "external",
-                            "recipe": "objects.parquet",
-                            "predictor": "example:predict",
+                            "kind": "saved",
+                            "predictions": "objects.parquet",
                         },
                     },
                 }
@@ -77,7 +68,7 @@ class SnapshotTests(TestCase):
                 invalid = Path("cfg/invalid.yaml")
                 invalid.write_text("tracking_uri: [https://sensitive.invalid\n")
                 self.assertIsNone(record_config(invalid))
-                derived_config(str(cfg), Path("derived/stage.yaml"), seed=13)
+                record_config(cfg)
                 self.assertEqual(config_values(dust)["catalog-type"], "synthetic")
                 self.assertEqual(
                     variant_factors(VariantConfig(sets=["x"], multiply_json=factors)),
@@ -91,11 +82,9 @@ class SnapshotTests(TestCase):
                 {
                     "effective.json",
                     "flow.yaml",
-                    "files/workspace/split.yaml",
                     "files/workspace/cfg/recipe.yml",
                     "files/workspace/cfg/active.conf",
                     "files/workspace/cfg/calibration.json",
-                    "files/workspace/derived/stage.yaml",
                 },
             )
             rebuilt = load_flow(archive / "flow.yaml")
@@ -140,9 +129,6 @@ class SnapshotTests(TestCase):
     def test_public_flows_publish_config_and_replay_without_original_recipe(self) -> None:
         with TemporaryDirectory() as temp, prefect_test_harness(), chdir(temp):
             root = Path(temp).resolve()
-            model = Path("models/ridge.yaml")
-            model.parent.mkdir()
-            model.write_text("estimator: ridge\n")
             pd.DataFrame(
                 {"idx": list(range(12)), "x": list(range(12)), "y": list(range(12))}
             ).to_parquet("train.parquet")
@@ -159,7 +145,7 @@ class SnapshotTests(TestCase):
                             "target": "y",
                             "features": ["x"],
                         },
-                        "methods": {"ridge": {"kind": "tabular", "recipe": str(model)}},
+                        "methods": {"ridge": {"kind": "tabular", "model": "ridge"}},
                     }
                 )
             )
@@ -168,18 +154,11 @@ class SnapshotTests(TestCase):
             assert isinstance(first, Path)
             archive = first / "config_snapshot"
             original_predictions = pd.read_parquet(first / "methods/ridge/predictions.parquet")
-            model.unlink()
             flow.unlink()
             replay = pipeline(str(restore_snapshot(archive, root)))
             assert isinstance(replay, Path)
             pd.testing.assert_frame_equal(
                 original_predictions, pd.read_parquet(replay / "methods/ridge/predictions.parquet")
-            )
-            old_output, old_flow = table_flow(root)
-            pipeline(old_flow, tracking_uri=uri)
-            (legacy,) = (old_output / "config_snapshots").iterdir()
-            self.assertEqual(
-                yaml.safe_load((legacy / "flow.yaml").read_text())["pipeline"], "tabular"
             )
             partial = root / "partial.yml"
             partial.write_text(
@@ -190,14 +169,12 @@ class SnapshotTests(TestCase):
                         "methods": {
                             "unavailable": {
                                 "kind": "external",
-                                "predictor": "photoz.methods.phosphoros:predict",
-                                "recipe": "absent.yaml",
+                                "model": "photoz.methods.phosphoros:predict",
                                 "options": {"set_name": "example"},
                             },
                             "available": {
-                                "kind": "external",
-                                "predictor": f"{__name__}:use_saved_predictions",
-                                "recipe": str(first / "methods/ridge/predictions.parquet"),
+                                "kind": "saved",
+                                "predictions": str(first / "methods/ridge/predictions.parquet"),
                             },
                         },
                     }
@@ -219,19 +196,12 @@ class SnapshotTests(TestCase):
                 ids = json.loads((mixed / "tracking.json").read_text())
                 for name, status in [("unavailable", "FAILED"), ("available", "FINISHED")]:
                     self.assertEqual(client.get_run(ids[name]).info.status, status)
-                    self.assertFalse(client.list_artifacts(ids[name], "recipe"))
+                    self.assertEqual(bool(client.list_artifacts(ids[name], "recipe")),
+                                     name == "unavailable")
                 run_id = json.loads((first / "tracking.json").read_text())["ridge"]
-                exp = client.get_experiment_by_name("photoz")
-                assert exp is not None
-                (old_run,) = client.search_runs([exp.experiment_id])
-                for identifier, bundle in [(run_id, archive), (old_run.info.run_id, legacy)]:
-                    remote = Path(
-                        client.download_artifacts(identifier, "config_snapshot", str(root))
-                    )
-                    self.assertEqual(
-                        (remote / "manifest.json").read_bytes(),
-                        (bundle / "manifest.json").read_bytes(),
-                    )
-                    manifest = json.loads((bundle / "manifest.json").read_text())["sha256"]
-                    for key in manifest:
-                        self.assertEqual((remote / key).read_bytes(), (bundle / key).read_bytes())
+                remote = Path(client.download_artifacts(run_id, "config_snapshot", str(root)))
+                self.assertEqual((remote / "manifest.json").read_bytes(),
+                                 (archive / "manifest.json").read_bytes())
+                manifest = json.loads((archive / "manifest.json").read_text())["sha256"]
+                for key in manifest:
+                    self.assertEqual((remote / key).read_bytes(), (archive / key).read_bytes())

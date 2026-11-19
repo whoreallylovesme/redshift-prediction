@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 import click
 
-from photoz.methods import phosphoros
 from photoz.methods.phosphoros import (
     SIDES,
     build_grids,
@@ -16,11 +14,6 @@ from photoz.methods.phosphoros import (
     prepare_set,
     run_set,
 )
-
-
-def __getattr__(name: str) -> Any:
-    return getattr(phosphoros, name)
-
 
 CONFIG = click.option(
     "--config", "config_path", type=click.Path(exists=True, path_type=Path), required=True

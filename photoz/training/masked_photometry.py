@@ -11,10 +11,11 @@ from pydantic import Field
 from torch import Tensor
 from torch.utils.data import TensorDataset
 
+from lib.models.nn.masked import sample_mask
 from lib.train.lightning import predict_batches
 from lib.train.likelihood import LikelihoodModule, row_loader
 from lib.utils.utils import load_yaml_as
-from photoz.models.masked_photometry import MaskedFluxEncoder, masked_gaussian_nll, sample_mask
+from photoz.models.nn.masked_photometry import MaskedFluxEncoder, masked_gaussian_nll
 from photoz.training.likelihood import LikelihoodRecipe, partition
 
 

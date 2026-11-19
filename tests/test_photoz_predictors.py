@@ -6,15 +6,13 @@ from unittest.mock import patch
 import numpy as np
 import pandas as pd
 import torch
-import yaml
 from torch.utils.data import DataLoader, TensorDataset
 
 from lib.config import PytorchTrainConfig
-from lib.inference import inference
+from lib.models.nn.capsnet import CapsNet
 from photoz.methods.capsnet import _predict
 from photoz.methods.teddy_images import predict_teddy
-from photoz.models.capsnet import CapsNet
-from photoz.models.predictors import CapsNetPredictor
+from photoz.models.nn.predictors import CapsNetPredictor
 
 
 class Average(torch.nn.Module):
@@ -22,7 +20,7 @@ class Average(torch.nn.Module):
         return inputs.mean(dim=(1, 2, 3))
 
 
-class LegacyPredictTest(TestCase):
+class PhotozPredictorsTest(TestCase):
     def test_teddy_uses_saved_training_scale_and_accounts_for_bad_images(self) -> None:
         with TemporaryDirectory() as temp:
             root = Path(temp)
@@ -33,10 +31,10 @@ class LegacyPredictTest(TestCase):
             np.savez(root / "image_normalization.npz", mean=np.full(4, 2), std=np.full(4, 2))
             weights = root / "best_model.pt"
             torch.save(Average().state_dict(), weights)
-            cfg = PytorchTrainConfig.model_validate(
-                yaml.safe_load(Path("tests/fixtures/legacy/models/fusion.yaml").read_text())
+            cfg = PytorchTrainConfig.model_construct(
+                estimator="fixture", device="cpu", data_dir=str(images), out_size=8, crop_size=None,
+                batch_size=2, num_workers=0,
             )
-            cfg.device = "cpu"
             out = root / "held.parquet"
             with patch("photoz.methods.teddy_images.load_estimator", return_value=Average()):
                 predict_teddy(str(weights), cfg, str(images), None, str(out), "oid")
@@ -45,15 +43,6 @@ class LegacyPredictTest(TestCase):
             self.assertAlmostEqual(prediction.y_pred.iloc[0], 2.0)
             self.assertTrue(np.isnan(prediction.y_pred.iloc[1]))
             self.assertNotEqual(prediction.status.iloc[1], "ok")
-
-    def test_archived_euclid_recipe_uses_its_predictor(self) -> None:
-        with TemporaryDirectory() as tmp, patch("photoz.methods.euclid_clip.run_inference") as run:
-            path = Path(tmp) / "euclid.yaml"
-            for kind in ("torch", "lightning"):
-                path.write_text(yaml.safe_dump({"model_type": kind, "model": "euclid_clip"}))
-                inference(config_path=str(path))
-                run.assert_called_once_with(path)
-                run.reset_mock()
 
     def test_capsnet_predict_matches_single_batch_api(self) -> None:
         with TemporaryDirectory() as temp:

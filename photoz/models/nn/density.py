@@ -7,9 +7,8 @@ from typing import Any, Literal
 import torch
 from numpy.typing import ArrayLike
 
-from lib.models import density
-from lib.models.density import BinnedDensityHead, FloatArray
-from lib.models.density import DensityPrediction as DensityPrediction
+from lib.models.nn import density
+from lib.models.nn.density import BinnedDensityHead, FloatArray
 
 
 def _redshift_edges(values: ArrayLike) -> FloatArray:

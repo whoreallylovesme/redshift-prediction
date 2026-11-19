@@ -8,6 +8,7 @@ from typing import Any
 from unittest import TestCase
 
 import pandas as pd
+import yaml
 from prefect.client.orchestration import get_client
 from prefect.client.schemas.filters import FlowRunFilter, FlowRunFilterId
 from prefect.settings import PREFECT_RESULTS_LOCAL_STORAGE_PATH, temporary_settings
@@ -22,7 +23,7 @@ rendezvous = Barrier(2)
 
 def simultaneous(config_path: Path, out_dir: Path) -> Path:
     rendezvous.wait(timeout=15)
-    return config_path
+    return Path(yaml.safe_load(config_path.read_text())["predictions"])
 
 
 class WorkflowTest(TestCase):
@@ -95,7 +96,7 @@ class WorkflowTest(TestCase):
                 "methods": {
                     "ridge": {
                         "kind": "tabular",
-                        "recipe": "tests/fixtures/legacy/models/ridge.yaml",
+                        "model": "ridge",
                     }
                 },
             }
@@ -132,11 +133,10 @@ class WorkflowTest(TestCase):
             frame.loc[1, "y"] += 1
             frame.to_parquet(source)
             self.assertEqual(fit_state(run(config)), "Completed")
-            config_file = str(pred)
             method = {
                 "kind": "external",
-                "predictor": f"{__name__}:simultaneous",
-                "recipe": config_file,
+                "model": f"{__name__}:simultaneous",
+                "params": {"predictions": str(pred)},
                 "report": {"id_column": "id"},
             }
             parallel = Experiment.model_validate(

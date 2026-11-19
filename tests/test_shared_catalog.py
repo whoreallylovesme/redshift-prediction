@@ -20,15 +20,13 @@ class SharedCatalogTest(TestCase):
         fixture = Path("tests/fixtures/fusion").resolve()
         with TemporaryDirectory() as tmp, prefect_test_harness():
             root = Path(tmp)
-            catalog = root / "features.yaml"
-            catalog.write_text("target: response\nfeature_sets: {sensors: [time, density]}\n")
             recipe.update(task="regression", output=str(root / "runs"), cache=False)
             recipe["dataset"] = {
                 "source": str(fixture / "train.csv"),
                 "evaluation_files": {"held": str(fixture / "held.csv")},
                 "id_column": "sample",
-                "feature_catalog": str(catalog),
-                "feature_set": "sensors",
+                "target": "response",
+                "features": ["time", "density"],
                 "images": str(fixture / "images"),
                 "image_size": 16,
             }

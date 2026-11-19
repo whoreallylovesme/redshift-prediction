@@ -9,7 +9,7 @@ import torch
 from lightning.pytorch.callbacks import ModelCheckpoint
 from torch.utils.data import DataLoader
 
-from lib.tracking import lightning_logger
+from lib.tracking.mlflow import lightning_logger
 
 
 def single_device_trainer(

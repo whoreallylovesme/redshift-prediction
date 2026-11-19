@@ -13,7 +13,7 @@ from torch import Tensor, nn
 
 from lib.dataloaders.common import d4 as d4
 from lib.utils.utils import check
-from photoz.models.euclid_clip import CLIPModel, ITNetwork
+from photoz.models.nn.euclid_clip import CLIPModel, ITNetwork
 
 KEYS = (
     "image",

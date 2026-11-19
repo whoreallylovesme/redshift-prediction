@@ -6,12 +6,10 @@ from unittest.mock import patch
 import pandas as pd
 import yaml
 from click.testing import CliRunner
-from hydra import compose, initialize_config_dir
+from hydra import initialize_config_dir
 
-from lib.config import PytorchTrainConfig, load_flow
+from lib.config import load_flow
 from lib.config.experiment import Dataset, Experiment
-from lib.utils.hydra_utils import hydra_to_yaml
-from lib.utils.utils import load_yaml_as
 from lib.workflow.data import prepare_dataset
 from runtime.pipeline import main
 
@@ -19,7 +17,7 @@ from runtime.pipeline import main
 class RecipesTest(TestCase):
     def test_config_selection_and_render_without_a_flow(self) -> None:
         runner = CliRunner()
-        with patch("runtime.pipeline._run") as run:
+        with patch("lib.workflow.experiment.run") as run:
             for args in ([], ["--check"], ["workers=2"]):
                 result = runner.invoke(main, args)
                 self.assertEqual(result.exit_code, 2, result.output)
@@ -55,8 +53,8 @@ class RecipesTest(TestCase):
                 "defaults: [ {methods: saved}, _self_ ]\nname: trial\noutput: runs/${name}\n"
             )
             runner = CliRunner()
-            with patch("runtime.pipeline._run") as run:
-                run.return_value = None
+            with patch("lib.workflow.experiment.run") as run:
+                run.return_value = root
                 args = ["--config", str(flow), "--workers", "3", "methods=alternate", "name=demo"]
                 checked = runner.invoke(main, [*args, "--check"])
                 self.assertEqual(checked.exit_code, 0, checked.output)
@@ -83,13 +81,10 @@ class RecipesTest(TestCase):
         }
         with TemporaryDirectory() as temp:
             root = Path(temp)
-            recipe = root / "model.yaml"
-            recipe.write_text("estimator: misspelled_model\n")
             for method, error in [
-                ({"kind": "tabular", "recipe": str(recipe)}, "misspelled_model"),
-                ({"kind": "external", "recipe": str(recipe), "predictor": "math:pi"}, "callable"),
-                ({"kind": "external", "recipe": str(recipe), "predictor": "math:typo"}, "typo"),
-                ({"kind": "tabular", "recipe": str(root / "missing.yaml")}, "missing.yaml"),
+                ({"kind": "tabular", "model": "misspelled_model"}, "misspelled_model"),
+                ({"kind": "external", "model": "math:pi"}, "callable"),
+                ({"kind": "external", "model": "math:typo"}, "typo"),
             ]:
                 with self.subTest(error=error):
                     flow = root / "flow.yaml"
@@ -109,20 +104,6 @@ class RecipesTest(TestCase):
         image["dataset"]["features"] = [image["dataset"]["target"]]
         with self.assertRaisesRegex(ValueError, "exclude target"):
             Experiment.model_validate(image, context={"check": True})
-
-    def test_hydra_preserves_ids_and_training_overrides(self) -> None:
-        folder = Path("tests/fixtures/legacy/hydra").resolve()
-        with initialize_config_dir(config_dir=str(folder), version_base="1.3"):
-            cfg = compose("hydra", overrides=["model=fusion", "dataset=synthetic", "train.lr=0.3"])
-            path = hydra_to_yaml(cfg, folder)
-            try:
-                recipe = load_yaml_as(path, PytorchTrainConfig)
-                self.assertEqual(recipe.lr, 0.3)
-                self.assertIsNotNone(recipe.image_catalog)
-                assert recipe.image_catalog is not None
-                self.assertEqual(recipe.image_catalog.id_column, "sample")
-            finally:
-                path.unlink()
 
     def test_text_csv_ids_and_no_generated_id_collisions_across_sources(self) -> None:
         with TemporaryDirectory() as temp:

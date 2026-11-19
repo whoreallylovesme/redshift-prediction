@@ -8,59 +8,6 @@ from lib.config import SklearnTrainConfig
 from lib.train.regression import MetricFn, regression_metrics
 
 
-def feature_selection(df: pd.DataFrame, features: list[str]) -> tuple[list[str], list[str]]:
-    cols = set(df.columns)
-    selected = []
-    missing = []
-    for f in features:
-        if f in cols:
-            selected.append(f)
-        else:
-            missing.append(f)
-
-    return selected, missing
-
-
-def split_data(
-    df: pd.DataFrame,
-    features: list[str],
-    target: str,
-    test_size: float,
-    val_size: float,
-    shuffle: bool,
-    random_seed: int,
-) -> tuple[
-    pd.DataFrame,
-    pd.DataFrame,
-    pd.DataFrame,
-    pd.Series,
-    pd.Series,
-    pd.Series,
-    pd.DataFrame,
-    pd.Series,
-]:
-    X = df[features]
-    y = df[target]
-
-    X_train_full, X_test, y_train_full, y_test = train_test_split(
-        X,
-        y,
-        test_size=test_size,
-        random_state=random_seed,
-        shuffle=shuffle,
-    )
-
-    X_train, X_val, y_train, y_val = train_test_split(
-        X_train_full,
-        y_train_full,
-        test_size=val_size,
-        random_state=random_seed,
-        shuffle=shuffle,
-    )
-
-    return X_train, X_val, X_test, y_train, y_val, y_test, X_train_full, y_train_full
-
-
 def hyperparameter_optimization(
     estimator: Any,
     X_train: pd.DataFrame,
@@ -68,12 +15,12 @@ def hyperparameter_optimization(
     cfg: SklearnTrainConfig,
     weights: pd.Series | None = None,
 ) -> Any:
-    if not cfg.hyperopt_enabled:
+    if not cfg.hyperopt.enabled:
         return {}
 
     from sklearn.metrics import get_scorer
 
-    metric = get_scorer(cfg.hyperopt_scoring)
+    metric = get_scorer(cfg.hyperopt.scoring)
 
     def weighted_score(model: Any, x: pd.DataFrame, y: pd.Series) -> float:
         assert weights is not None
@@ -82,10 +29,10 @@ def hyperparameter_optimization(
     gs = GridSearchCV(
         estimator=estimator,
         param_grid=cfg.param_grid,
-        cv=cfg.hyperopt_cv,
-        scoring=cfg.hyperopt_scoring if weights is None else weighted_score,
-        n_jobs=cfg.hyperopt_n_jobs,
-        verbose=cfg.hyperopt_verbose,
+        cv=cfg.hyperopt.cv,
+        scoring=cfg.hyperopt.scoring if weights is None else weighted_score,
+        n_jobs=cfg.hyperopt.n_jobs,
+        verbose=cfg.hyperopt.verbose,
     )
     gs.fit(X_train, y_train, **weight_parameters(estimator, weights))
 
@@ -147,9 +94,10 @@ def fit_regressor(
     from lib.utils.estimator_loader import load_estimator
 
     x, y = frame[features], frame[target]
-    if cfg.val_size:
+    if cfg.split.val_size:
         xt, xv, yt, yv = train_test_split(
-            x, y, test_size=cfg.val_size, random_state=cfg.random_seed, shuffle=cfg.shuffle
+            x, y, test_size=cfg.split.val_size, random_state=cfg.split.random_seed,
+            shuffle=cfg.split.shuffle,
         )
     else:
         xt, xv, yt, yv = x, x.iloc[:0], y, y.iloc[:0]
