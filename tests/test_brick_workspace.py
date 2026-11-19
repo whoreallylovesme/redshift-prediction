@@ -3,19 +3,80 @@ from collections.abc import AsyncIterator
 from io import BytesIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import BinaryIO
 from unittest import TestCase
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import aiohttp
+import numpy as np
 import pandas as pd
+from astropy.io import fits
 from click.testing import CliRunner
 
-from tools.download_imgs import download_bricks, download_legacy_survey, survey
+from tools.download_imgs import download_bricks, download_cutouts, download_legacy_survey, survey
 from tools.download_imgs.workspace import brick_workspace, download_destination
 from tools.euclid_q1.download_mosaics import download
 
 
 class BrickWorkspaceTests(TestCase):
+    def test_interrupted_cutout_can_be_retried_and_keeps_the_original_padding(self) -> None:
+        pixels = np.arange(24, dtype=np.float32).reshape(4, 2, 3)
+        with BytesIO() as stream:
+            fits.PrimaryHDU(pixels).writeto(stream)
+            response = MagicMock()
+            response.get.return_value.__aenter__.return_value.status = 200
+            response.get.return_value.__aenter__.return_value.raise_for_status = MagicMock()
+            response.get.return_value.__aenter__.return_value.read.return_value = stream.getvalue()
+
+        def interrupt(stream: BinaryIO, *, image: np.ndarray) -> None:
+            stream.write(b"partial NPZ")
+            raise OSError("disk full")
+
+        with TemporaryDirectory() as tmp:
+            dest = Path(tmp) / "1.npz"
+            with patch.object(np, "savez_compressed", side_effect=interrupt):
+                with self.assertRaisesRegex(OSError, "disk full"):
+                    asyncio.run(download_cutouts.download_one_cutout(
+                        response, asyncio.Semaphore(1), 1, 0.0, 0.0, dest,
+                    ))
+            self.assertEqual(list(dest.parent.iterdir()), [])
+            self.assertTrue(asyncio.run(download_cutouts.download_one_cutout(
+                response, asyncio.Semaphore(1), 1, 0.0, 0.0, dest,
+            )))
+            expected = np.zeros((224, 224, 4), dtype=np.float32)
+            expected[:2, :3] = pixels.transpose(1, 2, 0)
+            with np.load(dest) as result:
+                np.testing.assert_array_equal(result["image"], expected)
+
+    def test_sdss_retry_policies_and_shared_cache(self) -> None:
+        first = 2**60
+        cached = pd.DataFrame({"objid": [first], "ra": [1.0], "dec": [2.0]})
+        requested = [first + i for i in range(202)]
+        for module, attempts, backoff in [(download_bricks, 5, 1), (download_cutouts, 8, 2)]:
+            with self.subTest(module=module.__name__), TemporaryDirectory() as tmp:
+                cache = Path(tmp) / "coords.parquet"
+                cached.to_parquet(cache)
+                with (
+                    patch.object(survey, "_try_sdss", return_value=None) as query,
+                    patch.object(survey.time, "sleep") as sleep,
+                ):
+                    self.assertEqual(module.fetch_coordinates(requested[:2], cache).objid[0], first)
+                self.assertEqual(query.call_count, attempts)
+                waits = [call(backoff * 2**i) for i in range(attempts - 1)]
+                self.assertEqual(sleep.call_args_list, waits)
+
+                new = pd.DataFrame({"objid": requested[1:], "ra": 3.0, "dec": 4.0})
+                responses = [new.iloc[:200], new.iloc[200:]]
+                with patch.object(survey, "_try_sdss", side_effect=responses) as query:
+                    result = module.fetch_coordinates(requested, cache)
+                    self.assertEqual(result.objid.tolist(), requested)
+                    replay = module.fetch_coordinates(requested, cache)
+                    self.assertEqual(replay.objid.tolist(), requested)
+                ids_sent = [
+                    q.args[0].split(" IN (")[1][:-1].split(",") for q in query.call_args_list
+                ]
+                self.assertEqual(ids_sent, [list(map(str, requested[1:201])), [str(requested[-1])]])
+
     def test_cleanup_on_error_preserves_existing_downloads_and_unrelated_files(self) -> None:
         with TemporaryDirectory() as temp:
             parent = Path(temp)

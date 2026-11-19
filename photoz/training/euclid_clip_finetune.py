@@ -15,6 +15,7 @@ import torch
 from numpy.typing import NDArray
 from pydantic import BaseModel, Field
 from torch import Tensor
+from torch.nn import functional as F
 from torch.utils.data import DataLoader, TensorDataset
 
 from lib.dataloaders.batches import ShuffledRowBatches
@@ -570,9 +571,8 @@ class BinnedFineTuning(ClipTrainingEpoch):
         data = masked(data, self.keep)
         weights = self.weights[loc].to(self.device)
         logits: Tensor = self.model(**{k: data[k] for k in IT_ARGS})
-        log_prob = torch.log_softmax(logits.float(), 1)
-        loss = (weights * -(self.target[loc].to(self.device) * log_prob).sum(1)).sum()
-        loss = loss / weights.sum()
+        nll = F.cross_entropy(logits.float(), self.target[loc].to(self.device), reduction="none")
+        loss = (weights * nll).sum() / weights.sum()
         check(torch.isfinite(loss), "finite loss")
         self.record_loss(loss, len(loc))
         return loss

@@ -357,6 +357,23 @@ class OptionalAssetsTests(unittest.TestCase):
         self.assertEqual([x["id"] for x in charts["posterior_examples"]], [str(k) for k in ids])
         self.assertEqual(charts["posterior_examples"][0]["posterior"]["y"], [0.0, 1.0])
 
+    def test_exact_cumulative_mass_selects_the_first_posterior_knot(self) -> None:
+        from lib.report.examples import posterior_diagnostics
+
+        method = {"posterior_grid": [0, 1, 2], "posterior_column": "pdf"}
+        for weights in ([7, 2, 1], [70, 20, 10]):
+            frame = pd.DataFrame({"_truth": [2.0], "pdf": [weights]})
+            result = posterior_diagnostics(frame, method)
+            assert result is not None
+            index = result["nominal"].index(0.8)
+            self.assertEqual(result["mean_width"][index], 1.0)
+            self.assertEqual(result["empirical"][index], 0.0)
+        tiny = np.nextafter(0.0, 1.0)
+        frame = pd.DataFrame({"_truth": [2.0], "pdf": [[0.0, 0.0, tiny]]})
+        result = posterior_diagnostics(frame, method)
+        assert result is not None
+        self.assertEqual(result["mean_width"], [0.0] * 5)
+
     def test_posteriors_thumbnail_and_standalone_export(self) -> None:
         from PIL import Image
 

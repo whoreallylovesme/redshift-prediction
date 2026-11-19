@@ -249,11 +249,12 @@ def select_rows(raw: Raw, cfg: SetConfig) -> NDArray[np.int64]:
             check(text.str.fullmatch(r"[0-9]+").all(), "requested IDs must be decimal integers")
             table = table.assign(**{cfg.ids_column: pd.to_numeric(text, errors="raise")})
         exact_ids(table, (cfg.ids_column,))
-        position = {int(v): i for i, v in enumerate(ids)}
+        index = pd.Index(ids)
+        check(index.is_unique, "unique photometry ids required")
         wanted = table[cfg.ids_column].to_numpy(np.int64)
-        missing = [int(v) for v in wanted if int(v) not in position]
-        check(not missing, f"{len(missing)} requested ids are absent from {cfg.photometry}")
-        rows = np.array([position[int(v)] for v in wanted], dtype=np.int64)
+        rows = index.get_indexer(wanted)
+        missing = np.count_nonzero(rows < 0)
+        check(missing == 0, f"{missing} requested ids are absent from {cfg.photometry}")
     keep = np.ones(len(rows), dtype=np.bool_)
     if cfg.field_code is not None:
         keep &= raw["field_code"][rows] == cfg.field_code

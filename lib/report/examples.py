@@ -21,14 +21,14 @@ def posterior_grid(method: dict[str, Any]) -> Floats | None:
     return grid
 
 
-def probabilities(value: Any, grid: Floats) -> Floats | None:
+def probabilities(value: Any, grid: Floats, *, normalize: bool = True) -> Floats | None:
     mass = np.asarray(value, dtype=float)
     if mass.shape != grid.shape or not np.isfinite(mass).all() or np.any(mass < 0):
         return None
     total = float(mass.sum())
     if not np.isfinite(total) or total <= 0:
         return None
-    return mass / total
+    return mass / total if normalize else mass
 
 
 def posterior_diagnostics(frame: pd.DataFrame, method: dict[str, Any]) -> dict[str, Any] | None:
@@ -36,17 +36,17 @@ def posterior_diagnostics(frame: pd.DataFrame, method: dict[str, Any]) -> dict[s
     if grid is None:
         return None
     levels = np.array([0.5, 0.68, 0.8, 0.9, 0.95])
+    tails = np.stack(((1 - levels) / 2, (1 + levels) / 2))
     totals = np.zeros(len(levels))
     widths = np.zeros(len(levels))
     used = 0
     for truth, value in zip(frame._truth, frame[method["posterior_column"]], strict=True):
-        mass = probabilities(value, grid)
+        mass = probabilities(value, grid, normalize=False)
         if mass is None:
             continue
-        cdf = np.cumsum(mass)
-        cdf[-1] = 1.0
-        low = grid[np.searchsorted(cdf, (1 - levels) / 2)]
-        high = grid[np.searchsorted(cdf, (1 + levels) / 2)]
+        cumulative = np.cumsum(mass)
+        cumulative /= cumulative[-1]
+        low, high = grid[np.searchsorted(cumulative, tails)]
         totals += (low <= truth) & (truth <= high)
         widths += high - low
         used += 1

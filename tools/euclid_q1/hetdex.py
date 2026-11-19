@@ -39,6 +39,7 @@ from lib.dataloaders.euclid_transforms import (
 )
 from lib.utils.log import get_logger
 from lib.utils.utils import check, load_yaml_as
+from photoz.data.euclid_mosaics import load_plane as read_plane
 
 logger = get_logger()
 
@@ -510,27 +511,6 @@ def download_mosaics(cfg: HetdexConfig, selected: tuple[int, ...] = ()) -> None:
     logger.info("%d mosaics", len(jobs))
     with ThreadPoolExecutor(cfg.download_workers) as pool:
         list(pool.map(lambda job: download(job[0], job[1], cfg.download_attempts), jobs))
-
-
-def read_plane(path: Path) -> tuple[NDArray[Any], Any]:
-    with fits.open(path, memmap=False, lazy_load_hdus=True) as h:
-        i = 0 if h[0].header.get("NAXIS", 0) == 2 else 1
-        head = h[i].header.copy()
-        offset = h.fileinfo(i)["datLoc"]
-    bitpix, scale, zero = head["BITPIX"], head.get("BSCALE", 1), head.get("BZERO", 0)
-    kind = "f" if bitpix < 0 else "i"
-    width = abs(bitpix) // 8
-    unsigned = kind == "i" and scale == 1 and zero == 2 ** (abs(bitpix) - 1)
-    check(unsigned or (scale == 1 and zero == 0), "unsupported scaling")
-    dtype = np.dtype(">" + kind + str(width))
-    count = head["NAXIS2"] * head["NAXIS1"]
-    a = np.fromfile(path, dtype=dtype, count=count, offset=offset)
-    a = a.reshape(head["NAXIS2"], head["NAXIS1"])
-    a = a.byteswap().view(a.dtype.newbyteorder("="))
-    if unsigned:
-        a = a.view(np.dtype("u" + str(width)))
-        a ^= np.array(1 << (abs(bitpix) - 1), dtype=a.dtype)
-    return a, head
 
 
 def cut_tile(

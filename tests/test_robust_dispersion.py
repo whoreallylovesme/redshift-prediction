@@ -4,11 +4,34 @@ import numpy as np
 
 from lib.metrics.dispersion import scaled_mad
 from photoz.data.euclid_transforms import SPECTRUM_LENGTH, UNIT_CGS, transform_spectrum
+from photoz.data.euclid_translation import impute_ebv
+from photoz.data.euclid_zero_points import gate
 from photoz.data.euclid_zero_points import nmad as calibration_nmad
 from photoz.metrics import nmad as redshift_nmad
 
 
 class DispersionTests(TestCase):
+    def test_missing_extinction_uses_valid_tile_median_then_global_median(self) -> None:
+        tiles = np.array([2, 2, 2, 4, 4, 1, 1])
+        values = np.array([0.04, -1, 0.08, np.inf, np.nan, 0.2, 0.4])
+        filled, missing = impute_ebv(values, tiles)
+        np.testing.assert_array_equal(filled, [0.04, 0.06, 0.08, 0.14, 0.14, 0.2, 0.4])
+        np.testing.assert_array_equal(missing, [False, True, False, True, True, False, False])
+        empty, mask = impute_ebv(np.array([np.inf, -1.0]), np.array([1, 2]))
+        self.assertTrue(np.isnan(empty).all())
+        self.assertTrue(mask.all())
+
+    def test_calibration_requires_high_signal_in_all_eight_bands(self) -> None:
+        signal = np.ones((4, 8), dtype=bool)
+        signal[2, 7] = False
+        signal[3, 0] = False
+        prediction = np.ones((4, 8))
+        prediction[0, :4] = [0, np.nan, np.inf, -1]
+        expected = np.zeros_like(signal)
+        expected[0, 4:] = True
+        expected[1] = True
+        np.testing.assert_array_equal(gate(prediction, signal), expected)
+
     def test_historical_factor_empty_and_nonfinite_values(self) -> None:
         values = np.array([-2.0, 1.0, 4.0, 8.0, 9.0])
         expected = 1.4826 * np.median(np.abs(values - np.median(values)))

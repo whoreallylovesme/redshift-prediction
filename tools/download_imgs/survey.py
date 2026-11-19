@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 import time
+from collections.abc import Sequence
 from io import StringIO
+from itertools import batched
 from pathlib import Path
 from shutil import copyfileobj
 from typing import TYPE_CHECKING
@@ -15,6 +18,7 @@ import aiohttp
 import numpy as np
 import pandas as pd
 from astropy.io import fits
+from tqdm import tqdm
 
 if TYPE_CHECKING or __package__:
     from tools.download_imgs.workspace import download_destination
@@ -52,15 +56,17 @@ def _try_sdss(sql: str) -> pd.DataFrame | None:
         return None
 
 
-def _sdss_batch(objids: list[int]) -> pd.DataFrame:
+def _sdss_batch(
+    objids: Sequence[int], *, max_retries: int = MAX_RETRIES, backoff: float = RETRY_BACKOFF,
+) -> pd.DataFrame:
     sql = f"SELECT objid,ra,dec FROM PhotoObj WHERE objid IN ({','.join(map(str, objids))})"
-    for attempt in range(MAX_RETRIES):
+    for attempt in range(max_retries):
         result = _try_sdss(sql)
         if result is not None:
             return result
-        print(f"    SDSS query failed (attempt {attempt + 1}/{MAX_RETRIES})", flush=True)
-        if attempt < MAX_RETRIES - 1:
-            time.sleep(RETRY_BACKOFF * (2**attempt))
+        print(f"    SDSS query failed (attempt {attempt + 1}/{max_retries})", flush=True)
+        if attempt < max_retries - 1:
+            time.sleep(backoff * (2**attempt))
     print("    All SDSS retries failed for this batch", flush=True)
     return pd.DataFrame()
 
@@ -68,6 +74,9 @@ def _sdss_batch(objids: list[int]) -> pd.DataFrame:
 def fetch_coordinates(
     objids: list[int],
     cache_path: Path,
+    *,
+    max_retries: int = MAX_RETRIES,
+    backoff: float = RETRY_BACKOFF,
 ) -> pd.DataFrame:
     """Return DataFrame with objid/ra/dec, fetching from SDSS and caching to parquet."""
     frames: list[pd.DataFrame] = []
@@ -82,18 +91,18 @@ def fetch_coordinates(
     remaining = [oid for oid in objids if oid not in cached_ids]
     if remaining:
         print(f"  Querying SDSS for {len(remaining)} objects...", flush=True)
-        batches = [remaining[i : i + SDSS_BATCH] for i in range(0, len(remaining), SDSS_BATCH)]
         new_frames: list[pd.DataFrame] = []
-        for bi, batch in enumerate(batches):
-            if bi % 50 == 0:
-                print(f"    batch {bi + 1}/{len(batches)}", flush=True)
-            df = _sdss_batch(batch)
+        batches = batched(remaining, SDSS_BATCH, strict=False)
+        count = (len(remaining) + SDSS_BATCH - 1) // SDSS_BATCH
+        progress = tqdm(batches, total=count, unit="batch", desc="SDSS", file=sys.stdout)
+        for bi, batch in enumerate(progress, 1):
+            df = _sdss_batch(batch, max_retries=max_retries, backoff=backoff)
             if not df.empty:
                 new_frames.append(df)
             # periodic save
-            if (bi + 1) % 100 == 0 and new_frames:
+            if bi % 100 == 0 and new_frames:
                 pd.concat(frames + new_frames, ignore_index=True).to_parquet(cache_path)
-                print(f"    checkpoint saved ({bi + 1} batches done)", flush=True)
+                print(f"    checkpoint saved ({bi} batches done)", flush=True)
         if new_frames:
             frames.extend(new_frames)
         if frames:

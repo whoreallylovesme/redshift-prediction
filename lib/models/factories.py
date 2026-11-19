@@ -15,9 +15,8 @@ def convnext_tiny(image_channels: int = 3, pretrained: bool = True) -> Any:
         drop_rate=0.2,
     )
 
-    for name, param in model.named_parameters():
-        if not name.startswith("head"):
-            param.requires_grad = False
+    model.requires_grad_(False)
+    model.head.requires_grad_(True)
 
     return model
 
@@ -52,9 +51,8 @@ def efficientnet_b0(image_channels: int = 3, pretrained: bool = True) -> Any:
         nn.Linear(256, 1),
     )
 
-    for name, param in model.named_parameters():
-        if not name.startswith("classifier"):
-            param.requires_grad = False
+    model.requires_grad_(False)
+    model.classifier.requires_grad_(True)
 
     return model
 
@@ -69,9 +67,8 @@ def vit_tiny(image_channels: int = 3, pretrained: bool = True) -> Any:
         num_classes=1,
     )
 
-    for name, param in model.named_parameters():
-        if not name.startswith("head"):
-            param.requires_grad = False
+    model.requires_grad_(False)
+    model.head.requires_grad_(True)
 
     return model
 

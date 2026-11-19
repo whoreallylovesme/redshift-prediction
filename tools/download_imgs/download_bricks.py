@@ -13,7 +13,8 @@ from __future__ import annotations
 
 import asyncio
 import json
-import time
+import sys
+from itertools import batched
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -25,13 +26,14 @@ from astropy.coordinates import SkyCoord
 from astropy.io import fits
 from astropy.nddata import Cutout2D
 from astropy.wcs import WCS
+from tqdm import tqdm
 
 if TYPE_CHECKING or __package__:
     from tools.download_imgs import survey
-    from tools.download_imgs.workspace import brick_workspace
+    from tools.download_imgs.workspace import brick_workspace, download_destination
 else:
     import survey
-    from workspace import brick_workspace
+    from workspace import brick_workspace, download_destination
 
 # Historical imports used by callers of the standalone download scripts.
 BANDS = survey.BANDS
@@ -123,7 +125,8 @@ def extract_cutouts_from_brick(
             image = np.stack(channels, axis=0)
             image = np.moveaxis(image, 0, -1)  # (6,H,W) → (H,W,6)
             if image.shape == (STAMP_SIZE, STAMP_SIZE, 6):
-                np.savez_compressed(npz_path, image=image)
+                with download_destination(npz_path) as stream:
+                    np.savez_compressed(stream, image=image)
                 saved += 1
                 continue
 
@@ -151,9 +154,8 @@ async def _process_one_brick(
             missing = [oid for oid, _, _ in objects]
             return 0, len(objects), [], missing
 
-        loop = asyncio.get_event_loop()
-        saved, failed, failed_ids = await loop.run_in_executor(
-            None, extract_cutouts_from_brick, brick_path, brickname, objects, objid_to_dest
+        saved, failed, failed_ids = await asyncio.to_thread(
+            extract_cutouts_from_brick, brick_path, brickname, objects, objid_to_dest
         )
         return saved, failed, failed_ids, []
 
@@ -172,44 +174,27 @@ async def streaming_pipeline(
     connector = aiohttp.TCPConnector(limit=total_conns, ttl_dns_cache=300)
     timeout_cfg = aiohttp.ClientTimeout(total=timeout, connect=30)
 
-    total_bricks = len(brick_map)
     total_saved = 0
     total_failed = 0
     all_failed_ids: list[int] = []
     missing_brick_ids: list[int] = []
-    done_count = 0
-    t0 = time.time()
-
-    brick_items = list(brick_map.items())
 
     async with aiohttp.ClientSession(connector=connector, timeout=timeout_cfg) as session:
-        for chunk_start in range(0, total_bricks, brick_parallel):
-            chunk = brick_items[chunk_start : chunk_start + brick_parallel]
-
-            tasks = [
-                _process_one_brick(session, semaphore, brickname, objects, objid_to_dest, brick_dir)
-                for brickname, objects in chunk
-            ]
-            results = await asyncio.gather(*tasks)
-
-            for saved, failed, failed_ids, missing_ids in results:
-                total_saved += saved
-                total_failed += failed
-                all_failed_ids.extend(failed_ids)
-                missing_brick_ids.extend(missing_ids)
-
-            done_count += len(chunk)
-            if done_count % 10 <= brick_parallel or done_count == total_bricks:
-                elapsed = time.time() - t0
-                rate = done_count / elapsed if elapsed > 0 else 0
-                eta = (total_bricks - done_count) / rate if rate > 0 else 0
-                print(
-                    f"  [{done_count}/{total_bricks}] "
-                    f"saved={total_saved} failed={total_failed} "
-                    f"{rate:.1f} brick/s "
-                    f"ETA={eta / 60:.0f}min",
-                    flush=True,
-                )
+        with tqdm(total=len(brick_map), unit="brick", desc="Cutouts", file=sys.stdout) as progress:
+            for chunk in batched(brick_map.items(), brick_parallel, strict=False):
+                results = await asyncio.gather(*(
+                    _process_one_brick(
+                        session, semaphore, brickname, objects, objid_to_dest, brick_dir
+                    )
+                    for brickname, objects in chunk
+                ))
+                for saved, failed, failed_ids, missing_ids in results:
+                    total_saved += saved
+                    total_failed += failed
+                    all_failed_ids.extend(failed_ids)
+                    missing_brick_ids.extend(missing_ids)
+                progress.set_postfix(saved=total_saved, failed=total_failed, refresh=False)
+                progress.update(len(chunk))
 
     return total_saved, total_failed, all_failed_ids, missing_brick_ids
 

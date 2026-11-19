@@ -12,17 +12,25 @@ from __future__ import annotations
 
 import asyncio
 import json
-import time
-from io import BytesIO, StringIO
+import sys
+from functools import partial
+from io import BytesIO
+from itertools import batched
 from pathlib import Path
-from urllib.parse import urlencode
-from urllib.request import urlopen
+from typing import TYPE_CHECKING
 
 import aiohttp
 import click
 import numpy as np
-import pandas as pd
 from astropy.io import fits
+from tqdm import tqdm
+
+if TYPE_CHECKING or __package__:
+    from tools.download_imgs import survey
+    from tools.download_imgs.workspace import download_destination
+else:
+    import survey
+    from workspace import download_destination
 
 # ── Config ────────────────────────────────────────────────────────────────────
 STAMP_SIZE = 224
@@ -31,10 +39,10 @@ BANDS = ["g", "r", "i", "z"]
 CUTOUT_URL = "https://www.legacysurvey.org/viewer/cutout.fits"
 
 # ── SDSS ──────────────────────────────────────────────────────────────────────
-SDSS_DR = 19
-SDSS_BATCH = 200
-SDSS_TIMEOUT = 60.0
-SDSS_ENDPOINT = f"https://skyserver.sdss.org/dr{SDSS_DR}/SkyServerWS/SearchTools/SqlSearch"
+SDSS_DR = survey.SDSS_DR
+SDSS_BATCH = survey.SDSS_BATCH
+SDSS_TIMEOUT = survey.SDSS_TIMEOUT
+SDSS_ENDPOINT = survey.SDSS_ENDPOINT
 
 MAX_RETRIES = 8
 RETRY_BACKOFF = 2.0
@@ -42,70 +50,12 @@ RETRY_BACKOFF = 2.0
 _OUT = click.Path(file_okay=False, dir_okay=True, path_type=Path)
 
 
-# ── SDSS coordinate fetch ────────────────────────────────────────────────────
-
-def _try_sdss(sql: str) -> pd.DataFrame | None:
-    url = f"{SDSS_ENDPOINT}?{urlencode({'cmd': sql, 'format': 'csv'})}"
-    try:
-        with urlopen(url, timeout=SDSS_TIMEOUT) as r:  # noqa: S310
-            text = r.read().decode("utf-8")
-        if "No objects have been found" in text or "error" in text[:200].lower():
-            return pd.DataFrame()
-        df = pd.read_csv(StringIO(text), comment="#")
-        if {"objid", "ra", "dec"}.issubset(set(df.columns)):
-            return df
-        return None
-    except Exception:
-        return None
-
-
-def _sdss_batch(objids: list[int]) -> pd.DataFrame:
-    sql = f"SELECT objid,ra,dec FROM PhotoObj WHERE objid IN ({','.join(map(str, objids))})"
-    for attempt in range(MAX_RETRIES):
-        result = _try_sdss(sql)
-        if result is not None:
-            return result
-        print(f"    SDSS failed (attempt {attempt + 1}/{MAX_RETRIES})", flush=True)
-        if attempt < MAX_RETRIES - 1:
-            time.sleep(RETRY_BACKOFF * (2**attempt))
-    print("    All retries failed for this batch", flush=True)
-    return pd.DataFrame()
-
-
-def fetch_coordinates(objids: list[int], cache_path: Path) -> pd.DataFrame:
-    frames: list[pd.DataFrame] = []
-    cached_ids: set[int] = set()
-
-    if cache_path.exists():
-        cached = pd.read_parquet(cache_path)
-        cached_ids = set(cached["objid"].tolist())
-        frames.append(cached)
-        print(f"  Loaded {len(cached)} cached coordinates", flush=True)
-
-    remaining = [oid for oid in objids if oid not in cached_ids]
-    if remaining:
-        print(f"  Querying SDSS for {len(remaining)} objects...", flush=True)
-        batches = [remaining[i : i + SDSS_BATCH] for i in range(0, len(remaining), SDSS_BATCH)]
-        new_frames: list[pd.DataFrame] = []
-        for bi, batch in enumerate(batches):
-            if bi % 50 == 0:
-                print(f"    batch {bi + 1}/{len(batches)}", flush=True)
-            df = _sdss_batch(batch)
-            if not df.empty:
-                new_frames.append(df)
-            if (bi + 1) % 100 == 0 and new_frames:
-                pd.concat(frames + new_frames, ignore_index=True).to_parquet(cache_path)
-                print(f"    checkpoint saved ({bi + 1} batches done)", flush=True)
-        if new_frames:
-            frames.extend(new_frames)
-        if frames:
-            combined = pd.concat(frames, ignore_index=True).drop_duplicates("objid")
-            combined.to_parquet(cache_path)
-            print(f"  Cached {len(combined)} coordinates total", flush=True)
-
-    if not frames:
-        return pd.DataFrame(columns=["objid", "ra", "dec"])
-    return pd.concat(frames, ignore_index=True).drop_duplicates("objid")
+# The cutout CLI historically uses a longer retry policy for SDSS.
+_try_sdss = survey._try_sdss
+_sdss_batch = partial(survey._sdss_batch, max_retries=MAX_RETRIES, backoff=RETRY_BACKOFF)
+fetch_coordinates = partial(
+    survey.fetch_coordinates, max_retries=MAX_RETRIES, backoff=RETRY_BACKOFF,
+)
 
 
 # ── Download one cutout ──────────────────────────────────────────────────────
@@ -155,8 +105,8 @@ async def download_one_cutout(
                         padded[:h, :w, :] = image[:h, :w, :]
                         image = padded
 
-                    dest_path.parent.mkdir(parents=True, exist_ok=True)
-                    np.savez_compressed(dest_path, image=image)
+                    with download_destination(dest_path) as stream:
+                        np.savez_compressed(stream, image=image)
                     return True
 
             except (aiohttp.ClientError, TimeoutError) as e:
@@ -180,41 +130,23 @@ async def download_pipeline(
     connector = aiohttp.TCPConnector(limit=concurrency + 2, ttl_dns_cache=300)
     timeout_cfg = aiohttp.ClientTimeout(total=timeout, connect=30)
 
-    total = len(objects)
     saved = 0
-    failed = 0
     failed_ids: list[int] = []
-    t0 = time.time()
-
     async with aiohttp.ClientSession(connector=connector, timeout=timeout_cfg) as session:
-        # Process in chunks to show progress
-        chunk_size = 50
-        for ci in range(0, total, chunk_size):
-            chunk = objects[ci : ci + chunk_size]
-            tasks = [
-                download_one_cutout(session, semaphore, objid, ra, dec, dest)
-                for objid, ra, dec, dest in chunk
-            ]
-            results = await asyncio.gather(*tasks)
-
-            for (objid, _, _, _), ok in zip(chunk, results, strict=True):
-                if ok:
-                    saved += 1
-                else:
-                    failed += 1
-                    failed_ids.append(objid)
-
-            done = ci + len(chunk)
-            elapsed = time.time() - t0
-            rate = done / elapsed if elapsed > 0 else 0
-            eta = (total - done) / rate if rate > 0 else 0
-            print(
-                f"  [{done}/{total}] saved={saved} failed={failed} "
-                f"{rate:.2f} obj/s ETA={eta / 3600:.1f}h",
-                flush=True,
-            )
-
-    return saved, failed, failed_ids
+        with tqdm(total=len(objects), unit="object", file=sys.stdout) as progress:
+            for chunk in batched(objects, 50, strict=False):
+                results = await asyncio.gather(*(
+                    download_one_cutout(session, semaphore, objid, ra, dec, dest)
+                    for objid, ra, dec, dest in chunk
+                ))
+                for (objid, _, _, _), ok in zip(chunk, results, strict=True):
+                    if ok:
+                        saved += 1
+                    else:
+                        failed_ids.append(objid)
+                progress.set_postfix(saved=saved, failed=len(failed_ids), refresh=False)
+                progress.update(len(chunk))
+    return saved, len(failed_ids), failed_ids
 
 
 # ── CLI ───────────────────────────────────────────────────────────────────────

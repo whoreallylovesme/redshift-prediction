@@ -60,13 +60,12 @@ def state_copy(model: nn.Module) -> dict[str, Tensor]:
 
 def select_rows(dataset: h5py.Dataset, indices: Rows) -> NDArray[Any]:
     rows = np.asarray(indices, dtype=np.int64)
-    if rows.ndim != 1 or len(rows) != len(np.unique(rows)):
+    ordered, inverse = np.unique(rows, return_inverse=True)
+    if rows.ndim != 1 or len(rows) != len(ordered):
         raise ValueError("one unique physical row per batch")
     if np.any(rows < 0) or np.any(rows >= len(dataset)):
         raise IndexError("batch rows outside dataset")
-    order = np.argsort(rows, kind="stable")
-    inverse = np.argsort(order, kind="stable")
-    selected: NDArray[Any] = dataset[rows[order]][inverse]
+    selected: NDArray[Any] = dataset[ordered][inverse]
     return selected
 
 

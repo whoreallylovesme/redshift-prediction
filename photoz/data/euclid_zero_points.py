@@ -135,12 +135,7 @@ def predict(
 
 
 def gate(pred: F64, hi: Bool) -> Bool:
-    use = np.zeros(pred.shape, bool)
-    for b in range(8):
-        others = np.delete(np.arange(8), b)
-        fit_ok = hi[:, others].all(1)
-        use[:, b] = hi[:, b] & fit_ok & np.isfinite(pred[:, b]) & (pred[:, b] > 0)
-    return use
+    return hi.all(axis=1, keepdims=True) & np.isfinite(pred) & (pred > 0)
 
 
 def run(d: Sample, zpc: F64, grids: Grids, bands: Sequence[int] = ALL_BANDS) -> tuple[F64, Bool]:

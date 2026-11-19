@@ -21,6 +21,7 @@ from sklearn.ensemble import RandomForestRegressor
 from sklearn.model_selection import GroupShuffleSplit
 from sklearn.neighbors import NearestNeighbors
 from threadpoolctl import threadpool_limits
+from torch.nn import functional as F
 from torch.utils.data import DataLoader, TensorDataset
 
 from lib.train.lightning import fit_best, predict_batches
@@ -289,12 +290,12 @@ class CommitteeRegressor(L.LightningModule):
         self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int
     ) -> torch.Tensor:
         x, y = batch
-        loss: torch.Tensor = ((self.net(x).squeeze(1) - y) ** 2).mean()
+        loss = F.mse_loss(self.net(x).squeeze(1), y)
         return loss
 
     def validation_step(self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> None:
         x, y = batch
-        loss = ((self.net(x).squeeze(1) - y) ** 2).mean()
+        loss = F.mse_loss(self.net(x).squeeze(1), y)
         self.log("val/mse", loss, batch_size=len(y))
 
     def predict_step(self, batch: tuple[torch.Tensor], batch_idx: int) -> torch.Tensor:
@@ -346,7 +347,7 @@ def annz_closure(
     """Return the original optimizer closure for callers of the ANNz training API."""
     def closure() -> torch.Tensor:
         opt.zero_grad()
-        loss: torch.Tensor = ((net(xt).squeeze(1) - yt) ** 2).mean()
+        loss = F.mse_loss(net(xt).squeeze(1), yt)
         loss.backward()
         return loss
 

@@ -17,5 +17,4 @@ class WeightedHuberLoss(nn.Module):
 
 def unfreeze_backbone(model: nn.Module) -> None:
 
-    for param in model.parameters():
-        param.requires_grad = True
+    model.requires_grad_(True)

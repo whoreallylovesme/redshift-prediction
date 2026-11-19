@@ -178,8 +178,7 @@ def piecewise_uniform_nll(
     axis = torch.tensor(edges, dtype=torch.float64, device=logits.device)
     # Clamping here handles only the explicitly admitted last endpoint, not truth.
     index = (torch.bucketize(target, axis, right=True) - 1).clamp_max(len(edges) - 2)
-    log_mass = F.log_softmax(chosen, dim=1)
-    terms = -log_mass.gather(1, index[:, None]).squeeze(1) + torch.diff(axis)[index].log()
+    terms = F.cross_entropy(chosen, index, reduction="none") + torch.diff(axis)[index].log()
     if not torch.isfinite(terms).all():
         raise ValueError("Nonfinite density NLL; inspect logits and bin widths")
     return terms if reduction == "none" else terms.sum() if reduction == "sum" else terms.mean()

@@ -13,6 +13,7 @@ Output: {outdir}/{dataset}/{split}/{objid}.npz  →  image: (224, 224, 6) float3
 
 import asyncio
 import json
+import sys
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -25,13 +26,14 @@ from astropy.coordinates import SkyCoord
 from astropy.io import fits
 from astropy.nddata import Cutout2D
 from astropy.wcs import WCS
+from tqdm import tqdm
 
 if TYPE_CHECKING or __package__:
     from tools.download_imgs import survey
-    from tools.download_imgs.workspace import brick_workspace
+    from tools.download_imgs.workspace import brick_workspace, download_destination
 else:
     import survey
-    from workspace import brick_workspace
+    from workspace import brick_workspace, download_destination
 
 # Historical imports used by callers of the standalone download scripts.
 BANDS = survey.BANDS
@@ -59,40 +61,22 @@ async def download_bricks(
     connector = aiohttp.TCPConnector(limit=concurrency, ttl_dns_cache=300)
     timeout_cfg = aiohttp.ClientTimeout(total=timeout, connect=30)
 
-    total_files = len(bricknames) * len(BANDS)
-    done = 0
     failed_bricks: set[str] = set()
-    t0 = time.time()
-
     async with aiohttp.ClientSession(connector=connector, timeout=timeout_cfg) as session:
-        for bi, brick in enumerate(bricknames):
-            aaa = brick[:3]
-            dest_dir = brick_dir / aaa / brick
-            dest_dir.mkdir(parents=True, exist_ok=True)
-
-            tasks = []
-            for band in BANDS:
-                url = _brick_url(brick, band)
-                dest = dest_dir / f"legacysurvey-{brick}-image-{band}.fits.fz"
-                tasks.append(_download_file(session, url, dest, semaphore))
-
-            results = await asyncio.gather(*tasks)
-            done += len(BANDS)
-            if not all(results):
-                failed_bricks.add(brick)
-
-            if (bi + 1) % 10 == 0 or (bi + 1) == len(bricknames):
-                elapsed = time.time() - t0
-                rate = (bi + 1) / elapsed if elapsed > 0 else 0
-                eta = (len(bricknames) - bi - 1) / rate if rate > 0 else 0
-                print(
-                    f"  bricks: {bi + 1}/{len(bricknames)} "
-                    f"({done}/{total_files} files) "
-                    f"failed={len(failed_bricks)} "
-                    f"rate={rate:.1f}brick/s "
-                    f"ETA={eta / 60:.0f}min",
-                    flush=True,
-                )
+        with tqdm(bricknames, unit="brick", desc="Download bricks", file=sys.stdout) as progress:
+            for brick in progress:
+                dest_dir = brick_dir / brick[:3] / brick
+                dest_dir.mkdir(parents=True, exist_ok=True)
+                results = await asyncio.gather(*(
+                    _download_file(
+                        session, _brick_url(brick, band),
+                        dest_dir / f"legacysurvey-{brick}-image-{band}.fits.fz", semaphore,
+                    )
+                    for band in BANDS
+                ))
+                if not all(results):
+                    failed_bricks.add(brick)
+                progress.set_postfix(failed=len(failed_bricks), refresh=False)
 
     result = {}
     for brick in bricknames:
@@ -175,7 +159,8 @@ def process_brick_cutouts(
             continue
         image = extract_cutout(brick_path, brickname, ra, dec)
         if image is not None:
-            np.savez_compressed(npz_path, image=image)
+            with download_destination(npz_path) as stream:
+                np.savez_compressed(stream, image=image)
             saved += 1
         else:
             failed += 1
@@ -301,33 +286,20 @@ def main(
         missing_brick_ids: list[int] = []
         t0 = time.time()
 
-        for bi, (brickname, objects) in enumerate(brick_map.items()):
-            brick_path = brick_paths.get(brickname)
-            if brick_path is None:
-                total_failed += len(objects)
-                missing_brick_ids.extend([oid for oid, _, _ in objects])
-                continue
-
-            saved, failed, failed_ids = process_brick_cutouts(
-                brick_path,
-                brickname,
-                objects,
-                objid_to_dest,
-            )
-            total_saved += saved
-            total_failed += failed
-            all_failed_ids.extend(failed_ids)
-
-            if (bi + 1) % 50 == 0 or (bi + 1) == len(brick_map):
-                elapsed = time.time() - t0
-                rate = (total_saved + total_failed) / elapsed if elapsed > 0 else 0
-                print(
-                    f"  bricks: {bi + 1}/{len(brick_map)} | "
-                    f"saved={total_saved} failed={total_failed} | "
-                    f"rate={rate:.0f}obj/s | "
-                    f"elapsed={elapsed:.0f}s",
-                    flush=True,
-                )
+        with tqdm(brick_map.items(), unit="brick", desc="Extract", file=sys.stdout) as progress:
+            for brickname, objects in progress:
+                brick_path = brick_paths.get(brickname)
+                if brick_path is None:
+                    total_failed += len(objects)
+                    missing_brick_ids.extend(oid for oid, _, _ in objects)
+                else:
+                    saved, failed, failed_ids = process_brick_cutouts(
+                        brick_path, brickname, objects, objid_to_dest,
+                    )
+                    total_saved += saved
+                    total_failed += failed
+                    all_failed_ids.extend(failed_ids)
+                progress.set_postfix(saved=total_saved, failed=total_failed, refresh=False)
 
         # ── Save report ──────────────────────────────────────────────────────────
         report = {

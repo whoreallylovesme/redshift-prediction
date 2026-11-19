@@ -72,3 +72,27 @@ class ReusableModelTests(TestCase):
         self.assertIsNotNone(means.grad)
         assert means.grad is not None
         self.assertTrue((means.grad[~hidden] == 0).all())
+
+    def test_gaussian_nll_preserves_tiny_variances_and_equal_weight_per_active_row(self) -> None:
+        hidden = torch.tensor([[True, True, False], [False, True, False], [False, False, False]])
+        valid = torch.tensor([[True, True, True], [True, True, False], [False, False, False]])
+        mean = torch.full((3, 3), torch.nan, dtype=torch.float64)
+        variance, target, error = (mean.clone() for _ in range(3))
+        mean[hidden] = torch.tensor([0.0, 2.0, 4.0], dtype=mean.dtype)
+        variance[hidden] = torch.tensor([1e-14, 1.0, 4.0], dtype=mean.dtype)
+        target[hidden] = torch.tensor([1e-7, 0.0, 8.0], dtype=mean.dtype)
+        error[hidden] = torch.tensor([1e-7, 0.5, 2.0], dtype=mean.dtype)
+        mean.requires_grad_()
+        variance.requires_grad_()
+        prediction = MaskedPrediction(mean, variance, torch.empty(3, 2))
+        actual = masked_gaussian_nll(prediction, target, error, valid, hidden)
+        sigma = (variance[hidden] + error[hidden].square()).sqrt()
+        dist = torch.distributions.Normal(mean[hidden], sigma)
+        nll = -dist.log_prob(target[hidden])
+        expected = (nll[:2].mean() + nll[2]) / 2
+        torch.testing.assert_close(actual, expected)
+        actual_grads = torch.autograd.grad(actual, (mean, variance))
+        expected_grads = torch.autograd.grad(expected, (mean, variance))
+        for grad, reference in zip(actual_grads, expected_grads, strict=True):
+            torch.testing.assert_close(grad, reference)
+            self.assertTrue((grad[~hidden] == 0).all())

@@ -12,6 +12,7 @@ import pandas as pd
 from astropy.io import fits
 from numpy.typing import NDArray
 from pydantic import BaseModel
+from scipy.special import softmax
 
 from lib.utils.log import get_logger
 from lib.utils.utils import check
@@ -316,8 +317,7 @@ def fit_and_translate(
         kb = np.argmin(c2, axis=1)
         r = np.arange(len(keep))
         c2min = c2[r, kb]
-        p = np.where(okk, np.exp(-(c2 - c2min[:, None]) / 2), 0.0)
-        p /= p.sum(1, keepdims=True)
+        p = softmax(-0.5 * c2, axis=1)
         with np.errstate(divide="ignore", invalid="ignore"):
             ratio = mnk[:, :, 1:5] / msk[:, :, 0:4]
         rok = np.isfinite(ratio) & (ratio > 0)
@@ -437,12 +437,13 @@ def align_rows(d: Mapping[str, NDArray[Any]], ids: I64) -> Arrays:
 
 
 def impute_ebv(values: F64, tile: I64) -> tuple[F64, Bool]:
-    ebv = values.copy()
-    imputed = ~np.isfinite(ebv) | (ebv < 0)
-    for i in np.where(imputed)[0]:
-        same = (tile == tile[i]) & ~imputed
-        ebv[i] = np.median(values[same]) if same.any() else np.median(values[~imputed])
-    return ebv, imputed
+    imputed = ~np.isfinite(values) | (values < 0)
+    if not imputed.any():
+        return values.copy(), imputed
+    observed = pd.Series(values).mask(imputed)
+    by_tile = observed.groupby(tile, sort=False).transform("median")
+    filled = observed.fillna(by_tile).fillna(observed.median())
+    return filled.to_numpy(dtype=values.dtype, copy=True), imputed
 
 
 def load_labels(path: Path) -> Arrays:

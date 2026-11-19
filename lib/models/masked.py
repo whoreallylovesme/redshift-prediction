@@ -4,6 +4,7 @@ import math
 from dataclasses import dataclass
 
 import torch
+from torch.nn import functional as F
 
 
 def _valid_tensor_mask(valid: torch.Tensor) -> None:
@@ -95,11 +96,11 @@ def masked_gaussian_nll(
             "Selected targets/predictions must be finite with positive variances/errors"
         )
     variance = intrinsic + error.square()
-    terms = 0.5 * ((target - mean).square() / variance + variance.log() + math.log(2 * math.pi))
+    terms = F.gaussian_nll_loss(mean, target, variance, full=True, eps=0.0, reduction="none")
     if not torch.isfinite(terms).all():
         raise ValueError("Nonfinite Gaussian NLL; inspect value scales and measurement errors")
     row_indices = selected.nonzero(as_tuple=True)[0]
-    totals = torch.zeros(len(valid), dtype=terms.dtype, device=terms.device)
-    totals = totals.index_add(0, row_indices, terms)
-    counts = selected.sum(dim=1)
-    return (totals[counts > 0] / counts[counts > 0]).mean()
+    row_means = terms.new_zeros(len(valid)).scatter_reduce(
+        0, row_indices, terms, reduce="mean", include_self=False,
+    )
+    return row_means[selected.any(dim=1)].mean()

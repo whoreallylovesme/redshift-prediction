@@ -11,12 +11,14 @@ import torch
 from numpy.typing import NDArray
 from pydantic import BaseModel, ConfigDict, Field
 from torch import Tensor
+from torch.nn import functional as F
 from torch.utils.data import DataLoader, TensorDataset
 
 from lib.dataloaders.batches import ShuffledRowBatches
 from lib.train.lightning import fit_best, predict_batches
 from lib.utils.utils import load_yaml_as, pick_device
-from photoz.data.euclid_transforms import BANDS
+from photoz.data.euclid_transforms import BANDS, transform_table
+from photoz.data.euclid_transforms import fit_table as fit_table_normalizer
 from photoz.models.euclid_clip import DESCRIPTOR_DIM, TABLE_BANDS
 from photoz.models.tabular import Architecture, TableRegressor
 from photoz.training.clip_epochs import OptimizerSchedule, scheduled_adamw
@@ -83,11 +85,8 @@ def read_projection(path: Path) -> Projection:
         raise ValueError("Photometry and uncertainty arrays must match the native mask")
     if not (np.isfinite(flux[mask]) & np.isfinite(error[mask]) & (error[mask] > 0)).all():
         raise ValueError("Observed measurements require finite flux and positive finite error")
-    obs = np.stack((np.arcsinh(np.where(mask, flux, 0)), np.log1p(np.where(mask, error, 0))), -1)
-    samples = obs[fit][mask[fit]]
-    mean, std = samples.mean(0), samples.std(0)
-    std[std <= 0] = 1
-    values = np.where(mask[..., None], (obs - mean) / std, 0).astype(np.float32)
+    normalizer = fit_table_normalizer(flux[fit], error[fit], mask[fit])
+    values = transform_table(flux, error, mask, normalizer)
     return Projection(
         ids,
         z.astype(np.float64),
@@ -96,8 +95,8 @@ def read_projection(path: Path) -> Projection:
         torch.from_numpy(values),
         torch.from_numpy(mask),
         torch.as_tensor(descriptor, dtype=torch.float32),
-        mean,
-        std,
+        np.asarray(normalizer.mean),
+        np.asarray(normalizer.std),
     )
 
 
@@ -137,7 +136,7 @@ class TableModule(L.LightningModule):
         return self.predict_rows(batch[0]).float()
 
     def training_step(self, batch: Tensor, batch_idx: int) -> Tensor:
-        loss = (self.predict_rows(batch) - self.target[batch].to(self.device)).square().mean()
+        loss = F.mse_loss(self.predict_rows(batch), self.target[batch].to(self.device))
         if not torch.isfinite(loss):
             raise ValueError("Nonfinite table regression loss")
         self.log("train/log_mse", loss.detach().double(), on_step=False, on_epoch=True,
@@ -146,8 +145,10 @@ class TableModule(L.LightningModule):
 
     def validation_step(self, batch: tuple[Tensor], batch_idx: int) -> None:
         rows = batch[0]
-        errors = self.predict_rows(rows).double() - self.target[rows].to(self.device).double()
-        self.log("val/log_mse", errors.square().mean(), batch_size=len(rows))
+        loss = F.mse_loss(
+            self.predict_rows(rows).double(), self.target[rows].to(self.device).double()
+        )
+        self.log("val/log_mse", loss, batch_size=len(rows))
 
     def on_train_epoch_end(self) -> None:
         metrics = self.trainer.callback_metrics
