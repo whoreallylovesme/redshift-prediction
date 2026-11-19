@@ -13,6 +13,16 @@ import numpy as np
 class LegacyHDF5LoaderTest(TestCase):
     root = Path(__file__).resolve().parents[1]
 
+    def copy_project(self, directory: Path) -> Path:
+        project = directory / "project"
+        project.mkdir()
+        shutil.copyfile(self.root / "pyproject.toml", project / "pyproject.toml")
+        for name in ("lib", "photoz", "runtime", "tools"):
+            shutil.copytree(
+                self.root / name, project / name, ignore=shutil.ignore_patterns("__pycache__")
+            )
+        return project
+
     def check_loader(self, directory: Path, module_root: Path) -> None:
         with h5py.File(directory / "measurements.h5", "w") as file:
             file["images"] = np.arange(16, dtype=np.int16).reshape(4, 1, 2, 2)
@@ -57,29 +67,25 @@ np.testing.assert_array_equal(morphologies.numpy(), np.ones(2, dtype=np.float32)
             timeout=90,
         )
 
-    def test_checkout_with_stale_metadata_on_search_path(self) -> None:
+    def test_checkout_with_stale_metadata(self) -> None:
         with TemporaryDirectory() as temp:
             directory = Path(temp)
-            metadata = directory / "astro-0.1.0.dist-info"
+            project = self.copy_project(directory)
+            metadata = project / "astro-0.1.0.dist-info"
             metadata.mkdir()
+            (metadata / "WHEEL").write_text("Wheel-Version: 1.0\n")
             (metadata / "METADATA").write_text(
                 "Metadata-Version: 2.1\nName: astro\nVersion: 0.1.0\n"
             )
             (metadata / "entry_points.txt").write_text(
                 "[astro.legacy.lib.dataloaders.hdf5]\nOther = decimal:Decimal\n"
             )
-            self.check_loader(directory, self.root)
+            self.check_loader(directory, project)
 
     def test_built_wheel(self) -> None:
         with TemporaryDirectory() as temp:
             directory = Path(temp)
-            project = directory / "project"
-            project.mkdir()
-            shutil.copyfile(self.root / "pyproject.toml", project / "pyproject.toml")
-            for name in ("lib", "photoz", "runtime", "tools"):
-                shutil.copytree(
-                    self.root / name, project / name, ignore=shutil.ignore_patterns("__pycache__")
-                )
+            project = self.copy_project(directory)
             build = subprocess.run(
                 [
                     sys.executable,

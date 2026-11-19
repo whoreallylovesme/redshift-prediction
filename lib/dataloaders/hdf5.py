@@ -1,4 +1,5 @@
 import tomllib
+from contextlib import suppress
 from importlib.metadata import Distribution, EntryPoint, EntryPoints
 from pathlib import Path
 from typing import Any
@@ -9,17 +10,17 @@ from lib.dataloaders.hdf5_rows import HDF5Rows as HDF5Rows
 def _legacy_aliases() -> EntryPoints:
     group = f"astro.legacy.{__name__}"
     root = Path(__file__).resolve().parents[2]
-    for dist in Distribution.discover(name="astro", path=[str(root)]):
-        if dist.read_text("WHEEL") is not None:
-            return dist.entry_points.select(group=group)
-    manifest = root / "pyproject.toml"
-    if manifest.is_file():
-        with manifest.open("rb") as stream:
-            declarations = tomllib.load(stream).get("project", {}).get("entry-points", {})
-        if group in declarations:
+    with suppress(FileNotFoundError, tomllib.TOMLDecodeError):
+        with (root / "pyproject.toml").open("rb") as stream:
+            project = tomllib.load(stream).get("project", {})
+        declarations = project.get("entry-points", {})
+        if project.get("name") == "astro" and group in declarations:
             return EntryPoints(
                 EntryPoint(name, target, group) for name, target in declarations[group].items()
             )
+    for dist in Distribution.discover(name="astro", path=[str(root)]):
+        if dist.read_text("WHEEL") is not None:
+            return dist.entry_points.select(group=group)
     return EntryPoints(())
 
 
