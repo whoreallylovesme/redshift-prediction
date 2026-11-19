@@ -1,3 +1,4 @@
+from functools import partial
 from typing import Annotated, Any, Literal, Self
 
 from pydantic import (
@@ -8,6 +9,7 @@ from pydantic import (
     model_validator,
 )
 
+from lib.models.registry import NN_FACTORIES, TABULAR_FACTORIES
 from lib.utils.estimator_loader import estimator_name
 from lib.utils.utils import plugin
 
@@ -17,7 +19,10 @@ def callable_name(value: str) -> str:
     return value
 
 
-Estimator = Annotated[str, AfterValidator(estimator_name)]
+TabularEstimator = Annotated[
+    str, AfterValidator(partial(estimator_name, factories=TABULAR_FACTORIES))
+]
+NeuralEstimator = Annotated[str, AfterValidator(partial(estimator_name, factories=NN_FACTORIES))]
 
 
 class TabularSplit(BaseModel, extra="forbid"):
@@ -42,7 +47,7 @@ class TabularTraining(BaseModel, extra="forbid"):
 
 class SklearnTrainConfig(TabularTraining):
     model_type: str | None = None
-    estimator: Estimator
+    estimator: TabularEstimator
     estimator_params: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -87,7 +92,7 @@ class PytorchTrainConfig(ImageTraining):
     device: str = "auto"
     training_task: Annotated[str, AfterValidator(callable_name)] | None = None
     model_type: Literal["lightning"]
-    estimator: Estimator
+    estimator: NeuralEstimator
     data_dir: str
     catalog: str
     out_dir: str | None = None

@@ -10,11 +10,39 @@ from hydra import initialize_config_dir
 
 from lib.config import load_flow
 from lib.config.experiment import Dataset, Experiment
+from lib.models.registry import NN_FACTORIES, TABULAR_FACTORIES
+from lib.utils.estimator_loader import load_estimator
 from lib.workflow.data import prepare_dataset
 from runtime.pipeline import main
 
 
 class RecipesTest(TestCase):
+    def test_check_validates_model_family_without_constructing_models(self) -> None:
+        from torch.nn import Module
+
+        with (
+            TemporaryDirectory() as tmp,
+            patch.dict(TABULAR_FACTORIES, ridge=lambda: self.fail("constructed ridge")),
+            patch.dict(NN_FACTORIES, capsnet=lambda: self.fail("constructed capsnet")),
+        ):
+            path = Path(tmp) / "flow.yaml"
+            config = yaml.safe_load(Path("examples/configs/teddy.yaml").read_text())
+            config["methods"]["catboost"].update(model="ridge", params={})
+            path.write_text(yaml.safe_dump(config))
+            load_flow(path, check=True)
+            with self.assertRaisesRegex(ValueError, "Unknown estimator 'capsnet'"):
+                load_estimator("capsnet")
+            with self.assertRaisesRegex(ValueError, "Unknown estimator 'ridge'"):
+                load_estimator("ridge", expected_type=Module)
+            for method, wrong in (("catboost", "capsnet"), ("capsnet", "ridge")):
+                with self.subTest(method=method):
+                    original = config["methods"][method]["model"]
+                    config["methods"][method]["model"] = wrong
+                    path.write_text(yaml.safe_dump(config))
+                    with self.assertRaisesRegex(ValueError, f"Unknown estimator '{wrong}'"):
+                        load_flow(path, check=True)
+                    config["methods"][method]["model"] = original
+
     def test_config_selection_and_render_without_a_flow(self) -> None:
         runner = CliRunner()
         with patch("lib.workflow.experiment.run") as run:

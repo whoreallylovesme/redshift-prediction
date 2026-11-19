@@ -1,13 +1,16 @@
+from collections.abc import Callable, Mapping
 from typing import Any
 
 from sklearn.base import BaseEstimator
 
-from lib.models.registry import FACTORIES
+from lib.models.registry import FACTORIES, NN_FACTORIES, TABULAR_FACTORIES
 
 
-def estimator_name(value: str) -> str:
-    if value not in FACTORIES:
-        raise ValueError(f"Unknown estimator {value!r}; available: {sorted(FACTORIES)}")
+def estimator_name(
+    value: str, *, factories: Mapping[str, Callable[..., Any]] = FACTORIES
+) -> str:
+    if value not in factories:
+        raise ValueError(f"Unknown estimator {value!r}; available: {sorted(factories)}")
     return value
 
 
@@ -18,7 +21,14 @@ def load_estimator(
     params: dict[str, Any] | None = None,
     from_checkpoint: bool = False,
 ) -> object:
-    factory = FACTORIES[estimator_name(name)]
+    factories: Mapping[str, Callable[..., Any]]
+    if issubclass(expected_type, BaseEstimator):
+        factories = TABULAR_FACTORIES
+    else:
+        from torch.nn import Module
+
+        factories = NN_FACTORIES if issubclass(expected_type, Module) else FACTORIES
+    factory = factories[estimator_name(name, factories=factories)]
     options = dict(params or {})
     if from_checkpoint and name in {"convnext_tiny", "efficientnet_b0", "vit_tiny"}:
         options["pretrained"] = False

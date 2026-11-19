@@ -14,7 +14,7 @@ from pydantic import (
     with_config,
 )
 
-from lib.config.schemas import Estimator, ImageTraining, TabularTraining
+from lib.config.schemas import ImageTraining, NeuralEstimator, TabularEstimator, TabularTraining
 from lib.utils.utils import plugin
 
 
@@ -141,7 +141,7 @@ class ModelMethod(Method):
 
 class Tabular(ModelMethod):
     kind: Literal["tabular"]
-    model: Estimator
+    model: TabularEstimator
     train: TabularTraining = Field(default_factory=TabularTraining)
 
 
@@ -164,7 +164,7 @@ class ImageSplit(Config):
 
 
 class Lightning(ModelMethod):
-    model: Estimator
+    model: NeuralEstimator
     kind: Literal["lightning"]
     train: ImageTraining
     device: str = "auto"

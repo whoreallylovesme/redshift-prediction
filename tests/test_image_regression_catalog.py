@@ -12,7 +12,7 @@ import yaml
 from lib.config.schemas import ImageCatalogConfig, PytorchTrainConfig
 from lib.dataloaders.images import catalog
 from lib.inference.images import predict_catalog
-from lib.models.registry import FACTORIES
+from lib.models.registry import NN_FACTORIES
 from lib.utils.utils import load_yaml_as
 from runtime.pipeline import pipeline
 
@@ -23,7 +23,7 @@ def tiny_image_model() -> torch.nn.Module:
 
 class ImageRegressionTests(TestCase):
     def test_generic_training_and_prediction(self) -> None:
-        with TemporaryDirectory() as temp, patch.dict(FACTORIES, tiny_fixture=tiny_image_model):
+        with TemporaryDirectory() as temp, patch.dict(NN_FACTORIES, tiny_fixture=tiny_image_model):
             root = Path(temp)
             training, testing = root / "training", root / "testing"
             training.mkdir()
