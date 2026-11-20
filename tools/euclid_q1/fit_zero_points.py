@@ -4,8 +4,8 @@ from pathlib import Path
 
 import click
 
-from lib.dataloaders.euclid_zero_points import ZeroPointConfig, fit_zero_points
 from lib.utils.utils import load_yaml_as
+from photoz.data.euclid_zero_points import ZeroPointConfig, fit_zero_points
 
 
 @click.command()

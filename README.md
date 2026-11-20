@@ -1,18 +1,33 @@
-# Photo-z: прогноз красного смещения по фотометрии
+# Регрессия по изображениям и таблицам
 
-Курсовая работа и ВКР (ВМК МГУ, кафедра ИИТ). Модели photo-z на SDSS Teddy/Happy и Euclid Q1.
+В этом репозитории на одном пайплайне сравниваются классические и нейросетевые модели. Основная прикладная задача — оценка фотометрического красного смещения на SDSS Teddy/Happy и Euclid Q1. Обычная регрессия, совместная модель изображений и таблиц, а также сравнение готовых прогнозов используют ту же точку входа.
+
+Один YAML описывает датасет и все методы эксперимента. В [примере TEDDY](examples/configs/teddy.yaml) CatBoost и CapsNet обучаются по каталогу A и оцениваются на одних и тех же объектах B. В [примере Euclid](examples/configs/euclid.yaml) Phosphoros получает подготовленную фотометрию. Для этих запусков нужны локальные научные данные.
+
+Проверить конфигурацию TEDDY можно до подготовки данных.
 
 ```bash
-uv sync
-uv run python runtime/pipeline.py --config configs/flows/fast_test.yaml
+uv sync --frozen
+uv run python -m runtime.pipeline --config examples/configs/teddy.yaml --check
 ```
 
-| Что | Где |
-|---|---|
-| Команды, архитектура, правила разработки | `AGENTS.md` |
-| Euclid Q1: итоговая модель и воспроизведение чисел отчётов | `docs/euclid_q1/README.md` |
-| Протокол экспериментов | `docs/experiment_setup.md` |
-| Правила GPU-сервера | `docs/gpu_server_manifest.md` |
-| Отчёты научным руководителям и кафедре | `reports/weekly/`, `reports/monthly/` |
-| Курсовая: PDF, исходники LaTeX, презентация | `z-files/coursework/` |
-| Инструкции и скиллы агентов | `ai/` |
+Когда каталоги и изображения готовы, запустите эксперимент. Команда напечатает путь к интерактивному HTML. Для записи параметров и метрик в локальный MLflow добавьте `--tracking-uri`.
+
+```bash
+uv run python -m runtime.pipeline --config examples/configs/teddy.yaml
+uv run --extra tracking python -m runtime.pipeline \
+  --config examples/configs/teddy.yaml --tracking-uri sqlite:///runs/mlflow.db
+```
+
+Реализации нейросетей находятся в `lib/models/nn/`, классические табличные оценщики — в `lib/models/tabular/`. В `photoz/models/nn/` собраны архитектуры с предметной схемой входов Euclid. Рабочий YAML можно хранить вне Git. Каждый запуск сохраняет его разрешённую конфигурацию и параметры моделей вместе с результатами.
+
+| Где искать | Содержимое |
+| --- | --- |
+| [Пайплайн и конфиги](docs/pipeline.md) | Схема эксперимента, граф Prefect, кеширование, MLflow, отчёт и Phosphoros |
+| [Нейросетевые модели](docs/lightning.md) | Lightning, совместные модели, ResMLP, Transformer и выбор весов по валидации |
+| [Euclid Q1](docs/euclid_q1/README.md) | Подготовка научных данных, сеток и воспроизведение таблиц публикации |
+| [Протокол](docs/experiment_setup.md) | Назначение выборок, валидация и правила сравнений |
+| [GPU-сервер](docs/gpu_server_manifest.md) | Границы научных вычислений, серверный запуск и копирование результатов |
+| [Тексты работ](manuscripts/) | Курсовая (PDF, LaTeX, презентация); здесь же будут ВКР и статьи |
+| [Инструкции разработки](AGENTS.md) | Команды, проверки и правила работы в репозитории |
+| [Инструкции и skills агентов](ai/README.md) | Запуск эксперимента, отчёты и единые agent-правила |

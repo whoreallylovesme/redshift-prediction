@@ -1,5 +1,11 @@
 # Euclid Q1: фотометрические красные смещения, финальная модель P_final
 
+Текущий запуск Phosphoros F_VALID использует единый YAML с разделами `dataset` и `methods`. Подготовив входы, запустите `uv run python -m runtime.pipeline --config examples/configs/euclid.yaml`. [Схема пайплайна](../pipeline.md) · [Конфигурация Euclid](../../examples/configs/euclid.yaml)
+
+Ниже задокументирован научный протокол публикации. Команды подготовки данных и пути вида `configs/euclid_q1/` относятся к версии, в которой собирались результаты. [Конфигурации протокола](https://github.com/whoreallylovesme/redshift-prediction/tree/1f752b82a7f1f54ca74280ae4d85e1264105fdf6/configs/euclid_q1)
+
+**Это архивный протокол исходного прогона, а не инструкция для нового эксперимента.** Отдельные tool-команды из разделов 1–11 не запускаются вручную для новой работы. Новые эксперименты используют единый Prefect-вход `runtime.pipeline`, preparation DAG при необходимости и GPU-сервер по `docs/gpu_server_manifest.md`. Упоминания osx-arm64 и запуска Phosphoros на Mac описывают только происхождение замороженных исторических результатов.
+
 Здесь описано, как из публичных данных Euclid Q1 получить финальную модель P_final и числа отчёта
 `reports/weekly/2026-11-06` (и раздела 2.1–2.5 месячного отчёта
 `reports/monthly/2026-11-12`).
@@ -24,9 +30,10 @@
 
 - Python 3.13 и `uv`: `uv sync` в корне репозитория. Все скрипты запускаются из корня.
 - GPU с CUDA для предобучения и дообучения (исходный прогон: RTX A6000, TF32 включён).
-- **Phosphoros 2.2.1** (внешняя программа на C++, не pip-пакет). Использовалась сборка conda
-  `phosphoroscore=2.2.1` из канала `astrorama` (py311, osx-arm64; alexandria 2.33.0,
-  elements 6.3.7). Окружение ставится в `external/phosphoros/env`:
+- **Phosphoros 2.2.1** (внешняя программа на C++, не pip-пакет). В исходном архивном прогоне
+  использовалась сборка conda `phosphoroscore=2.2.1` из канала `astrorama` (py311, osx-arm64;
+  alexandria 2.33.0, elements 6.3.7). Следующая команда сохранена только как историческая запись;
+  для новых запусков используется собственное linux-64 окружение на GPU-сервере, не Mac:
 
   ```bash
   conda create -p external/phosphoros/env -c astrorama -c conda-forge phosphoroscore=2.2.1
@@ -69,11 +76,12 @@
 | `labels/{t1,d2,d3,d4,d5,da}/`, `labels/exclusions/`, `labels/edfn_catalog_accuracy.parquet` | наборы меток D2–D5 (`<набор>_ids.npy`, `<набор>_labels.parquet`) и наборы для исключения из HETDEX | внешний вход |
 | `hetdex/hetdex_sc2_v1.5.fits` | каталог HETDEX HPSC-2 (Zenodo 10.5281/zenodo.19581262) | публичный каталог |
 | `packets/*.h5`, `packets/normalizers.json` | пакеты модели и замороженные нормировки | шаг 3 |
+| `pretrain/stage/` | сохранённые 181 164 старые строки SSL | внешний вход |
 
 «Внешний вход» — артефакт, который этот MR не строит: он получен раньше (скачивание вырезок,
 сбор меток DESI/SDSS/MUSE, реестр объектов). Его кладут по указанному пути как есть.
 
-## Порядок запуска
+## Ход эксперимента публикации
 
 Ниже `T=tools/euclid_q1` и `C=configs/euclid_q1`.
 
@@ -156,8 +164,7 @@ uv run python $T/download_mosaics.py discover --config $C/download_mosaics.yaml
 uv run python $T/download_mosaics.py fetch --config $C/download_mosaics.yaml
 uv run python $T/cut_stamps.py prepare --config $C/cut_stamps.yaml
 uv run python $T/cut_stamps.py cut --config $C/cut_stamps.yaml
-uv run python $T/build_pretrain_store.py index --config $C/build_pretrain_store.yaml
-uv run python $T/build_pretrain_store.py stage-old --config $C/build_pretrain_store.yaml
+uv run python $T/build_pretrain_store.py --config $C/build_pretrain_store.yaml
 ```
 
 Что делают эти команды:
@@ -172,12 +179,12 @@ uv run python $T/build_pretrain_store.py stage-old --config $C/build_pretrain_st
   шарда float16. `cut` можно запускать по частям: `--key <ключ>` (повторяемый), готовые шарды
   пропускаются. Флаговые плоскости не читаются (`read_flags: false`). Это эквивалентно исходному
   прогону: бит INVALID в Q1 не выставлен.
-- `index` индексирует шарды и считает `ssl_keep`. Из предобучения исключаются тайлы F VALID,
+- `build_pretrain_store` индексирует шарды и считает `ssl_keep`. Из предобучения исключаются тайлы F VALID,
   отложенные тайлы пилота, объекты HO и объекты, которые уже есть в старых источниках.
-- `stage-old` выгружает 181 164 старые строки SSL в `pretrain/stage`: 27 219 из пилота, 53 449 из
-  `extra.h5` и 100 496 из `extra2.h5`.
 
-В итоге для предобучения доступно 1 181 164 строки.
+Старые 181 164 строки SSL должны уже находиться во внешнем каталоге `pretrain/stage`: 27 219 из
+пилота, 53 449 из `extra.h5` и 100 496 из `extra2.h5`. Исторический одноразовый экспорт этих строк
+из репозитория удалён. Вместе с ними для предобучения доступно 1 181 164 строки.
 
 ### 6. Тестовая выборка HETDEX (H6)
 
@@ -274,11 +281,7 @@ uv run python $T/phosphoros.py postprocess --variant north_zpf --config $C/phosp
 
 ### 10. Модель: предобучение, дообучение, предсказания, классические модели, отчёт
 
-```bash
-uv run python runtime/pipeline.py --config configs/flows/euclid_clip_p_final.yaml
-```
-
-Флоу `pipeline: euclid_clip` выполняет пять этапов по порядку:
+Для публикации следовали пяти этапам. Пути ниже указывают на сохранённые артефакты эксперимента.
 
 1. **Предобучение CLIP** (`configs/nn/euclid_clip_pretrain.yaml`, сиды 20261025 и 20261026,
    12 эпох, батч 256, AdamW 3e-4/1e-4, 5 эпох прогрева, затем косинус, клиппинг 5, D4-аугментации,
@@ -309,48 +312,11 @@ uv run python runtime/pipeline.py --config configs/flows/euclid_clip_p_final.yam
 5. **Отчёт** (`configs/euclid_q1/report.yaml`), см. шаг 11. Результат:
    `runs/euclid_clip_p_final/report/`.
 
-Флоу ничего не удаляет. Этап пропускается, если его результат уже есть: `clip_state.pt`,
-`P_final_<сид>.json`, `inference/P_final_<сид>_pred.npz`, `classical/<модель>/complete.json` или
-`report/facts.json`.
-Чтобы пересчитать этап, его результат удаляют вручную. Каждый этап можно отключить в
-`configs/flows/euclid_clip_p_final.yaml`:
+Конфигурации с подставленными сидами и путями сохранены в `runs/euclid_clip_p_final/configs/`.
 
-- `pretrain.enabled: false` вместе с `finetune.clip_root: <директория с clip_1m_<сид>/>` — взять
-  готовые веса CLIP;
-- `finetune.enabled: false` вместе с `finetune.out_dir: <директория с P_final_<сид>_state.pt>` —
-  только предсказания из готовых весов;
-- `inference: false`;
-- `classical.enabled: false`;
-- `report.enabled: false`.
+### 11. Отчёт публикации
 
-Конфиг каждого запуска с подставленными сидом и путями сохраняется в
-`runs/euclid_clip_p_final/configs/`. Любой этап можно повторить отдельно:
-
-```bash
-uv run python -c "from runtime.train import train; train('runs/euclid_clip_p_final/configs/P_final_20261027.yaml')"
-uv run python -c "from lib.inference import inference; inference(config_path='runs/euclid_clip_p_final/configs/P_final_inference.yaml')"
-```
-
-В YAML моделей `model_type: torch` и `model: <ключ>` выбирают тренер из реестра
-(`euclid_clip_pretrain`, `euclid_clip`, `euclid_classical`) и предиктор `euclid_clip`.
-
-### 11. Отчёт
-
-Отчёт строится последним этапом того же флоу:
-
-```bash
-uv run python runtime/pipeline.py --config configs/flows/euclid_clip_p_final.yaml
-```
-
-Этап вызывает `runtime/euclid_report.build_report` с конфигом
-`runs/euclid_clip_p_final/configs/report.yaml`. Это `configs/euclid_q1/report.yaml`, в котором
-флоу подставляет тег, сиды, директории метаданных (`P_final/`), предсказаний (`inference/`, а при
-`inference: false` — `P_final/`), весов CLIP (`clip_1m_<сид>/ssl_history.json`), классических
-моделей и `out_dir`. Повторить только отчёт (файлы в `report/` перезаписываются):
-
-```bash
-uv run python -c "from pathlib import Path; from runtime.euclid_report import build_report; build_report(Path('runs/euclid_clip_p_final/configs/report.yaml'))"
-```
+Параметры расчёта из публикации записаны в `runs/euclid_clip_p_final/configs/report.yaml`. Для нового эксперимента Prefect создаёт интерактивный `report.html` вместе с `report-data.json`. Чтобы повторно собрать такой HTML из готового результата, выполните `uv run python -m runtime.pipeline --render <каталог-запуска>`. [Формат отчёта](../pipeline.md#что-попадает-в-отчёт)
 
 На одном ядре CPU отчёт строится около 16 мин, почти всё время уходит на бутстрап.
 
@@ -373,12 +339,12 @@ uv run python -c "from pathlib import Path; from runtime.euclid_report import bu
 
 | Файл | Что внутри | Код |
 |---|---|---|
-| `facts.json` | все метрики, интервалы, бины, кривые обучения, счётчики меток | `runtime/euclid_report.py` |
+| `facts.json` | все метрики, интервалы, бины, кривые обучения, счётчики меток | `photoz/euclid_report.py` |
 | `tables/metrics.tex`, `tables/metrics_delta.tex` | таблица метрик и ΔNMAD с 95 % ДИ | `metrics_tables` |
 | `tables/classical.tex` | классические модели против нашей | `classical_table` |
-| `figures/fig_{dist,scatter_N,scatter_Nall,modes,bins,baselines,train}.pdf` | рисунки отчёта | `lib/visual/euclid_report.py` |
-| `metrics/results_final_vs_{pub,zpf}.json` | описательная оценка по наборам с бутстрапом по тайлам и сидам | `lib/metrics/euclid_eval.comparison_results` |
-| `metrics/results_h6_P_final.json` | HETDEX [OII]: модель и гибрид с Phosphoros | `lib/metrics/euclid_eval.hetdex_results` |
+| `figures/fig_{dist,scatter_N,scatter_Nall,modes,bins,baselines,train}.pdf` | рисунки отчёта | `photoz/figures.py` |
+| `metrics/results_final_vs_{pub,zpf}.json` | описательная оценка по наборам с бутстрапом по тайлам и сидам | `photoz.euclid_eval.comparison_results` |
+| `metrics/results_h6_P_final.json` | HETDEX [OII]: модель и гибрид с Phosphoros | `photoz.euclid_eval.hetdex_results` |
 
 ## Форматы результатов
 
@@ -395,12 +361,11 @@ uv run python -c "from pathlib import Path; from runtime.euclid_report import bu
 ## Откуда берутся числа отчёта
 
 Определения: δ = (z_phot − z)/(1 + z), смещение = median δ, NMAD = 1,4826 · median|δ − median δ|,
-доля выбросов = доля |δ| ≥ 0,15 (`lib/metrics/metrics.py`; `lib/metrics/bootstrap.photoz_stats`
-вызывает эти же функции). Предсказание нашей модели — среднее z по 6 сидам P_final.
+доля выбросов = доля |δ| ≥ 0,15 по определению `photoz.metrics.photoz_stats`. Предсказание нашей модели — среднее z по 6 сидам P_final.
 
 Сравниваются наша модель, Phosphoros, Phosphoros без N (`north_zpf`), PHZ Euclid (`PHZ_MEDIAN`,
 отрицательные значения отбрасываются) и классические модели. Выборки собирает
-`lib/dataloaders/euclid_report.py`:
+`photoz/data/euclid_report.py`:
 
 - `north_frame` — общие объекты N-A + N-B из `labelled_n_table.parquet`, где конечны z и все
   четыре метода: 36 584. Из неё `fig_scatter_N`, `fig_modes`, `fig_bins` и `N_common`.
@@ -414,14 +379,14 @@ uv run python -c "from pathlib import Path; from runtime.euclid_report import bu
 - `classical_frames` — блок `classical` в `facts.json`: N (все, VIS ≥ 22,5, z ≥ 1), D2–D5,
   F VALID и HETDEX.
 
-Метрики считает `lib/metrics/euclid_eval.py`:
+Метрики считает `photoz/euclid_eval.py`:
 
 - `source_metrics` → `N_sources`: NMAD, выбросы, смещение по выборкам ALL, ALL_z1, DESI,
   NEP-Wide, HETDEX; ΔNMAD = NMAD(наша) − NMAD(метод) с 95 % ДИ;
 - `method_block` → `classical`;
 - `zval_metrics` → `VAL`.
 
-ДИ в таблицах — бутстрап по тайлам (`lib/metrics/bootstrap.tile_boot`): 2000 повторов, сид
+ДИ в таблицах — бутстрап по тайлам (`photoz.bootstrap.tile_boot`): 2000 повторов, сид
 20261105, ансамбль из 6 сидов фиксирован. В `results_final_vs_{pub,zpf}.json` тайлы и сиды
 пересэмплируются вместе (`seed_tile_boot`, 2000 повторов, сид 20261104). Для каждого набора там
 три варианта: модель, `+ppub` (среднее log(1+z) модели и Phosphoros с весом 0,5) и `+ppub_ivw`

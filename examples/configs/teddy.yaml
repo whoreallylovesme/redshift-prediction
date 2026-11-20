@@ -1,0 +1,25 @@
+# Prepared TEDDY catalogues with exact object IDs and one HWC image per <id>.npz.
+name: TEDDY redshift from photometry and images
+output: runs/teddy
+task: photoz.report:PHOTOZ
+dataset:
+  source: datasets/teddy_happy_orig/Teddy/teddy_A.parquet
+  evaluation_files:
+    B: datasets/teddy_happy_orig/Teddy/teddy_B.parquet
+  id_column: id
+  target: z_spec
+  features: [feat1, feat2, feat3, feat4, feat5]
+  images: {train: teddyA_grizw1w2, B: teddyB_grizw1w2}
+  image_size: 64
+methods:
+  catboost:
+    kind: tabular
+    model: catboost
+    params: {iterations: 100, depth: 6}
+  capsnet:
+    kind: lightning
+    model: capsnet
+    params:
+      image_channels: 6
+      input_size: ${dataset.image_size}
+    train: {epochs: 10, batch_size: 32, lr: 0.0005}

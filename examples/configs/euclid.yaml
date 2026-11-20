@@ -1,0 +1,33 @@
+# Prepared Euclid photometry. Paths are relative to the checkout.
+name: Euclid F validation
+output: runs/euclid
+task: photoz.report:PHOTOZ
+dataset:
+  source: datasets/euclid_q1/phosphoros/out
+  id_column: object_id
+methods:
+  phosphoros:
+    kind: external
+    model: photoz.methods.phosphoros:predict
+    params:
+      executables: external/phosphoros/env/bin
+      output_root: ${dataset.source}
+      threads: 1
+      sides:
+        south:
+          workspace: datasets/euclid_q1/phosphoros/workspace_south
+          redshift_config: external/phosphoros/recipes/redshifts_south.conf
+      sets:
+        F_VALID: {side: south}
+    split: F_VALID
+    options: {set_name: F_VALID, include_posterior: true}
+    report_from_predictor: true
+    report:
+      truth_column: null
+      admitted_column: engine_present
+      lower_column: ppub_lo68
+      upper_column: ppub_hi68
+      status_column: pdf_status
+      ok_statuses: [0]
+      nominal_coverage: 0.68
+      role: validation

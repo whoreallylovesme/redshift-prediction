@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import warnings
 from collections import Counter
 from collections.abc import Iterator
 from decimal import Decimal, localcontext
@@ -13,13 +14,14 @@ import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
 from astropy.io import fits
+from astropy.utils.exceptions import AstropyUserWarning
 from numpy.typing import NDArray
 from pydantic import BaseModel
 from scipy.spatial import cKDTree
 
-from lib.dataloaders.euclid_transforms import BANDS
 from lib.utils.log import get_logger
 from lib.utils.utils import check, load_yaml_as
+from photoz.data.euclid_transforms import BANDS
 
 logger = get_logger()
 
@@ -64,8 +66,6 @@ DECIMAL_PI = Decimal(
 )
 GUARD_KEYS = ("blocked_tiles", "blocked_ids", "old_ids", "guard_ra_deg", "guard_dec_deg")
 WRITE_ROWS = 32768
-FITS_BLOCK = 2880
-TFORM_SIZES = {"L": 1, "B": 1, "I": 2, "J": 4, "K": 8, "A": 1, "E": 4, "D": 8, "C": 8, "M": 16}
 FLUX = tuple(f"FLUX_{b}_2FWHM_APER" for b in BANDS)
 ERROR = tuple(f"FLUXERR_{b}_2FWHM_APER" for b in BANDS)
 CATALOG_FORMS = {"OBJECT_ID": "K", **dict.fromkeys(FLUX + ERROR, "E")}
@@ -426,13 +426,14 @@ def write_selected(path: Path, rows: NDArray[np.void]) -> None:
 
 
 def read_header(stream: BinaryIO) -> fits.Header:
-    blocks: list[bytes] = []
-    while True:
-        block = stream.read(FITS_BLOCK)
-        check(len(block) == FITS_BLOCK and block.isascii(), "complete ASCII FITS header")
-        blocks.append(block)
-        if any(block[i : i + 8] == b"END     " for i in range(0, FITS_BLOCK, 80)):
-            return fits.Header.fromstring(b"".join(blocks).decode("ascii"), sep="")
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "error", message="non-ASCII characters", category=AstropyUserWarning
+        )
+        try:
+            return fits.Header.fromfile(stream)
+        except (AstropyUserWarning, OSError, EOFError) as exc:
+            raise ValueError("Expected a complete ASCII FITS header") from exc
 
 
 def catalog_layout(path: Path) -> tuple[int, int, int, dict[str, int]]:
@@ -450,24 +451,24 @@ def catalog_layout(path: Path) -> tuple[int, int, int, dict[str, int]]:
     )
     width, rows = int(header["NAXIS1"]), int(header["NAXIS2"])
     layout: dict[str, int] = {}
-    position = 0
-    for i in range(1, int(header["TFIELDS"]) + 1):
-        name, form = header[f"TTYPE{i}"], str(header[f"TFORM{i}"])
-        match = re.fullmatch(r"([0-9]*)([LXBIJKAEDCM])", form)
-        if match is None:
-            raise ValueError(f"unsupported TFORM {form} in {path}")
-        repeat, code = int(match[1] or "1"), match[2]
-        if name in CATALOG_FORMS:
+    columns = fits.ColDefs([
+        fits.Column(name=header[f"TTYPE{i}"], format=header[f"TFORM{i}"])
+        for i in range(1, int(header["TFIELDS"]) + 1)
+    ])
+    dtype = columns.dtype
+    for i, col in enumerate(columns, start=1):
+        form = header[f"TFORM{i}"]
+        check(re.fullmatch(r"[0-9]*[LXBIJKAEDCM]", form), f"unsupported TFORM {form} in {path}")
+        if col.name in CATALOG_FORMS:
             check(
-                repeat == 1
-                and code == CATALOG_FORMS[name]
+                col.format.repeat == 1
+                and col.format.format == CATALOG_FORMS[col.name]
                 and header.get(f"TSCAL{i}", 1) == 1
                 and header.get(f"TZERO{i}", 0) == 0,
-                f"unscaled scalar column {name}",
+                f"unscaled scalar column {col.name}",
             )
-            layout[name] = position
-        position += (repeat + 7) // 8 if code == "X" else repeat * TFORM_SIZES[code]
-    check(position == width and set(layout) == set(CATALOG_FORMS), f"catalog layout {path}")
+            layout[col.name] = dtype.fields[col.name][1]
+    check(dtype.itemsize == width and set(layout) == set(CATALOG_FORMS), f"catalog layout {path}")
     return data_offset, width, rows, layout
 
 

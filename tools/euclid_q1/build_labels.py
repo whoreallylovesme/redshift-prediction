@@ -17,9 +17,9 @@ from numpy.typing import NDArray
 from pydantic import BaseModel
 from scipy.spatial import cKDTree
 
-from lib.dataloaders.euclid_transforms import BANDS, validate_band_order
 from lib.utils.log import get_logger
 from lib.utils.utils import check, load_yaml_as
+from photoz.data.euclid_transforms import BANDS, validate_band_order
 
 logger = get_logger()
 
