@@ -69,6 +69,10 @@ Phosphoros и массовая сборка данных на Mac не запу�
 копирование малых артефактов и сборка PDF. Научный запуск выполняется через
 `uv run python -m runtime.pipeline --config <experiment.yaml>`; порядок — skill
 `ai/skills/run_experiment/`. CI запускает только проверки кода и synthetic-тесты.
+Запрошенный пользователем эксперимент не требует повторных approvals на probes, fit, inference,
+evaluation, выбор GPU или параллельные сиды внутри прежнего протокола и ресурсного scope. Действовать
+самостоятельно; отдельное согласование нужно только для выхода за scope и правил
+`docs/gpu_server_manifest.md`.
 
 `ssh gpu`: 4× RTX A6000, сервер общий. Перед запуском — свободная карта по `nvidia-smi`
 (GPU 0 обычно занята), `CUDA_VISIBLE_DEVICES=N`, долгие прогоны в `tmux` с `nice`, без `pkill -f`.
