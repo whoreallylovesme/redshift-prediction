@@ -1,0 +1,10 @@
+cff-version: 1.2.0
+message: "If you use this software in your research, please cite it using this metadata and identify the release or commit used."
+title: "Photometric Redshift Prediction"
+type: software
+authors:
+  - family-names: Kadyrov
+    given-names: Erkin
+    affiliation: "Department of Intelligent Information Technologies, Faculty of Computational Mathematics and Cybernetics, Lomonosov Moscow State University"
+repository-code: "https://github.com/whoreallylovesme/redshift-prediction"
+license: BSD-3-Clause
