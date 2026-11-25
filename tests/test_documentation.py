@@ -18,7 +18,7 @@ class DocumentationTests(TestCase):
         skills = sorted(path for path in root.iterdir() if path.is_dir())
         self.assertEqual(
             {path.name for path in skills},
-            {"make_report", "make_monthly_report", "run_experiment"},
+            {"make_report", "make_monthly_report", "research-slides-style", "run_experiment"},
         )
         for directory in skills:
             text = (directory / "SKILL.md").read_text()
