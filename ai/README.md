@@ -20,6 +20,8 @@
   проверка перед сдачей. Шаблон — `template.tex` рядом со skill.
 - `ai/skills/make_monthly_report/` — месячный отчёт кафедре и календарный план; требования —
   `CRITERIA.md`, шаблоны — `template.tex` и `plan_template.tex`.
+- [research-slides-style](skills/research-slides-style/SKILL.md) — оформление научных
+  презентаций и ретроспектив по завершённым отчётам.
 
 Skill выбирается по задаче. Его инструкции не должны противоречить `AGENTS.md` и текущей схеме
 pipeline; при изменении архитектуры связанные skills и документы обновляются в том же PR.
